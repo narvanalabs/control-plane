@@ -155,6 +155,12 @@ func (s *PostgresStore) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying database connection.
+// This is useful for components that need direct database access.
+func (s *PostgresStore) DB() *sql.DB {
+	return s.db
+}
+
 // txStore wraps a transaction and implements the Store interface.
 type txStore struct {
 	tx     *sql.Tx
