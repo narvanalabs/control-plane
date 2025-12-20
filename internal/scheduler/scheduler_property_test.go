@@ -453,16 +453,24 @@ func TestStaleHeartbeatMarksUnhealthy(t *testing.T) {
 
 	properties.Property("stale heartbeat is detected correctly", prop.ForAll(
 		func(secondsAgo int64) bool {
+			// Add a small buffer to avoid boundary timing issues
+			// We test values clearly below or above the threshold
 			lastHeartbeat := time.Now().Add(-time.Duration(secondsAgo) * time.Second)
 
 			isStale := IsStale(lastHeartbeat, healthThreshold)
 
-			// Should be stale if secondsAgo > threshold in seconds
-			expectedStale := secondsAgo > int64(healthThreshold.Seconds())
+			// Should be stale if secondsAgo >= threshold in seconds
+			// The IsStale function uses Before() which is strictly less than,
+			// so a heartbeat exactly at the threshold boundary may or may not be stale
+			// depending on nanosecond timing. We use >= to match the semantic intent
+			// that a heartbeat AT the threshold is considered stale.
+			expectedStale := secondsAgo >= int64(healthThreshold.Seconds())
 
 			return isStale == expectedStale
 		},
-		gen.Int64Range(0, 120), // 0 to 120 seconds ago
+		// Exclude the exact boundary value (30) to avoid timing-dependent failures
+		// Test values clearly below (0-29) and clearly above (31-120) the threshold
+		gen.OneGenOf(gen.Int64Range(0, 29), gen.Int64Range(31, 120)),
 	))
 
 	properties.TestingRun(t)
@@ -542,6 +550,134 @@ func TestUnhealthyNodeTriggersRescheduling(t *testing.T) {
 		},
 		gen.Identifier(),
 		gen.SliceOfN(10, genDeployment()),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: control-plane, Property 22: Service dependency ordering**
+// *For any* service with dependencies, the service should not be scheduled until
+// all its dependencies are in running state.
+// **Validates: Requirements 8.3**
+func TestServiceDependencyOrdering(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("service with dependencies waits for dependencies to be running", prop.ForAll(
+		func(serviceCount int, depIndex int) bool {
+			// Ensure depIndex is valid
+			if depIndex >= serviceCount {
+				depIndex = serviceCount - 1
+			}
+			if depIndex < 0 {
+				depIndex = 0
+			}
+
+			// Create deployments for services
+			appID := "test-app"
+			deployments := make([]*models.Deployment, serviceCount)
+			for i := 0; i < serviceCount; i++ {
+				deployments[i] = &models.Deployment{
+					ID:          "deploy-" + string(rune('a'+i)),
+					AppID:       appID,
+					ServiceName: "service-" + string(rune('a'+i)),
+					Status:      models.DeploymentStatusPending,
+				}
+			}
+
+			// Set up dependency: last service depends on service at depIndex
+			dependentService := deployments[serviceCount-1]
+			dependencyService := deployments[depIndex]
+			dependentService.DependsOn = []string{dependencyService.ServiceName}
+
+			// Test 1: When dependency is NOT running, dependent should not be schedulable
+			dependencyService.Status = models.DeploymentStatusPending
+			canSchedule := CheckDependenciesRunning(deployments, dependentService.DependsOn)
+			if canSchedule {
+				// Should NOT be able to schedule when dependency is pending
+				return false
+			}
+
+			// Test 2: When dependency IS running, dependent should be schedulable
+			dependencyService.Status = models.DeploymentStatusRunning
+			canSchedule = CheckDependenciesRunning(deployments, dependentService.DependsOn)
+			if !canSchedule {
+				// SHOULD be able to schedule when dependency is running
+				return false
+			}
+
+			return true
+		},
+		gen.IntRange(2, 5),  // service count (at least 2 for dependency)
+		gen.IntRange(0, 4),  // dependency index
+	))
+
+	properties.TestingRun(t)
+}
+
+// **Feature: control-plane, Property 22 (continued): Multiple dependencies**
+// Tests that a service with multiple dependencies waits for ALL dependencies.
+func TestMultipleDependenciesOrdering(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("service waits for ALL dependencies to be running", prop.ForAll(
+		func(depCount int) bool {
+			// Create deployments
+			appID := "test-app"
+			deployments := make([]*models.Deployment, depCount+1)
+			dependsOn := make([]string, depCount)
+
+			// Create dependency services
+			for i := 0; i < depCount; i++ {
+				deployments[i] = &models.Deployment{
+					ID:          "deploy-dep-" + string(rune('a'+i)),
+					AppID:       appID,
+					ServiceName: "dep-" + string(rune('a'+i)),
+					Status:      models.DeploymentStatusPending,
+				}
+				dependsOn[i] = deployments[i].ServiceName
+			}
+
+			// Create dependent service
+			deployments[depCount] = &models.Deployment{
+				ID:          "deploy-main",
+				AppID:       appID,
+				ServiceName: "main",
+				Status:      models.DeploymentStatusPending,
+				DependsOn:   dependsOn,
+			}
+
+			// Test 1: When NO dependencies are running, should not be schedulable
+			canSchedule := CheckDependenciesRunning(deployments, dependsOn)
+			if canSchedule {
+				return false
+			}
+
+			// Test 2: When SOME dependencies are running, should still not be schedulable
+			if depCount > 1 {
+				deployments[0].Status = models.DeploymentStatusRunning
+				canSchedule = CheckDependenciesRunning(deployments, dependsOn)
+				if canSchedule {
+					return false
+				}
+			}
+
+			// Test 3: When ALL dependencies are running, should be schedulable
+			for i := 0; i < depCount; i++ {
+				deployments[i].Status = models.DeploymentStatusRunning
+			}
+			canSchedule = CheckDependenciesRunning(deployments, dependsOn)
+			if !canSchedule {
+				return false
+			}
+
+			return true
+		},
+		gen.IntRange(1, 4), // dependency count
 	))
 
 	properties.TestingRun(t)

@@ -15,8 +15,9 @@ import (
 
 // Common errors returned by the scheduler.
 var (
-	ErrNoHealthyNodes        = errors.New("no healthy nodes available")
-	ErrInsufficientResources = errors.New("no nodes with sufficient resources")
+	ErrNoHealthyNodes          = errors.New("no healthy nodes available")
+	ErrInsufficientResources   = errors.New("no nodes with sufficient resources")
+	ErrDependenciesNotRunning  = errors.New("service dependencies are not running")
 )
 
 // AgentClient defines the interface for communicating with node agents.
@@ -139,6 +140,21 @@ func (s *Scheduler) GetHealthThreshold() time.Duration {
 
 // ScheduleAndAssign schedules a deployment and updates the deployment record with the placement.
 func (s *Scheduler) ScheduleAndAssign(ctx context.Context, deployment *models.Deployment) error {
+	// Check if dependencies are running before scheduling
+	if len(deployment.DependsOn) > 0 {
+		depsRunning, err := s.AreDependenciesRunning(ctx, deployment)
+		if err != nil {
+			return fmt.Errorf("checking dependencies: %w", err)
+		}
+		if !depsRunning {
+			s.logger.Info("dependencies not running, deferring scheduling",
+				"deployment_id", deployment.ID,
+				"depends_on", deployment.DependsOn,
+			)
+			return ErrDependenciesNotRunning
+		}
+	}
+
 	node, err := s.Schedule(ctx, deployment)
 	if err != nil {
 		return err
@@ -172,6 +188,63 @@ func (s *Scheduler) ScheduleAndAssign(ctx context.Context, deployment *models.De
 	)
 
 	return nil
+}
+
+// AreDependenciesRunning checks if all service dependencies for a deployment are running.
+// It looks for deployments of the same app with the dependent service names that are in running state.
+func (s *Scheduler) AreDependenciesRunning(ctx context.Context, deployment *models.Deployment) (bool, error) {
+	if len(deployment.DependsOn) == 0 {
+		return true, nil
+	}
+
+	// Get all deployments for this app
+	deployments, err := s.store.Deployments().List(ctx, deployment.AppID)
+	if err != nil {
+		return false, fmt.Errorf("listing deployments: %w", err)
+	}
+
+	// Build a map of service name to their latest running deployment
+	runningServices := make(map[string]bool)
+	for _, d := range deployments {
+		if d.Status == models.DeploymentStatusRunning {
+			runningServices[d.ServiceName] = true
+		}
+	}
+
+	// Check if all dependencies are running
+	for _, dep := range deployment.DependsOn {
+		if !runningServices[dep] {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// CheckDependenciesRunning is a pure function that checks if all dependencies are satisfied
+// given a list of deployments and the required dependencies.
+// This is useful for testing without needing a store.
+func CheckDependenciesRunning(deployments []*models.Deployment, dependsOn []string) bool {
+	if len(dependsOn) == 0 {
+		return true
+	}
+
+	// Build a map of service name to their running status
+	runningServices := make(map[string]bool)
+	for _, d := range deployments {
+		if d.Status == models.DeploymentStatusRunning {
+			runningServices[d.ServiceName] = true
+		}
+	}
+
+	// Check if all dependencies are running
+	for _, dep := range dependsOn {
+		if !runningServices[dep] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Reschedule moves all deployments from a node to other healthy nodes.
