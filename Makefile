@@ -1,4 +1,10 @@
-.PHONY: build build-api build-worker test test-unit test-property clean migrate migrate-up migrate-down lint
+.PHONY: build build-api build-worker test test-unit test-property clean migrate migrate-up migrate-down lint proto
+
+# Proto generation
+proto:
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		api/proto/agent.proto
 
 # Build targets
 build: build-api build-worker
