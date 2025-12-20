@@ -1,0 +1,145 @@
+// Package config provides environment-based configuration for the control plane.
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+)
+
+// Config holds all configuration for the control plane.
+type Config struct {
+	// Database configuration
+	DatabaseDSN string
+
+	// Authentication
+	JWTSecret    string
+	JWTExpiry    time.Duration
+	APIKeyHeader string
+
+	// External services
+	AtticEndpoint string
+	RegistryURL   string
+
+	// Server configuration
+	APIPort    int
+	GRPCPort   int
+	APIHost    string
+
+	// Scheduler configuration
+	Scheduler SchedulerConfig
+
+	// Worker configuration
+	Worker WorkerConfig
+}
+
+// SchedulerConfig holds scheduler-specific configuration.
+type SchedulerConfig struct {
+	HealthThreshold time.Duration
+	MaxRetries      int
+	RetryBackoff    time.Duration
+}
+
+// WorkerConfig holds build worker-specific configuration.
+type WorkerConfig struct {
+	WorkDir        string
+	PodmanSocket   string
+	BuildTimeout   time.Duration
+	MaxConcurrency int
+}
+
+// Load reads configuration from environment variables.
+func Load() (*Config, error) {
+	cfg := &Config{
+		DatabaseDSN:   getEnv("DATABASE_URL", "postgres://localhost:5432/narvana?sslmode=disable"),
+		JWTSecret:     getEnv("JWT_SECRET", ""),
+		JWTExpiry:     getDurationEnv("JWT_EXPIRY", 24*time.Hour),
+		APIKeyHeader:  getEnv("API_KEY_HEADER", "X-API-Key"),
+		AtticEndpoint: getEnv("ATTIC_ENDPOINT", "http://localhost:8080"),
+		RegistryURL:   getEnv("REGISTRY_URL", "localhost:5000"),
+		APIPort:       getIntEnv("API_PORT", 8080),
+		GRPCPort:      getIntEnv("GRPC_PORT", 9090),
+		APIHost:       getEnv("API_HOST", "0.0.0.0"),
+		Scheduler: SchedulerConfig{
+			HealthThreshold: getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
+			MaxRetries:      getIntEnv("SCHEDULER_MAX_RETRIES", 5),
+			RetryBackoff:    getDurationEnv("SCHEDULER_RETRY_BACKOFF", 5*time.Second),
+		},
+		Worker: WorkerConfig{
+			WorkDir:        getEnv("WORKER_WORKDIR", "/tmp/narvana-builds"),
+			PodmanSocket:   getEnv("PODMAN_SOCKET", "unix:///run/user/1000/podman/podman.sock"),
+			BuildTimeout:   getDurationEnv("BUILD_TIMEOUT", 30*time.Minute),
+			MaxConcurrency: getIntEnv("WORKER_MAX_CONCURRENCY", 4),
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+// Validate checks that required configuration values are set.
+func (c *Config) Validate() error {
+	if c.JWTSecret == "" {
+		return fmt.Errorf("JWT_SECRET is required")
+	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
+	return nil
+}
+
+// LoadWithDefaults loads configuration with defaults for development.
+// It does not validate required fields, useful for testing.
+func LoadWithDefaults() *Config {
+	return &Config{
+		DatabaseDSN:   getEnv("DATABASE_URL", "postgres://localhost:5432/narvana?sslmode=disable"),
+		JWTSecret:     getEnv("JWT_SECRET", "development-secret-key-min-32-chars"),
+		JWTExpiry:     getDurationEnv("JWT_EXPIRY", 24*time.Hour),
+		APIKeyHeader:  getEnv("API_KEY_HEADER", "X-API-Key"),
+		AtticEndpoint: getEnv("ATTIC_ENDPOINT", "http://localhost:8080"),
+		RegistryURL:   getEnv("REGISTRY_URL", "localhost:5000"),
+		APIPort:       getIntEnv("API_PORT", 8080),
+		GRPCPort:      getIntEnv("GRPC_PORT", 9090),
+		APIHost:       getEnv("API_HOST", "0.0.0.0"),
+		Scheduler: SchedulerConfig{
+			HealthThreshold: getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
+			MaxRetries:      getIntEnv("SCHEDULER_MAX_RETRIES", 5),
+			RetryBackoff:    getDurationEnv("SCHEDULER_RETRY_BACKOFF", 5*time.Second),
+		},
+		Worker: WorkerConfig{
+			WorkDir:        getEnv("WORKER_WORKDIR", "/tmp/narvana-builds"),
+			PodmanSocket:   getEnv("PODMAN_SOCKET", "unix:///run/user/1000/podman/podman.sock"),
+			BuildTimeout:   getDurationEnv("BUILD_TIMEOUT", 30*time.Minute),
+			MaxConcurrency: getIntEnv("WORKER_MAX_CONCURRENCY", 4),
+		},
+	}
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getIntEnv(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
+		}
+	}
+	return defaultValue
+}
+
+func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if d, err := time.ParseDuration(value); err == nil {
+			return d
+		}
+	}
+	return defaultValue
+}
