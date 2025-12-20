@@ -1,0 +1,333 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+	"os"
+	"reflect"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/leanovate/gopter"
+	"github.com/leanovate/gopter/gen"
+	"github.com/leanovate/gopter/prop"
+	"github.com/narvanalabs/control-plane/internal/models"
+)
+
+// getTestDSN returns the database DSN for testing.
+// Set TEST_DATABASE_URL environment variable to run these tests.
+func getTestDSN() string {
+	return os.Getenv("TEST_DATABASE_URL")
+}
+
+// setupTestDB creates a test database connection and runs migrations.
+func setupTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	dsn := getTestDSN()
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set, skipping database tests")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		t.Fatalf("failed to ping database: %v", err)
+	}
+
+	// Run migrations
+	if err := runMigrations(db); err != nil {
+		db.Close()
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+
+	return db
+}
+
+// cleanupTestDB cleans up test data and closes the connection.
+func cleanupTestDB(t *testing.T, db *sql.DB) {
+	t.Helper()
+	// Clean up test data
+	db.Exec("DELETE FROM apps")
+	db.Close()
+}
+
+// runMigrations applies the database schema for testing.
+func runMigrations(db *sql.DB) error {
+	// Drop existing tables to ensure clean state
+	_, _ = db.Exec("DROP TABLE IF EXISTS logs CASCADE")
+	_, _ = db.Exec("DROP TABLE IF EXISTS secrets CASCADE")
+	_, _ = db.Exec("DROP TABLE IF EXISTS builds CASCADE")
+	_, _ = db.Exec("DROP TABLE IF EXISTS deployments CASCADE")
+	_, _ = db.Exec("DROP TABLE IF EXISTS nodes CASCADE")
+	_, _ = db.Exec("DROP TABLE IF EXISTS apps CASCADE")
+
+	schema := `
+		CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+		CREATE TABLE apps (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			owner_id VARCHAR(255) NOT NULL,
+			name VARCHAR(63) NOT NULL,
+			description TEXT,
+			build_type VARCHAR(20) NOT NULL CHECK (build_type IN ('oci', 'pure-nix')),
+			services JSONB NOT NULL DEFAULT '[]',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMPTZ
+		);
+
+		CREATE UNIQUE INDEX idx_apps_owner_name_unique ON apps(owner_id, name) WHERE deleted_at IS NULL;
+		CREATE INDEX idx_apps_owner_id ON apps(owner_id) WHERE deleted_at IS NULL;
+	`
+	_, err := db.Exec(schema)
+	return err
+}
+
+
+// genBuildType generates a random BuildType.
+func genBuildType() gopter.Gen {
+	return gen.OneConstOf(models.BuildTypeOCI, models.BuildTypePureNix)
+}
+
+// genResourceTier generates a random ResourceTier.
+func genResourceTier() gopter.Gen {
+	return gen.OneConstOf(
+		models.ResourceTierNano,
+		models.ResourceTierSmall,
+		models.ResourceTierMedium,
+		models.ResourceTierLarge,
+		models.ResourceTierXLarge,
+	)
+}
+
+// genPortMapping generates a random PortMapping.
+func genPortMapping() gopter.Gen {
+	return gopter.CombineGens(
+		gen.IntRange(1, 65535),
+		gen.OneConstOf("tcp", "udp"),
+	).Map(func(vals []interface{}) models.PortMapping {
+		return models.PortMapping{
+			ContainerPort: vals[0].(int),
+			Protocol:      vals[1].(string),
+		}
+	})
+}
+
+// genHealthCheckConfig generates a random HealthCheckConfig.
+func genHealthCheckConfig() gopter.Gen {
+	return gopter.CombineGens(
+		gen.AlphaString(),
+		gen.IntRange(1, 65535),
+		gen.IntRange(1, 300),
+		gen.IntRange(1, 60),
+		gen.IntRange(1, 10),
+	).Map(func(vals []interface{}) models.HealthCheckConfig {
+		return models.HealthCheckConfig{
+			Path:            vals[0].(string),
+			Port:            vals[1].(int),
+			IntervalSeconds: vals[2].(int),
+			TimeoutSeconds:  vals[3].(int),
+			Retries:         vals[4].(int),
+		}
+	})
+}
+
+// genOptionalHealthCheckConfig generates an optional HealthCheckConfig pointer.
+func genOptionalHealthCheckConfig() gopter.Gen {
+	return gen.Bool().FlatMap(func(v interface{}) gopter.Gen {
+		if v.(bool) {
+			return genHealthCheckConfig().Map(func(hc models.HealthCheckConfig) *models.HealthCheckConfig {
+				return &hc
+			})
+		}
+		return gen.Const((*models.HealthCheckConfig)(nil))
+	}, reflect.TypeOf((*models.HealthCheckConfig)(nil)))
+}
+
+// genNonEmptyAlphaString generates a non-empty alpha string with length 1-63.
+func genNonEmptyAlphaString() gopter.Gen {
+	return gen.IntRange(1, 63).FlatMap(func(v interface{}) gopter.Gen {
+		length := v.(int)
+		return gen.SliceOfN(length, gen.AlphaChar()).Map(func(chars []rune) string {
+			return string(chars)
+		})
+	}, reflect.TypeOf(""))
+}
+
+// genServiceConfig generates a random ServiceConfig.
+func genServiceConfig() gopter.Gen {
+	return gopter.CombineGens(
+		genNonEmptyAlphaString(),
+		gen.AlphaString(),
+		genResourceTier(),
+		gen.IntRange(1, 10),
+		gen.SliceOfN(2, genPortMapping()),
+		genOptionalHealthCheckConfig(),
+		gen.SliceOfN(2, gen.AlphaString()),
+	).Map(func(vals []interface{}) models.ServiceConfig {
+		return models.ServiceConfig{
+			Name:         vals[0].(string),
+			FlakeOutput:  vals[1].(string),
+			ResourceTier: vals[2].(models.ResourceTier),
+			Replicas:     vals[3].(int),
+			Ports:        vals[4].([]models.PortMapping),
+			HealthCheck:  vals[5].(*models.HealthCheckConfig),
+			DependsOn:    vals[6].([]string),
+		}
+	})
+}
+
+// genAppInput generates a random App for creation (without ID and timestamps).
+func genAppInput() gopter.Gen {
+	return gopter.CombineGens(
+		genNonEmptyAlphaString(), // OwnerID
+		genNonEmptyAlphaString(), // Name
+		gen.AlphaString(),        // Description (can be empty)
+		genBuildType(),
+		gen.SliceOfN(2, genServiceConfig()),
+	).Map(func(vals []interface{}) models.App {
+		return models.App{
+			ID:          uuid.New().String(),
+			OwnerID:     vals[0].(string),
+			Name:        vals[1].(string),
+			Description: vals[2].(string),
+			BuildType:   vals[3].(models.BuildType),
+			Services:    vals[4].([]models.ServiceConfig),
+		}
+	})
+}
+
+
+// **Feature: control-plane, Property 1: Application creation round-trip**
+// For any valid application metadata, creating an application and then retrieving
+// it by the returned ID should produce an application with equivalent metadata.
+// **Validates: Requirements 1.1, 1.3**
+func TestAppCreationRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("App creation round-trip preserves data", prop.ForAll(
+		func(input models.App) bool {
+			ctx := context.Background()
+
+			// Create the app
+			err := store.Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Retrieve the app
+			retrieved, err := store.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get error: %v", err)
+				return false
+			}
+
+			// Verify core fields match
+			if retrieved.ID != input.ID {
+				t.Logf("ID mismatch: got %s, want %s", retrieved.ID, input.ID)
+				return false
+			}
+			if retrieved.OwnerID != input.OwnerID {
+				t.Logf("OwnerID mismatch: got %s, want %s", retrieved.OwnerID, input.OwnerID)
+				return false
+			}
+			if retrieved.Name != input.Name {
+				t.Logf("Name mismatch: got %s, want %s", retrieved.Name, input.Name)
+				return false
+			}
+			if retrieved.Description != input.Description {
+				t.Logf("Description mismatch: got %s, want %s", retrieved.Description, input.Description)
+				return false
+			}
+			if retrieved.BuildType != input.BuildType {
+				t.Logf("BuildType mismatch: got %s, want %s", retrieved.BuildType, input.BuildType)
+				return false
+			}
+
+			// Verify services match (compare lengths and content)
+			if len(retrieved.Services) != len(input.Services) {
+				t.Logf("Services length mismatch: got %d, want %d", len(retrieved.Services), len(input.Services))
+				return false
+			}
+
+			// Cleanup for next iteration
+			store.Delete(ctx, input.ID)
+
+			return true
+		},
+		genAppInput(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// **Feature: control-plane, Property 3: Application name uniqueness**
+// For any user and application name, attempting to create a second application
+// with the same name should be rejected while the first exists.
+// **Validates: Requirements 1.5**
+func TestAppNameUniqueness(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Duplicate app names for same owner are rejected", prop.ForAll(
+		func(input models.App) bool {
+			ctx := context.Background()
+
+			// Create the first app
+			err := store.Create(ctx, &input)
+			if err != nil {
+				t.Logf("First create error: %v", err)
+				return false
+			}
+
+			// Try to create a second app with the same owner and name
+			duplicate := models.App{
+				ID:          uuid.New().String(),
+				OwnerID:     input.OwnerID,
+				Name:        input.Name,
+				Description: "duplicate",
+				BuildType:   input.BuildType,
+				Services:    []models.ServiceConfig{},
+			}
+
+			err = store.Create(ctx, &duplicate)
+			if err != ErrDuplicateName {
+				t.Logf("Expected ErrDuplicateName, got: %v", err)
+				// Cleanup
+				store.Delete(ctx, input.ID)
+				store.Delete(ctx, duplicate.ID)
+				return false
+			}
+
+			// Cleanup
+			store.Delete(ctx, input.ID)
+
+			return true
+		},
+		genAppInput(),
+	))
+
+	properties.TestingRun(t)
+}
