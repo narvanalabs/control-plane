@@ -1,0 +1,19 @@
+# Build artifacts
+bin/
+
+# PostgreSQL test data (created by flake.nix dev shell)
+.pg-data/
+.pg-socket/
+
+# Nix
+result
+result-*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
