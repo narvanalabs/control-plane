@@ -100,11 +100,14 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}}
 	}
 
+	// Sort services by dependency order (services with no dependencies first)
+	sortedServices := sortServicesByDependency(servicesToDeploy)
+
 	now := time.Now()
 	var deployments []*models.Deployment
 
 	// Create a deployment for each service
-	for _, svc := range servicesToDeploy {
+	for _, svc := range sortedServices {
 		deployment := &models.Deployment{
 			ID:           uuid.New().String(),
 			AppID:        appID,
@@ -118,6 +121,7 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 				Ports:        svc.Ports,
 				HealthCheck:  svc.HealthCheck,
 			},
+			DependsOn: svc.DependsOn, // Track service dependencies
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -162,6 +166,64 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	} else {
 		WriteJSON(w, http.StatusAccepted, deployments)
 	}
+}
+
+// sortServicesByDependency sorts services so that services with no dependencies come first,
+// followed by services whose dependencies appear earlier in the list.
+// This implements a topological sort for service dependencies.
+func sortServicesByDependency(services []models.ServiceConfig) []models.ServiceConfig {
+	if len(services) <= 1 {
+		return services
+	}
+
+	// Build a map of service names to their configs
+	serviceMap := make(map[string]models.ServiceConfig)
+	for _, svc := range services {
+		serviceMap[svc.Name] = svc
+	}
+
+	// Track which services have been added to the result
+	added := make(map[string]bool)
+	var result []models.ServiceConfig
+
+	// Keep iterating until all services are added
+	for len(result) < len(services) {
+		progress := false
+		for _, svc := range services {
+			if added[svc.Name] {
+				continue
+			}
+
+			// Check if all dependencies are satisfied
+			allDepsAdded := true
+			for _, dep := range svc.DependsOn {
+				// Only check dependencies that are in the current deployment set
+				if _, exists := serviceMap[dep]; exists && !added[dep] {
+					allDepsAdded = false
+					break
+				}
+			}
+
+			if allDepsAdded {
+				result = append(result, svc)
+				added[svc.Name] = true
+				progress = true
+			}
+		}
+
+		// If no progress was made, there's a circular dependency
+		// Add remaining services in original order to avoid infinite loop
+		if !progress {
+			for _, svc := range services {
+				if !added[svc.Name] {
+					result = append(result, svc)
+					added[svc.Name] = true
+				}
+			}
+		}
+	}
+
+	return result
 }
 
 // List handles GET /v1/apps/:appID/deployments - lists deployments for an app.

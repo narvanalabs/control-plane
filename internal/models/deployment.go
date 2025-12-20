@@ -39,6 +39,7 @@ type Deployment struct {
 	NodeID       string           `json:"node_id,omitempty"`
 	ResourceTier ResourceTier     `json:"resource_tier"`
 	Config       *RuntimeConfig   `json:"config,omitempty"`
+	DependsOn    []string         `json:"depends_on,omitempty"` // Service names this deployment depends on
 	CreatedAt    time.Time        `json:"created_at"`
 	UpdatedAt    time.Time        `json:"updated_at"`
 	StartedAt    *time.Time       `json:"started_at,omitempty"`

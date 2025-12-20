@@ -323,3 +323,125 @@ func TestRollbackUsesPreviousArtifact(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+// **Feature: control-plane, Property 21: Multi-service deployment creation**
+// *For any* application with N services, triggering a deployment should create
+// exactly N deployment records (one per service).
+// **Validates: Requirements 8.1**
+
+func TestMultiServiceDeploymentCreation(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+
+	logger := slog.Default()
+
+	// Generator for service configs with unique names
+	genUniqueServices := func(count int) []models.ServiceConfig {
+		tiers := []models.ResourceTier{
+			models.ResourceTierNano,
+			models.ResourceTierSmall,
+			models.ResourceTierMedium,
+		}
+		services := make([]models.ServiceConfig, count)
+		for i := 0; i < count; i++ {
+			services[i] = models.ServiceConfig{
+				Name:         "service-" + string(rune('a'+i)),
+				ResourceTier: tiers[i%len(tiers)],
+			}
+		}
+		return services
+	}
+
+	properties.Property("Multi-service app creates N deployments for N services", prop.ForAll(
+		func(userID, appName, gitRef string, buildType models.BuildType, serviceCount int) bool {
+			// Generate unique services
+			services := genUniqueServices(serviceCount)
+
+			// Create a mock store and queue
+			st := newDeploymentMockStore()
+			q := newMockQueue()
+
+			// Create an app with multiple services
+			now := time.Now()
+			app := &models.App{
+				ID:        "app-" + appName,
+				OwnerID:   userID,
+				Name:      appName,
+				BuildType: buildType,
+				Services:  services,
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			st.appStore.apps[app.ID] = app
+
+			// Create deployment handler
+			handler := NewDeploymentHandler(st, q, logger)
+
+			// Create a deployment request
+			reqBody := CreateDeploymentRequest{
+				GitRef: gitRef,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			// Create the HTTP request
+			req := httptest.NewRequest("POST", "/v1/apps/"+app.ID+"/deploy", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+
+			// Add the appID to chi URL params
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("appID", app.ID)
+			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+
+			req = req.WithContext(ctx)
+
+			// Execute the request
+			rr := httptest.NewRecorder()
+			handler.Create(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				return false
+			}
+
+			// Count deployments created in the store
+			deploymentsCreated := len(st.deploymentStore.deployments)
+
+			// Verify exactly N deployments were created for N services
+			if deploymentsCreated != serviceCount {
+				return false
+			}
+
+			// Verify each service has a corresponding deployment
+			serviceNames := make(map[string]bool)
+			for _, svc := range services {
+				serviceNames[svc.Name] = true
+			}
+
+			for _, d := range st.deploymentStore.deployments {
+				if !serviceNames[d.ServiceName] {
+					return false
+				}
+				// Verify deployment inherits build type
+				if d.BuildType != buildType {
+					return false
+				}
+				// Verify deployment has correct app ID
+				if d.AppID != app.ID {
+					return false
+				}
+			}
+
+			return true
+		},
+		genUserID(),
+		genAppName(),
+		gen.RegexMatch("[a-z0-9]{6,12}"), // git ref
+		genBuildType(),
+		gen.IntRange(1, 5), // service count (1-5 services)
+	))
+
+	properties.TestingRun(t)
+}
