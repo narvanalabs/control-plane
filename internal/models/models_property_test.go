@@ -200,6 +200,7 @@ func genDeployment() gopter.Gen {
 		gen.Identifier(),
 		genResourceTier(),
 		genRuntimeConfig(),
+		gen.SliceOfN(3, gen.AlphaString()), // DependsOn
 		genTime(),
 		genTime(),
 		genOptionalTime(),
@@ -218,10 +219,11 @@ func genDeployment() gopter.Gen {
 			NodeID:       vals[9].(string),
 			ResourceTier: vals[10].(ResourceTier),
 			Config:       vals[11].(*RuntimeConfig),
-			CreatedAt:    vals[12].(time.Time),
-			UpdatedAt:    vals[13].(time.Time),
-			StartedAt:    vals[14].(*time.Time),
-			FinishedAt:   vals[15].(*time.Time),
+			DependsOn:    vals[12].([]string),
+			CreatedAt:    vals[13].(time.Time),
+			UpdatedAt:    vals[14].(time.Time),
+			StartedAt:    vals[15].(*time.Time),
+			FinishedAt:   vals[16].(*time.Time),
 		}
 	})
 }
