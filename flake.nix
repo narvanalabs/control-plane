@@ -18,6 +18,9 @@
             gopls
             golangci-lint
             postgresql_15
+            protobuf
+            protoc-gen-go
+            protoc-gen-go-grpc
           ];
 
           shellHook = ''
