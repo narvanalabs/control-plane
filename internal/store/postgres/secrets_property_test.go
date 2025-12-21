@@ -61,7 +61,6 @@ func runSecretMigrations(db *sql.DB) error {
 			owner_id VARCHAR(255) NOT NULL,
 			name VARCHAR(63) NOT NULL,
 			description TEXT,
-			build_type VARCHAR(20) NOT NULL CHECK (build_type IN ('oci', 'pure-nix')),
 			services JSONB NOT NULL DEFAULT '[]',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -126,11 +125,10 @@ func TestSecretEncryptionAtRest(t *testing.T) {
 
 			// Create a test app
 			app := &models.App{
-				ID:        uuid.New().String(),
-				OwnerID:   "test-owner",
-				Name:      "test-app-" + uuid.New().String()[:8],
-				BuildType: models.BuildTypeOCI,
-				Services:  []models.ServiceConfig{},
+				ID:       uuid.New().String(),
+				OwnerID:  "test-owner",
+				Name:     "test-app-" + uuid.New().String()[:8],
+				Services: []models.ServiceConfig{},
 			}
 			if err := appStore.Create(ctx, app); err != nil {
 				t.Logf("Failed to create app: %v", err)
