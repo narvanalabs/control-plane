@@ -12,11 +12,133 @@ const (
 	BuildStatusFailed    BuildStatus = "failed"
 )
 
+// BuildStrategy represents the method used to build an application.
+type BuildStrategy string
+
+const (
+	BuildStrategyFlake      BuildStrategy = "flake"       // Use existing flake.nix
+	BuildStrategyAutoGo     BuildStrategy = "auto-go"     // Generate flake for Go
+	BuildStrategyAutoRust   BuildStrategy = "auto-rust"   // Generate flake for Rust
+	BuildStrategyAutoNode   BuildStrategy = "auto-node"   // Generate flake for Node.js
+	BuildStrategyAutoPython BuildStrategy = "auto-python" // Generate flake for Python
+	BuildStrategyDockerfile BuildStrategy = "dockerfile"  // Build from Dockerfile
+	BuildStrategyNixpacks   BuildStrategy = "nixpacks"    // Use Nixpacks
+	BuildStrategyAuto       BuildStrategy = "auto"        // Auto-detect
+)
+
+// ValidBuildStrategies returns all valid build strategy options.
+func ValidBuildStrategies() []BuildStrategy {
+	return []BuildStrategy{
+		BuildStrategyFlake,
+		BuildStrategyAutoGo,
+		BuildStrategyAutoRust,
+		BuildStrategyAutoNode,
+		BuildStrategyAutoPython,
+		BuildStrategyDockerfile,
+		BuildStrategyNixpacks,
+		BuildStrategyAuto,
+	}
+}
+
+// IsValid checks if the build strategy is a valid option.
+func (s BuildStrategy) IsValid() bool {
+	for _, valid := range ValidBuildStrategies() {
+		if s == valid {
+			return true
+		}
+	}
+	return false
+}
+
+// Framework represents a detected application framework.
+type Framework string
+
+const (
+	FrameworkGeneric Framework = "generic"
+	FrameworkNextJS  Framework = "nextjs"
+	FrameworkExpress Framework = "express"
+	FrameworkReact   Framework = "react"
+	FrameworkFastify Framework = "fastify"
+	FrameworkDjango  Framework = "django"
+	FrameworkFastAPI Framework = "fastapi"
+	FrameworkFlask   Framework = "flask"
+)
+
+// DetectionResult contains the results of analyzing a repository.
+type DetectionResult struct {
+	Strategy             BuildStrategy          `json:"strategy"`
+	Framework            Framework              `json:"framework"`
+	Version              string                 `json:"version"`
+	SuggestedConfig      map[string]interface{} `json:"suggested_config,omitempty"`
+	RecommendedBuildType BuildType              `json:"recommended_build_type"`
+	EntryPoints          []string               `json:"entry_points,omitempty"`
+	Confidence           float64                `json:"confidence"`
+	Warnings             []string               `json:"warnings,omitempty"`
+}
+
+// NextJSOptions contains Next.js-specific build options.
+type NextJSOptions struct {
+	OutputMode     string `json:"output_mode,omitempty"`     // "standalone", "export", "default"
+	BasePath       string `json:"base_path,omitempty"`       // Base path for deployment
+	AssetPrefix    string `json:"asset_prefix,omitempty"`    // CDN prefix for assets
+	ImageOptimizer bool   `json:"image_optimizer,omitempty"` // Enable image optimization
+}
+
+// DjangoOptions contains Django-specific build options.
+type DjangoOptions struct {
+	SettingsModule string `json:"settings_module,omitempty"` // e.g., "myapp.settings"
+	StaticRoot     string `json:"static_root,omitempty"`     // Static files directory
+	CollectStatic  bool   `json:"collect_static,omitempty"`  // Run collectstatic
+	Migrations     bool   `json:"migrations,omitempty"`      // Run migrations on deploy
+}
+
+// FastAPIOptions contains FastAPI-specific build options.
+type FastAPIOptions struct {
+	AppModule string `json:"app_module,omitempty"` // e.g., "main:app"
+	Workers   int    `json:"workers,omitempty"`    // Uvicorn workers
+}
+
+// BuildConfig contains strategy-specific configuration options.
+type BuildConfig struct {
+	// Common options
+	BuildCommand string `json:"build_command,omitempty"`
+	StartCommand string `json:"start_command,omitempty"`
+	EntryPoint   string `json:"entry_point,omitempty"`
+	BuildTimeout int    `json:"build_timeout,omitempty"` // seconds, default 1800
+
+	// Go-specific
+	GoVersion  string `json:"go_version,omitempty"`
+	CGOEnabled bool   `json:"cgo_enabled,omitempty"`
+
+	// Node.js-specific
+	NodeVersion    string `json:"node_version,omitempty"`
+	PackageManager string `json:"package_manager,omitempty"` // npm, yarn, pnpm
+
+	// Rust-specific
+	RustEdition string `json:"rust_edition,omitempty"`
+
+	// Python-specific
+	PythonVersion string `json:"python_version,omitempty"`
+
+	// Framework-specific options
+	NextJSOptions  *NextJSOptions  `json:"nextjs_options,omitempty"`
+	DjangoOptions  *DjangoOptions  `json:"django_options,omitempty"`
+	FastAPIOptions *FastAPIOptions `json:"fastapi_options,omitempty"`
+
+	// Advanced options
+	ExtraNixPackages []string          `json:"extra_nix_packages,omitempty"`
+	EnvironmentVars  map[string]string `json:"environment_vars,omitempty"`
+
+	// Fallback behavior
+	AutoRetryAsOCI bool `json:"auto_retry_as_oci,omitempty"`
+}
+
 // BuildJob represents a build task in the queue.
 type BuildJob struct {
 	ID           string      `json:"id"`
 	DeploymentID string      `json:"deployment_id"`
 	AppID        string      `json:"app_id"`
+	ServiceName  string      `json:"service_name,omitempty"`
 	GitURL       string      `json:"git_url"`
 	GitRef       string      `json:"git_ref"`
 	FlakeOutput  string      `json:"flake_output"`
@@ -25,6 +147,18 @@ type BuildJob struct {
 	CreatedAt    time.Time   `json:"created_at"`
 	StartedAt    *time.Time  `json:"started_at,omitempty"`
 	FinishedAt   *time.Time  `json:"finished_at,omitempty"`
+
+	// Build strategy fields
+	BuildStrategy  BuildStrategy `json:"build_strategy,omitempty" db:"build_strategy"`
+	BuildConfig    *BuildConfig  `json:"build_config,omitempty" db:"build_config"`
+	GeneratedFlake string        `json:"generated_flake,omitempty" db:"generated_flake"`
+	FlakeLock      string        `json:"flake_lock,omitempty" db:"flake_lock"`
+	VendorHash     string        `json:"vendor_hash,omitempty" db:"vendor_hash"`
+
+	// Resource limits and retry tracking
+	TimeoutSeconds int  `json:"timeout_seconds,omitempty" db:"timeout_seconds"`
+	RetryCount     int  `json:"retry_count,omitempty" db:"retry_count"`
+	RetryAsOCI     bool `json:"retry_as_oci,omitempty" db:"retry_as_oci"`
 }
 
 // BuildResult represents the output of a completed build.
