@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	builderrors "github.com/narvanalabs/control-plane/internal/builder/errors"
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
@@ -85,8 +86,8 @@ func (d *DefaultDetector) Detect(ctx context.Context, repoPath string) (*models.
 		}, nil
 	}
 
-	// No detection possible
-	return nil, ErrNoLanguageDetected
+	// No detection possible - return enhanced error with suggestions
+	return nil, builderrors.NewNoLanguageDetectedError()
 }
 
 // HasFlake checks if repository has a flake.nix.
