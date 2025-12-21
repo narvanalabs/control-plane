@@ -62,11 +62,34 @@ func (s *Server) setupRouter() {
 	// Health check endpoint (no auth required)
 	r.Get("/health", s.healthCheck)
 
+	// Auth routes (no auth required)
+	authHandler := handlers.NewAuthHandler(s.store, s.auth, s.logger)
+	r.Route("/auth", func(r chi.Router) {
+		r.Get("/setup", authHandler.SetupCheck)
+		r.Post("/register", authHandler.Register)
+		r.Post("/login", authHandler.Login)
+		r.Post("/device/start", authHandler.DeviceAuthStart)
+		r.Get("/device/poll", authHandler.DeviceAuthPoll)
+		r.Post("/device/approve", authHandler.DeviceAuthApprove)
+	})
+
+	// Serve static web UI for auth
+	r.Get("/", s.serveAuthUI)
+	r.Get("/auth/device", s.serveDeviceAuthUI)
+
 	// API v1 routes
 	r.Route("/v1", func(r chi.Router) {
 		// Auth middleware for all v1 routes
 		authMiddleware := middleware.NewAuthMiddleware(s.auth, s.config.APIKeyHeader, s.logger)
 		r.Use(authMiddleware.Authenticate)
+
+		// Auth validation endpoint (returns OK if token is valid - middleware already validated it)
+		r.Get("/auth/validate", func(w http.ResponseWriter, r *http.Request) {
+			userID := middleware.GetUserID(r.Context())
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok","user_id":"` + userID + `"}`))
+		})
 
 		// App routes
 		appHandler := handlers.NewAppHandler(s.store, s.logger)
@@ -120,6 +143,18 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// serveAuthUI serves the main auth UI page.
+func (s *Server) serveAuthUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(authUIHTML))
+}
+
+// serveDeviceAuthUI serves the device authorization UI page.
+func (s *Server) serveDeviceAuthUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(deviceAuthUIHTML))
 }
 
 // Start starts the HTTP server.
