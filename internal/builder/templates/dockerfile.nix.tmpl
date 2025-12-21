@@ -1,0 +1,119 @@
+{
+  description = "Nix flake for {{ .AppName }} (Dockerfile)";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+    nix2container = {
+      url = "github:nlewo/nix2container";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { self, nixpkgs, flake-utils, nix2container }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        n2c = nix2container.packages.${system}.nix2container;
+        
+        # Build the Docker image using the existing Dockerfile
+        dockerImage = pkgs.dockerTools.buildImage {
+          name = "{{ .AppName }}";
+          tag = "latest";
+          
+          # Use the Dockerfile from the source
+          fromImage = null;
+          
+          copyToRoot = pkgs.buildEnv {
+            name = "image-root";
+            paths = [ ./. ];
+            pathsToLink = [ "/" ];
+          };
+          
+          config = {
+            {{- if .Config.StartCommand }}
+            Cmd = [ {{ nixString .Config.StartCommand }} ];
+            {{- else if .StartCommand }}
+            Cmd = [ {{ nixString .StartCommand }} ];
+            {{- end }}
+            
+            {{- if .Config.EnvironmentVars }}
+            Env = [
+              {{- range $key, $value := .Config.EnvironmentVars }}
+              "{{ $key }}={{ $value }}"
+              {{- end }}
+            ];
+            {{- end }}
+            
+            ExposedPorts = {
+              "8080/tcp" = {};
+            };
+          };
+        };
+        
+        # Alternative: Use nix2container for more efficient OCI images
+        ociImage = n2c.buildImage {
+          name = "{{ .AppName }}";
+          tag = "latest";
+          
+          copyToRoot = [
+            (pkgs.buildEnv {
+              name = "root";
+              paths = [ ./. ];
+              pathsToLink = [ "/" ];
+            })
+          ];
+          
+          config = {
+            {{- if .Config.StartCommand }}
+            entrypoint = [ {{ nixString .Config.StartCommand }} ];
+            {{- else if .StartCommand }}
+            entrypoint = [ {{ nixString .StartCommand }} ];
+            {{- end }}
+            
+            {{- if .Config.EnvironmentVars }}
+            env = [
+              {{- range $key, $value := .Config.EnvironmentVars }}
+              "{{ $key }}={{ $value }}"
+              {{- end }}
+            ];
+            {{- end }}
+          };
+        };
+      in
+      {
+        # Default package is the OCI image
+        packages.default = ociImage;
+        
+        # Also expose the Docker image
+        packages.docker = dockerImage;
+        
+        # Script to build using podman/docker directly
+        packages.buildScript = pkgs.writeShellScriptBin "build-{{ .AppName }}" ''
+          set -e
+          
+          # Check if podman or docker is available
+          if command -v podman &> /dev/null; then
+            CONTAINER_CMD="podman"
+          elif command -v docker &> /dev/null; then
+            CONTAINER_CMD="docker"
+          else
+            echo "Error: Neither podman nor docker found"
+            exit 1
+          fi
+          
+          echo "Building {{ .AppName }} using $CONTAINER_CMD..."
+          $CONTAINER_CMD build -t {{ .AppName }}:latest .
+          
+          echo "Build complete: {{ .AppName }}:latest"
+        '';
+        
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            podman
+            skopeo
+          ];
+        };
+      }
+    );
+}
