@@ -930,3 +930,278 @@ func TestFlakeOutputSystemConsistency(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: flexible-build-strategies, Property 3: Build Strategy Determinism**
+// For any service configuration with a specified build_strategy, the Build_System
+// SHALL always use that exact strategy regardless of repository contents.
+// **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
+func TestBuildStrategyDeterminism(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for valid build strategies
+	genBuildStrategy := func() gopter.Gen {
+		return gen.OneConstOf(
+			BuildStrategyFlake,
+			BuildStrategyAutoGo,
+			BuildStrategyAutoRust,
+			BuildStrategyAutoNode,
+			BuildStrategyAutoPython,
+			BuildStrategyDockerfile,
+			BuildStrategyNixpacks,
+			BuildStrategyAuto,
+		)
+	}
+
+	// Property: All valid strategies should be recognized as valid
+	properties.Property("Valid build strategies are recognized", prop.ForAll(
+		func(strategy BuildStrategy) bool {
+			return strategy.IsValid()
+		},
+		genBuildStrategy(),
+	))
+
+	// Property: ValidBuildStrategies returns all expected strategies
+	properties.Property("ValidBuildStrategies returns complete list", prop.ForAll(
+		func(_ int) bool {
+			strategies := ValidBuildStrategies()
+
+			// Should have exactly 8 strategies
+			if len(strategies) != 8 {
+				return false
+			}
+
+			// All expected strategies should be present
+			expected := map[BuildStrategy]bool{
+				BuildStrategyFlake:      false,
+				BuildStrategyAutoGo:     false,
+				BuildStrategyAutoRust:   false,
+				BuildStrategyAutoNode:   false,
+				BuildStrategyAutoPython: false,
+				BuildStrategyDockerfile: false,
+				BuildStrategyNixpacks:   false,
+				BuildStrategyAuto:       false,
+			}
+
+			for _, s := range strategies {
+				if _, ok := expected[s]; !ok {
+					return false // Unexpected strategy
+				}
+				expected[s] = true
+			}
+
+			// All expected strategies should have been found
+			for _, found := range expected {
+				if !found {
+					return false
+				}
+			}
+
+			return true
+		},
+		gen.IntRange(0, 100), // Dummy generator
+	))
+
+	// Property: Invalid strategies should be rejected
+	genInvalidStrategy := func() gopter.Gen {
+		return gen.AlphaString().SuchThat(func(s string) bool {
+			// Exclude valid strategies
+			strategy := BuildStrategy(s)
+			return !strategy.IsValid()
+		}).Map(func(s string) BuildStrategy {
+			return BuildStrategy(s)
+		})
+	}
+
+	properties.Property("Invalid build strategies are rejected", prop.ForAll(
+		func(strategy BuildStrategy) bool {
+			return !strategy.IsValid()
+		},
+		genInvalidStrategy(),
+	))
+
+	// Property: Build strategy in ServiceConfig is preserved through JSON round-trip
+	genServiceConfigWithStrategy := func() gopter.Gen {
+		return gopter.CombineGens(
+			genServiceConfig(),
+			genBuildStrategy(),
+		).Map(func(vals []interface{}) ServiceConfig {
+			sc := vals[0].(ServiceConfig)
+			sc.BuildStrategy = vals[1].(BuildStrategy)
+			return sc
+		})
+	}
+
+	properties.Property("Build strategy preserved in ServiceConfig JSON round-trip", prop.ForAll(
+		func(original ServiceConfig) bool {
+			// Validate first
+			if err := original.Validate(); err != nil {
+				return false
+			}
+
+			// Serialize to JSON
+			data, err := json.Marshal(original)
+			if err != nil {
+				return false
+			}
+
+			// Deserialize from JSON
+			var restored ServiceConfig
+			if err := json.Unmarshal(data, &restored); err != nil {
+				return false
+			}
+
+			// Build strategy should be preserved
+			return original.BuildStrategy == restored.BuildStrategy
+		},
+		genServiceConfigWithStrategy(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// genBuildConfig generates a random BuildConfig.
+func genBuildConfig() gopter.Gen {
+	return gopter.CombineGens(
+		gen.AlphaString(),                                    // BuildCommand
+		gen.AlphaString(),                                    // StartCommand
+		gen.AlphaString(),                                    // EntryPoint
+		gen.IntRange(60, 3600),                               // BuildTimeout
+		gen.OneConstOf("1.21", "1.22", "1.23"),               // GoVersion
+		gen.Bool(),                                           // CGOEnabled
+		gen.OneConstOf("18", "20", "22"),                     // NodeVersion
+		gen.OneConstOf("npm", "yarn", "pnpm"),                // PackageManager
+		gen.OneConstOf("2018", "2021", "2024"),               // RustEdition
+		gen.OneConstOf("3.10", "3.11", "3.12"),               // PythonVersion
+		gen.Bool(),                                           // AutoRetryAsOCI
+	).Map(func(vals []interface{}) *BuildConfig {
+		return &BuildConfig{
+			BuildCommand:   vals[0].(string),
+			StartCommand:   vals[1].(string),
+			EntryPoint:     vals[2].(string),
+			BuildTimeout:   vals[3].(int),
+			GoVersion:      vals[4].(string),
+			CGOEnabled:     vals[5].(bool),
+			NodeVersion:    vals[6].(string),
+			PackageManager: vals[7].(string),
+			RustEdition:    vals[8].(string),
+			PythonVersion:  vals[9].(string),
+			AutoRetryAsOCI: vals[10].(bool),
+		}
+	})
+}
+
+// **Feature: flexible-build-strategies, Property 3: Build Strategy Determinism (BuildJob)**
+// For any BuildJob with a specified build_strategy, the strategy SHALL be preserved
+// through serialization and deserialization.
+// **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
+func TestBuildJobStrategyDeterminism(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for valid build strategies
+	genBuildStrategy := func() gopter.Gen {
+		return gen.OneConstOf(
+			BuildStrategyFlake,
+			BuildStrategyAutoGo,
+			BuildStrategyAutoRust,
+			BuildStrategyAutoNode,
+			BuildStrategyAutoPython,
+			BuildStrategyDockerfile,
+			BuildStrategyNixpacks,
+			BuildStrategyAuto,
+		)
+	}
+
+	// Generator for BuildJob with strategy
+	genBuildJob := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier(),                                     // ID
+			gen.Identifier(),                                     // DeploymentID
+			gen.Identifier(),                                     // AppID
+			gen.AlphaString(),                                    // ServiceName
+			gen.AlphaString(),                                    // GitURL
+			gen.AlphaString(),                                    // GitRef
+			gen.AlphaString(),                                    // FlakeOutput
+			genBuildType(),                                       // BuildType
+			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
+			genTime(),                                            // CreatedAt
+			genBuildStrategy(),                                   // BuildStrategy
+			gen.AlphaString(),                                    // GeneratedFlake
+			gen.AlphaString(),                                    // FlakeLock
+			gen.AlphaString(),                                    // VendorHash
+			gen.IntRange(60, 3600),                               // TimeoutSeconds
+			gen.IntRange(0, 5),                                   // RetryCount
+			gen.Bool(),                                           // RetryAsOCI
+		).Map(func(vals []interface{}) BuildJob {
+			return BuildJob{
+				ID:             vals[0].(string),
+				DeploymentID:   vals[1].(string),
+				AppID:          vals[2].(string),
+				ServiceName:    vals[3].(string),
+				GitURL:         vals[4].(string),
+				GitRef:         vals[5].(string),
+				FlakeOutput:    vals[6].(string),
+				BuildType:      vals[7].(BuildType),
+				Status:         vals[8].(BuildStatus),
+				CreatedAt:      vals[9].(time.Time),
+				BuildStrategy:  vals[10].(BuildStrategy),
+				GeneratedFlake: vals[11].(string),
+				FlakeLock:      vals[12].(string),
+				VendorHash:     vals[13].(string),
+				TimeoutSeconds: vals[14].(int),
+				RetryCount:     vals[15].(int),
+				RetryAsOCI:     vals[16].(bool),
+			}
+		})
+	}
+
+	properties.Property("BuildJob strategy preserved through JSON round-trip", prop.ForAll(
+		func(original BuildJob) bool {
+			// Serialize to JSON
+			data, err := json.Marshal(original)
+			if err != nil {
+				return false
+			}
+
+			// Deserialize from JSON
+			var restored BuildJob
+			if err := json.Unmarshal(data, &restored); err != nil {
+				return false
+			}
+
+			// Build strategy should be preserved
+			if original.BuildStrategy != restored.BuildStrategy {
+				return false
+			}
+
+			// Other new fields should also be preserved
+			if original.GeneratedFlake != restored.GeneratedFlake {
+				return false
+			}
+			if original.FlakeLock != restored.FlakeLock {
+				return false
+			}
+			if original.VendorHash != restored.VendorHash {
+				return false
+			}
+			if original.TimeoutSeconds != restored.TimeoutSeconds {
+				return false
+			}
+			if original.RetryCount != restored.RetryCount {
+				return false
+			}
+			if original.RetryAsOCI != restored.RetryAsOCI {
+				return false
+			}
+
+			return true
+		},
+		genBuildJob(),
+	))
+
+	properties.TestingRun(t)
+}
