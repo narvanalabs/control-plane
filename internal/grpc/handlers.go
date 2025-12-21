@@ -33,10 +33,18 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 		return nil, status.Error(codes.InvalidArgument, "invalid grpc_port")
 	}
 
-	// Assign ID if not provided (Requirement 1.4)
+	// Assign ID if not provided or not a valid UUID (Requirement 1.4)
+	// The database requires UUID format, so we always generate one if needed
 	nodeID := info.Id
 	if nodeID == "" {
 		nodeID = uuid.New().String()
+	} else {
+		// Check if the provided ID is a valid UUID
+		if _, err := uuid.Parse(nodeID); err != nil {
+			// Not a valid UUID, generate a new one
+			// We could also use a deterministic UUID based on the provided ID
+			nodeID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(info.Id)).String()
+		}
 	}
 
 	// Convert proto to model
