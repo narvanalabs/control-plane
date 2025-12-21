@@ -82,7 +82,7 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the app to inherit build type
+	// Get the app
 	app, err := h.store.Apps().Get(r.Context(), appID)
 	if err != nil {
 		WriteNotFound(w, "Application not found")
@@ -128,12 +128,15 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 			gitRef = svc.GitRef
 		}
 
+		// Determine build type from service source type
+		buildType := determineBuildType(&svc)
+
 		deployment := &models.Deployment{
 			ID:           uuid.New().String(),
 			AppID:        appID,
 			ServiceName:  svc.Name,
 			GitRef:       gitRef,
-			BuildType:    app.BuildType, // Inherit from app
+			BuildType:    buildType,
 			Status:       models.DeploymentStatusPending,
 			ResourceTier: svc.ResourceTier,
 			Config: &models.RuntimeConfig{
@@ -154,7 +157,7 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create and enqueue build job based on source type
-		buildJob := h.createBuildJobForService(r.Context(), deployment.ID, appID, &svc, gitRef, app.BuildType, now)
+		buildJob := h.createBuildJobForService(r.Context(), deployment.ID, appID, &svc, gitRef, buildType, now)
 
 		if buildJob != nil && h.queue != nil {
 			if err := h.queue.Enqueue(r.Context(), buildJob); err != nil {
@@ -177,6 +180,19 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, http.StatusAccepted, deployments[0])
 	} else {
 		WriteJSON(w, http.StatusAccepted, deployments)
+	}
+}
+
+// determineBuildType determines the build type based on service source type.
+// Image sources use OCI, git and flake sources use pure-nix by default.
+func determineBuildType(svc *models.ServiceConfig) models.BuildType {
+	switch svc.SourceType {
+	case models.SourceTypeImage:
+		return models.BuildTypeOCI
+	case models.SourceTypeGit, models.SourceTypeFlake:
+		return models.BuildTypePureNix
+	default:
+		return models.BuildTypeOCI // Default fallback
 	}
 }
 
@@ -375,13 +391,16 @@ func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Requ
 
 	now := time.Now()
 
+	// Determine build type from service source type
+	buildType := determineBuildType(service)
+
 	// Create deployment for this service only
 	deployment := &models.Deployment{
 		ID:           uuid.New().String(),
 		AppID:        appID,
 		ServiceName:  service.Name,
 		GitRef:       gitRef,
-		BuildType:    app.BuildType,
+		BuildType:    buildType,
 		Status:       models.DeploymentStatusPending,
 		ResourceTier: service.ResourceTier,
 		Config: &models.RuntimeConfig{
@@ -402,7 +421,7 @@ func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Create and enqueue build job based on source type
-	buildJob := h.createBuildJobForService(r.Context(), deployment.ID, appID, service, gitRef, app.BuildType, now)
+	buildJob := h.createBuildJobForService(r.Context(), deployment.ID, appID, service, gitRef, buildType, now)
 
 	if buildJob != nil && h.queue != nil {
 		if err := h.queue.Enqueue(r.Context(), buildJob); err != nil {
