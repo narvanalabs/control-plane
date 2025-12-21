@@ -113,16 +113,65 @@ func (m *mockQueue) Nack(ctx context.Context, jobID string) error {
 	return nil
 }
 
+// mockBuildStore implements store.BuildStore for testing
+type mockBuildStore struct {
+	builds map[string]*models.BuildJob
+}
+
+func newMockBuildStore() *mockBuildStore {
+	return &mockBuildStore{
+		builds: make(map[string]*models.BuildJob),
+	}
+}
+
+func (m *mockBuildStore) Create(ctx context.Context, build *models.BuildJob) error {
+	m.builds[build.ID] = build
+	return nil
+}
+
+func (m *mockBuildStore) Get(ctx context.Context, id string) (*models.BuildJob, error) {
+	if b, ok := m.builds[id]; ok {
+		return b, nil
+	}
+	return nil, nil
+}
+
+func (m *mockBuildStore) GetByDeployment(ctx context.Context, deploymentID string) (*models.BuildJob, error) {
+	for _, b := range m.builds {
+		if b.DeploymentID == deploymentID {
+			return b, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockBuildStore) Update(ctx context.Context, build *models.BuildJob) error {
+	m.builds[build.ID] = build
+	return nil
+}
+
+func (m *mockBuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, error) {
+	var result []*models.BuildJob
+	for _, b := range m.builds {
+		if b.Status == models.BuildStatusQueued {
+			result = append(result, b)
+		}
+	}
+	return result, nil
+}
+
 // deploymentMockStore implements store.Store for deployment testing
 type deploymentMockStore struct {
 	appStore        *mockAppStore
 	deploymentStore *mockDeploymentStore
+	buildStore      *mockBuildStore
 }
 
 func newDeploymentMockStore() *deploymentMockStore {
 	return &deploymentMockStore{
 		appStore:        newMockAppStore(),
 		deploymentStore: newMockDeploymentStore(),
+		buildStore:      newMockBuildStore(),
 	}
 }
 
@@ -139,7 +188,7 @@ func (m *deploymentMockStore) Nodes() store.NodeStore {
 }
 
 func (m *deploymentMockStore) Builds() store.BuildStore {
-	return nil
+	return m.buildStore
 }
 
 func (m *deploymentMockStore) Secrets() store.SecretStore {
