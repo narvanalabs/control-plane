@@ -1,13 +1,17 @@
 # Build artifacts
 bin/
+narvana-api
 
-# PostgreSQL test data (created by flake.nix dev shell)
+# PostgreSQL data (created by flake.nix dev shell)
 .pg-data/
 .pg-socket/
 
 # Nix
 result
 result-*
+
+# Overmind
+.overmind.sock
 
 # IDE
 .idea/
@@ -17,3 +21,10 @@ result-*
 
 # OS
 .DS_Store
+
+# Logs
+*.log
+
+# Local env overrides (don't commit secrets!)
+.env
+.env.local
