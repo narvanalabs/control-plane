@@ -56,7 +56,11 @@ func (r *ServiceDeployRequest) Validate() error {
 
 // Create handles POST /v1/apps/:appID/deploy - triggers a new deployment.
 func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
@@ -235,7 +239,11 @@ func sortServicesByDependency(services []models.ServiceConfig) []models.ServiceC
 
 // List handles GET /v1/apps/:appID/deployments - lists deployments for an app.
 func (h *DeploymentHandler) List(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
@@ -283,7 +291,11 @@ func (h *DeploymentHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // CreateForService handles POST /v1/apps/{appID}/services/{serviceName}/deploy - deploys a specific service.
 func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	serviceName := chi.URLParam(r, "serviceName")
 
 	if appID == "" {
