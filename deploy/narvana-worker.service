@@ -1,0 +1,26 @@
+[Unit]
+Description=Narvana Control Plane Build Worker
+After=network.target postgresql.service narvana-api.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=narvana
+Group=narvana
+WorkingDirectory=/opt/narvana/control-plane
+ExecStart=/opt/narvana/control-plane/bin/worker
+Restart=always
+RestartSec=5
+
+# Environment
+EnvironmentFile=/etc/narvana/control-plane.env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/narvana /tmp/narvana-builds
+
+[Install]
+WantedBy=multi-user.target

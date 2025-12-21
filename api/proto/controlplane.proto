@@ -1,0 +1,250 @@
+syntax = "proto3";
+
+package controlplane;
+
+option go_package = "github.com/narvanalabs/control-plane/api/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// ControlPlaneService - all RPCs initiated by node agents
+service ControlPlaneService {
+  // Node registration (unary)
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  
+  // Heartbeat (unary, every 10s)
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  
+  // Watch for deployment commands (server streaming, persistent)
+  rpc WatchCommands(WatchCommandsRequest) returns (stream DeploymentCommand);
+  
+  // Report deployment status changes (unary)
+  rpc ReportStatus(StatusReport) returns (StatusResponse);
+  
+  // Stream logs to control plane (client streaming)
+  rpc PushLogs(stream CPLogEntry) returns (PushLogsResponse);
+}
+
+// Health checking (standard gRPC health protocol)
+service Health {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc Watch(HealthCheckRequest) returns (stream HealthCheckResponse);
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  ServingStatus status = 1;
+}
+
+// ============ Node Information ============
+
+message NodeInfo {
+  string id = 1;
+  string hostname = 2;
+  string address = 3;
+  int32 grpc_port = 4;
+  ResourceMetrics resources = 5;
+  repeated string cached_paths = 6;
+  int32 available_slots = 7;
+  int32 active_deployments = 8;
+}
+
+message ResourceMetrics {
+  double cpu_total = 1;
+  double cpu_available = 2;
+  int64 memory_total = 3;
+  int64 memory_available = 4;
+  int64 disk_total = 5;
+  int64 disk_available = 6;
+}
+
+
+// ============ Registration ============
+
+message RegisterRequest {
+  NodeInfo node_info = 1;
+  string auth_token = 2;
+}
+
+message RegisterResponse {
+  bool success = 1;
+  string node_id = 2;
+  string message = 3;
+  NodeConfig config = 4;
+}
+
+message NodeConfig {
+  int32 heartbeat_interval_seconds = 1;
+  int32 max_concurrent_deployments = 2;
+  int32 log_buffer_size = 3;
+}
+
+// ============ Heartbeat ============
+
+message HeartbeatRequest {
+  string node_id = 1;
+  NodeInfo node_info = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message HeartbeatResponse {
+  bool success = 1;
+}
+
+// ============ Command Streaming ============
+
+message WatchCommandsRequest {
+  string node_id = 1;
+  string auth_token = 2;
+}
+
+message DeploymentCommand {
+  string command_id = 1;
+  CommandType type = 2;
+  google.protobuf.Timestamp deadline = 3;
+  
+  oneof command {
+    CPDeployRequest deploy = 10;
+    CPStopRequest stop = 11;
+    CPRestartRequest restart = 12;
+    CPUpdateConfigRequest update_config = 13;
+    CPLogStreamRequest stream_logs = 14;
+  }
+}
+
+enum CommandType {
+  COMMAND_UNKNOWN = 0;
+  COMMAND_DEPLOY = 1;
+  COMMAND_STOP = 2;
+  COMMAND_RESTART = 3;
+  COMMAND_UPDATE_CONFIG = 4;
+  COMMAND_STREAM_LOGS = 5;
+}
+
+
+// ============ Deployment Commands ============
+
+message CPDeployRequest {
+  string deployment_id = 1;
+  string app_id = 2;
+  string service_name = 3;
+  string artifact = 4;
+  CPBuildType build_type = 5;
+  CPDeploymentConfig config = 6;
+}
+
+enum CPBuildType {
+  CP_BUILD_TYPE_UNKNOWN = 0;
+  CP_BUILD_TYPE_OCI = 1;
+  CP_BUILD_TYPE_NIX = 2;
+}
+
+message CPDeploymentConfig {
+  string resource_tier = 1;
+  int32 replicas = 2;
+  map<string, string> env_vars = 3;
+  repeated string depends_on = 4;
+  CPHealthCheckConfig health_check = 5;
+  int32 port = 6;
+}
+
+message CPHealthCheckConfig {
+  string path = 1;
+  int32 port = 2;
+  int32 interval_seconds = 3;
+  int32 timeout_seconds = 4;
+  int32 healthy_threshold = 5;
+  int32 unhealthy_threshold = 6;
+}
+
+message CPStopRequest {
+  string deployment_id = 1;
+  bool force = 2;
+  int32 timeout_seconds = 3;
+}
+
+message CPRestartRequest {
+  string deployment_id = 1;
+}
+
+message CPUpdateConfigRequest {
+  string deployment_id = 1;
+  CPDeploymentConfig config = 2;
+}
+
+message CPLogStreamRequest {
+  string deployment_id = 1;
+  string stream_id = 2;
+  int32 tail_lines = 3;
+  bool follow = 4;
+  string service_filter = 5;
+  CPLogLevel level_filter = 6;
+}
+
+
+// ============ Status Reporting ============
+
+message StatusReport {
+  string node_id = 1;
+  string deployment_id = 2;
+  string command_id = 3;
+  DeploymentStatus status = 4;
+  string container_id = 5;
+  google.protobuf.Timestamp started_at = 6;
+  int32 exit_code = 7;
+  string error_message = 8;
+  ResourceUsage resource_usage = 9;
+}
+
+enum DeploymentStatus {
+  STATUS_UNKNOWN = 0;
+  STATUS_PENDING = 1;
+  STATUS_PULLING = 2;
+  STATUS_STARTING = 3;
+  STATUS_RUNNING = 4;
+  STATUS_STOPPING = 5;
+  STATUS_STOPPED = 6;
+  STATUS_FAILED = 7;
+}
+
+message ResourceUsage {
+  double cpu_percent = 1;
+  int64 memory_bytes = 2;
+  int64 network_rx_bytes = 3;
+  int64 network_tx_bytes = 4;
+}
+
+message StatusResponse {
+  bool acknowledged = 1;
+}
+
+// ============ Log Streaming ============
+
+message CPLogEntry {
+  string deployment_id = 1;
+  string stream_id = 2;
+  string service_name = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  CPLogLevel level = 5;
+  string message = 6;
+  map<string, string> metadata = 7;
+}
+
+enum CPLogLevel {
+  CP_LOG_UNKNOWN = 0;
+  CP_LOG_DEBUG = 1;
+  CP_LOG_INFO = 2;
+  CP_LOG_WARN = 3;
+  CP_LOG_ERROR = 4;
+}
+
+message PushLogsResponse {
+  int64 entries_received = 1;
+}
