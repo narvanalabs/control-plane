@@ -127,6 +127,11 @@ func (s *Server) ReportStatus(ctx context.Context, req *pb.StatusReport) (*pb.St
 		return nil, status.Error(codes.InvalidArgument, "deployment_id is required")
 	}
 
+	// Validate status is a known value (Requirement 5.4)
+	if !isValidDeploymentStatus(req.Status) {
+		return nil, status.Error(codes.InvalidArgument, "invalid deployment status")
+	}
+
 	// Get the deployment
 	deployment, err := s.store.Deployments().Get(ctx, req.DeploymentId)
 	if err != nil {
@@ -141,6 +146,26 @@ func (s *Server) ReportStatus(ctx context.Context, req *pb.StatusReport) (*pb.St
 	statusStr := mapProtoStatusToModel(req.Status)
 	deployment.Status = models.DeploymentStatus(statusStr)
 
+	// Update started_at timestamp when deployment starts running (Requirement 5.3)
+	if req.Status == pb.DeploymentStatus_STATUS_RUNNING && deployment.StartedAt == nil {
+		now := time.Now()
+		// Use the timestamp from the request if provided, otherwise use current time
+		if req.StartedAt != nil && req.StartedAt.IsValid() {
+			startTime := req.StartedAt.AsTime()
+			deployment.StartedAt = &startTime
+		} else {
+			deployment.StartedAt = &now
+		}
+	}
+
+	// Update finished_at timestamp when deployment stops or fails
+	if req.Status == pb.DeploymentStatus_STATUS_STOPPED || req.Status == pb.DeploymentStatus_STATUS_FAILED {
+		if deployment.FinishedAt == nil {
+			now := time.Now()
+			deployment.FinishedAt = &now
+		}
+	}
+
 	// Log container ID if provided (Requirement 5.3)
 	if req.ContainerId != "" {
 		s.logger.Debug("container ID reported",
@@ -149,11 +174,12 @@ func (s *Server) ReportStatus(ctx context.Context, req *pb.StatusReport) (*pb.St
 	}
 
 	// Log error message if status is FAILED (Requirement 5.2, 5.5)
-	if req.Status == pb.DeploymentStatus_STATUS_FAILED && req.ErrorMessage != "" {
+	if req.Status == pb.DeploymentStatus_STATUS_FAILED {
 		s.logger.Error("deployment failed",
 			"deployment_id", req.DeploymentId,
 			"error_message", req.ErrorMessage,
-			"exit_code", req.ExitCode)
+			"exit_code", req.ExitCode,
+			"node_id", req.NodeId)
 	}
 
 	// Update the deployment in store
@@ -175,15 +201,42 @@ func (s *Server) ReportStatus(ctx context.Context, req *pb.StatusReport) (*pb.St
 	}, nil
 }
 
+// isValidDeploymentStatus checks if the status is a valid deployment status.
+// Supports: PENDING, PULLING, STARTING, RUNNING, STOPPING, STOPPED, FAILED, UNKNOWN
+// (Requirement 5.4)
+func isValidDeploymentStatus(status pb.DeploymentStatus) bool {
+	switch status {
+	case pb.DeploymentStatus_STATUS_UNKNOWN,
+		pb.DeploymentStatus_STATUS_PENDING,
+		pb.DeploymentStatus_STATUS_PULLING,
+		pb.DeploymentStatus_STATUS_STARTING,
+		pb.DeploymentStatus_STATUS_RUNNING,
+		pb.DeploymentStatus_STATUS_STOPPING,
+		pb.DeploymentStatus_STATUS_STOPPED,
+		pb.DeploymentStatus_STATUS_FAILED:
+		return true
+	default:
+		return false
+	}
+}
+
 // PushLogs handles log streaming from nodes.
 // Requirements: 4.2, 4.4
 func (s *Server) PushLogs(stream pb.ControlPlaneService_PushLogsServer) error {
 	var entriesReceived int64
+	var lastDeploymentID string
+	var lastStreamID string
+
+	s.logger.Debug("starting log stream")
 
 	for {
 		entry, err := stream.Recv()
 		if err == io.EOF {
-			// End of stream
+			// End of stream (Requirement 4.3 - graceful cleanup)
+			s.logger.Debug("log stream ended",
+				"entries_received", entriesReceived,
+				"deployment_id", lastDeploymentID,
+				"stream_id", lastStreamID)
 			break
 		}
 		if err != nil {
@@ -191,27 +244,83 @@ func (s *Server) PushLogs(stream pb.ControlPlaneService_PushLogsServer) error {
 			return status.Error(codes.Internal, "error receiving log entry")
 		}
 
-		// Store the log entry
-		logEntry := &models.LogEntry{
-			DeploymentID: entry.DeploymentId,
-			Source:       "runtime",
-			Message:      entry.Message,
-			Timestamp:    time.Now(),
+		// Track the deployment and stream for logging
+		lastDeploymentID = entry.DeploymentId
+		lastStreamID = entry.StreamId
+
+		// Validate required fields
+		if entry.DeploymentId == "" {
+			s.logger.Warn("log entry missing deployment_id, skipping")
+			continue
 		}
 
+		// Determine timestamp - use entry timestamp if provided, otherwise current time
+		var timestamp time.Time
+		if entry.Timestamp != nil && entry.Timestamp.IsValid() {
+			timestamp = entry.Timestamp.AsTime()
+		} else {
+			timestamp = time.Now()
+		}
+
+		// Map log level from proto to string
+		level := mapProtoLogLevelToString(entry.Level)
+
+		// Generate a unique ID for the log entry
+		logID := uuid.New().String()
+
+		// Create the log entry model (Requirement 4.2)
+		logEntry := &models.LogEntry{
+			ID:           logID,
+			DeploymentID: entry.DeploymentId,
+			Source:       "runtime",
+			Level:        level,
+			Message:      entry.Message,
+			Timestamp:    timestamp,
+		}
+
+		// Store the log entry in the database (Requirement 4.4)
 		if err := s.store.Logs().Create(stream.Context(), logEntry); err != nil {
 			s.logger.Error("failed to store log entry",
 				"deployment_id", entry.DeploymentId,
+				"stream_id", entry.StreamId,
 				"error", err)
-			// Continue processing other entries
+			// Continue processing other entries - don't fail the entire stream
+			continue
 		}
 
 		entriesReceived++
+
+		// Log periodically for debugging
+		if entriesReceived%100 == 0 {
+			s.logger.Debug("log entries received",
+				"count", entriesReceived,
+				"deployment_id", entry.DeploymentId)
+		}
 	}
+
+	s.logger.Info("log stream completed",
+		"entries_received", entriesReceived,
+		"deployment_id", lastDeploymentID)
 
 	return stream.SendAndClose(&pb.PushLogsResponse{
 		EntriesReceived: entriesReceived,
 	})
+}
+
+// mapProtoLogLevelToString converts a proto log level to a string.
+func mapProtoLogLevelToString(level pb.CPLogLevel) string {
+	switch level {
+	case pb.CPLogLevel_CP_LOG_DEBUG:
+		return "debug"
+	case pb.CPLogLevel_CP_LOG_INFO:
+		return "info"
+	case pb.CPLogLevel_CP_LOG_WARN:
+		return "warn"
+	case pb.CPLogLevel_CP_LOG_ERROR:
+		return "error"
+	default:
+		return "unknown"
+	}
 }
 
 // WatchCommands handles the command streaming to nodes.
