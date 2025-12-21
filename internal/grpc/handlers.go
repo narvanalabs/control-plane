@@ -68,7 +68,7 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 }
 
 // Heartbeat handles heartbeat requests from nodes.
-// Requirements: 2.1, 2.2, 2.3
+// Requirements: 2.1, 2.2, 2.3, 15.5
 func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
 	if req.NodeId == "" {
 		return nil, status.Error(codes.InvalidArgument, "node_id is required")
@@ -101,6 +101,15 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 	if err := s.store.Nodes().UpdateHeartbeat(ctx, req.NodeId, resources); err != nil {
 		s.logger.Error("failed to update heartbeat", "node_id", req.NodeId, "error", err)
 		return nil, status.Error(codes.Internal, "failed to update heartbeat")
+	}
+
+	// Handle draining flag (Requirement 15.5)
+	// When a node sends a draining heartbeat, mark it as draining in the node manager
+	if req.Draining {
+		s.logger.Info("node is draining", "node_id", req.NodeId)
+		if s.nodeManager != nil {
+			s.nodeManager.SetNodeDraining(req.NodeId, true)
+		}
 	}
 
 	// Update cached paths if provided (Requirement 2.3)
