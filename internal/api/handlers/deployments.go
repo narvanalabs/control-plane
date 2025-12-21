@@ -32,15 +32,24 @@ func NewDeploymentHandler(st store.Store, q queue.Queue, logger *slog.Logger) *D
 
 // CreateDeploymentRequest represents the request body for creating a deployment.
 type CreateDeploymentRequest struct {
-	GitRef      string `json:"git_ref"`
-	ServiceName string `json:"service_name,omitempty"` // Optional, deploys all services if empty
+	GitRef      string `json:"git_ref,omitempty"`      // Optional, uses service's git_ref if not specified
+	ServiceName string `json:"service_name,omitempty"` // Optional for app-level deploy, required for per-service deploy
 }
 
 // Validate validates the create deployment request.
 func (r *CreateDeploymentRequest) Validate() error {
-	if r.GitRef == "" {
-		return &APIError{Code: ErrCodeInvalidRequest, Message: "git_ref is required"}
-	}
+	// git_ref is now optional - will use service's configured git_ref if not specified
+	return nil
+}
+
+// ServiceDeployRequest represents the request body for deploying a specific service.
+type ServiceDeployRequest struct {
+	GitRef string `json:"git_ref,omitempty"` // Optional, overrides service's git_ref if specified
+}
+
+// Validate validates the service deploy request.
+func (r *ServiceDeployRequest) Validate() error {
+	// git_ref is optional - will use service's configured git_ref if not specified
 	return nil
 }
 
@@ -54,7 +63,7 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CreateDeploymentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
 		WriteBadRequest(w, "Invalid request body")
 		return
 	}
@@ -108,16 +117,23 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Create a deployment for each service
 	for _, svc := range sortedServices {
+		// Determine git_ref: use request override or service's configured git_ref
+		gitRef := req.GitRef
+		if gitRef == "" {
+			gitRef = svc.GitRef
+		}
+
 		deployment := &models.Deployment{
 			ID:           uuid.New().String(),
 			AppID:        appID,
 			ServiceName:  svc.Name,
-			GitRef:       req.GitRef,
+			GitRef:       gitRef,
 			BuildType:    app.BuildType, // Inherit from app
 			Status:       models.DeploymentStatusPending,
 			ResourceTier: svc.ResourceTier,
 			Config: &models.RuntimeConfig{
 				ResourceTier: svc.ResourceTier,
+				EnvVars:      svc.EnvVars,
 				Ports:        svc.Ports,
 				HealthCheck:  svc.HealthCheck,
 			},
@@ -132,19 +148,10 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Enqueue build job
-		buildJob := &models.BuildJob{
-			ID:           uuid.New().String(),
-			DeploymentID: deployment.ID,
-			AppID:        appID,
-			GitRef:       req.GitRef,
-			FlakeOutput:  svc.FlakeOutput,
-			BuildType:    app.BuildType,
-			Status:       models.BuildStatusQueued,
-			CreatedAt:    now,
-		}
+		// Create and enqueue build job based on source type
+		buildJob := h.createBuildJobForService(deployment.ID, appID, &svc, gitRef, app.BuildType, now)
 
-		if h.queue != nil {
+		if buildJob != nil && h.queue != nil {
 			if err := h.queue.Enqueue(r.Context(), buildJob); err != nil {
 				h.logger.Error("failed to enqueue build job", "error", err)
 				// Don't fail the request, the deployment is created
@@ -272,6 +279,170 @@ func (h *DeploymentHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteJSON(w, http.StatusOK, deployment)
+}
+
+// CreateForService handles POST /v1/apps/{appID}/services/{serviceName}/deploy - deploys a specific service.
+func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	var req ServiceDeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		WriteBadRequest(w, "Invalid request body")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteNotFound(w, "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	var service *models.ServiceConfig
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			service = &app.Services[i]
+			break
+		}
+	}
+
+	if service == nil {
+		WriteNotFound(w, "Service not found")
+		return
+	}
+
+	// Determine git_ref: use request override or service's configured git_ref
+	gitRef := req.GitRef
+	if gitRef == "" {
+		gitRef = service.GitRef
+	}
+
+	// Verify dependencies are running before starting (for services with dependencies)
+	if len(service.DependsOn) > 0 {
+		deployments, err := h.store.Deployments().List(r.Context(), appID)
+		if err == nil {
+			runningServices := make(map[string]bool)
+			for _, d := range deployments {
+				if d.Status == models.DeploymentStatusRunning {
+					runningServices[d.ServiceName] = true
+				}
+			}
+
+			for _, dep := range service.DependsOn {
+				if !runningServices[dep] {
+					WriteBadRequest(w, "Dependency '"+dep+"' is not running")
+					return
+				}
+			}
+		}
+	}
+
+	now := time.Now()
+
+	// Create deployment for this service only
+	deployment := &models.Deployment{
+		ID:           uuid.New().String(),
+		AppID:        appID,
+		ServiceName:  service.Name,
+		GitRef:       gitRef,
+		BuildType:    app.BuildType,
+		Status:       models.DeploymentStatusPending,
+		ResourceTier: service.ResourceTier,
+		Config: &models.RuntimeConfig{
+			ResourceTier: service.ResourceTier,
+			EnvVars:      service.EnvVars,
+			Ports:        service.Ports,
+			HealthCheck:  service.HealthCheck,
+		},
+		DependsOn: service.DependsOn,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := h.store.Deployments().Create(r.Context(), deployment); err != nil {
+		h.logger.Error("failed to create deployment", "error", err)
+		WriteInternalError(w, "Failed to create deployment")
+		return
+	}
+
+	// Create and enqueue build job based on source type
+	buildJob := h.createBuildJobForService(deployment.ID, appID, service, gitRef, app.BuildType, now)
+
+	if buildJob != nil && h.queue != nil {
+		if err := h.queue.Enqueue(r.Context(), buildJob); err != nil {
+			h.logger.Error("failed to enqueue build job", "error", err)
+			// Don't fail the request, the deployment is created
+		}
+	}
+
+	h.logger.Info("per-service deployment triggered",
+		"app_id", appID,
+		"service_name", serviceName,
+		"git_ref", gitRef,
+		"deployment_id", deployment.ID,
+	)
+
+	WriteJSON(w, http.StatusAccepted, deployment)
+}
+
+// createBuildJobForService creates a build job based on the service's source type.
+// Returns nil for image sources (no build needed).
+func (h *DeploymentHandler) createBuildJobForService(deploymentID, appID string, service *models.ServiceConfig, gitRef string, buildType models.BuildType, now time.Time) *models.BuildJob {
+	switch service.SourceType {
+	case models.SourceTypeGit:
+		return &models.BuildJob{
+			ID:           uuid.New().String(),
+			DeploymentID: deploymentID,
+			AppID:        appID,
+			GitURL:       service.GitRepo,
+			GitRef:       gitRef,
+			FlakeOutput:  service.FlakeOutput,
+			BuildType:    buildType,
+			Status:       models.BuildStatusQueued,
+			CreatedAt:    now,
+		}
+	case models.SourceTypeFlake:
+		// For flake sources, use the flake URI directly
+		return &models.BuildJob{
+			ID:           uuid.New().String(),
+			DeploymentID: deploymentID,
+			AppID:        appID,
+			GitURL:       service.FlakeURI, // Store flake URI in GitURL field
+			GitRef:       "",               // Not applicable for flake sources
+			FlakeOutput:  "",               // Output is part of the flake URI
+			BuildType:    buildType,
+			Status:       models.BuildStatusQueued,
+			CreatedAt:    now,
+		}
+	case models.SourceTypeImage:
+		// No build job needed for image sources - skip build phase
+		return nil
+	default:
+		return nil
+	}
 }
 
 // Rollback handles POST /v1/deployments/:deploymentID/rollback - rolls back to a previous deployment.

@@ -449,3 +449,310 @@ func TestMultiServiceDeploymentCreation(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: service-git-repos, Property 8: Per-Service Deployment Isolation**
+// *For any* deployment triggered for a specific service, only that service SHALL be
+// built and deployed (deployment count equals 1).
+// **Validates: Requirements 5.1**
+
+func TestPerServiceDeploymentIsolation(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+
+	logger := slog.Default()
+
+	// Generator for multiple services with unique names
+	genMultipleServices := func(count int) []models.ServiceConfig {
+		services := make([]models.ServiceConfig, count)
+		for i := 0; i < count; i++ {
+			services[i] = models.ServiceConfig{
+				Name:         "service-" + string(rune('a'+i)),
+				SourceType:   models.SourceTypeGit,
+				GitRepo:      "github.com/test/repo" + string(rune('a'+i)),
+				GitRef:       "main",
+				FlakeOutput:  "packages.x86_64-linux.default",
+				ResourceTier: models.ResourceTierSmall,
+				Replicas:     1,
+			}
+		}
+		return services
+	}
+
+	properties.Property("Per-service deployment creates exactly one deployment", prop.ForAll(
+		func(userID, appName string, buildType models.BuildType, serviceCount, targetServiceIndex int) bool {
+			// Ensure target index is valid
+			if targetServiceIndex >= serviceCount {
+				targetServiceIndex = serviceCount - 1
+			}
+
+			// Generate services
+			services := genMultipleServices(serviceCount)
+			targetServiceName := services[targetServiceIndex].Name
+
+			// Create a mock store and queue
+			st := newDeploymentMockStore()
+			q := newMockQueue()
+
+			// Create an app with multiple services
+			now := time.Now()
+			app := &models.App{
+				ID:        "app-" + appName,
+				OwnerID:   userID,
+				Name:      appName,
+				BuildType: buildType,
+				Services:  services,
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			st.appStore.apps[app.ID] = app
+
+			// Create deployment handler
+			handler := NewDeploymentHandler(st, q, logger)
+
+			// Create a per-service deployment request
+			reqBody := ServiceDeployRequest{
+				GitRef: "feature-branch",
+			}
+			body, _ := json.Marshal(reqBody)
+
+			// Create the HTTP request for per-service deployment
+			req := httptest.NewRequest("POST", "/v1/apps/"+app.ID+"/services/"+targetServiceName+"/deploy", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+
+			// Add URL params
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("appID", app.ID)
+			rctx.URLParams.Add("serviceName", targetServiceName)
+			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+
+			req = req.WithContext(ctx)
+
+			// Execute the request
+			rr := httptest.NewRecorder()
+			handler.CreateForService(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				t.Logf("Expected status 202, got %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			// Verify exactly ONE deployment was created
+			deploymentsCreated := len(st.deploymentStore.deployments)
+			if deploymentsCreated != 1 {
+				t.Logf("Expected 1 deployment, got %d", deploymentsCreated)
+				return false
+			}
+
+			// Verify the deployment is for the target service only
+			for _, d := range st.deploymentStore.deployments {
+				if d.ServiceName != targetServiceName {
+					t.Logf("Expected service %s, got %s", targetServiceName, d.ServiceName)
+					return false
+				}
+				if d.AppID != app.ID {
+					return false
+				}
+			}
+
+			return true
+		},
+		genUserID(),
+		genAppName(),
+		genBuildType(),
+		gen.IntRange(2, 5), // service count (2-5 services to ensure multiple exist)
+		gen.IntRange(0, 4), // target service index
+	))
+
+	properties.TestingRun(t)
+}
+
+// **Feature: service-git-repos, Property 9: Deployment Uses Service Source**
+// *For any* deployment of a service with a git_repo, the resulting build job SHALL
+// contain the service's git_repo and flake_output.
+// **Validates: Requirements 5.2**
+
+func TestDeploymentUsesServiceSource(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+
+	logger := slog.Default()
+
+	properties.Property("Deployment build job uses service's git_repo and flake_output", prop.ForAll(
+		func(userID, appName, gitRepo, flakeOutput string, buildType models.BuildType) bool {
+			// Create a mock store and queue
+			st := newDeploymentMockStore()
+			q := newMockQueue()
+
+			// Create an app with a service that has specific git source
+			now := time.Now()
+			serviceName := "api"
+			app := &models.App{
+				ID:        "app-" + appName,
+				OwnerID:   userID,
+				Name:      appName,
+				BuildType: buildType,
+				Services: []models.ServiceConfig{
+					{
+						Name:         serviceName,
+						SourceType:   models.SourceTypeGit,
+						GitRepo:      gitRepo,
+						GitRef:       "main",
+						FlakeOutput:  flakeOutput,
+						ResourceTier: models.ResourceTierSmall,
+						Replicas:     1,
+					},
+				},
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			st.appStore.apps[app.ID] = app
+
+			// Create deployment handler
+			handler := NewDeploymentHandler(st, q, logger)
+
+			// Create a per-service deployment request
+			reqBody := ServiceDeployRequest{}
+			body, _ := json.Marshal(reqBody)
+
+			// Create the HTTP request
+			req := httptest.NewRequest("POST", "/v1/apps/"+app.ID+"/services/"+serviceName+"/deploy", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+
+			// Add URL params
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("appID", app.ID)
+			rctx.URLParams.Add("serviceName", serviceName)
+			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+
+			req = req.WithContext(ctx)
+
+			// Execute the request
+			rr := httptest.NewRecorder()
+			handler.CreateForService(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				t.Logf("Expected status 202, got %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			// Verify the build job was created with correct source
+			if len(q.jobs) != 1 {
+				t.Logf("Expected 1 build job, got %d", len(q.jobs))
+				return false
+			}
+
+			buildJob := q.jobs[0]
+
+			// Verify git_repo is used
+			if buildJob.GitURL != gitRepo {
+				t.Logf("Expected GitURL %s, got %s", gitRepo, buildJob.GitURL)
+				return false
+			}
+
+			// Verify flake_output is used
+			if buildJob.FlakeOutput != flakeOutput {
+				t.Logf("Expected FlakeOutput %s, got %s", flakeOutput, buildJob.FlakeOutput)
+				return false
+			}
+
+			// Verify git_ref defaults to service's git_ref
+			if buildJob.GitRef != "main" {
+				t.Logf("Expected GitRef 'main', got %s", buildJob.GitRef)
+				return false
+			}
+
+			return true
+		},
+		genUserID(),
+		genAppName(),
+		gen.RegexMatch("github\\.com/[a-z]+/[a-z]+"), // git repo
+		gen.OneConstOf("packages.x86_64-linux.default", "packages.x86_64-linux.api", "packages.aarch64-linux.default"),
+		genBuildType(),
+	))
+
+	// Test that git_ref override works
+	properties.Property("Deployment allows git_ref override", prop.ForAll(
+		func(userID, appName, overrideRef string, buildType models.BuildType) bool {
+			// Create a mock store and queue
+			st := newDeploymentMockStore()
+			q := newMockQueue()
+
+			// Create an app with a service
+			now := time.Now()
+			serviceName := "api"
+			app := &models.App{
+				ID:        "app-" + appName,
+				OwnerID:   userID,
+				Name:      appName,
+				BuildType: buildType,
+				Services: []models.ServiceConfig{
+					{
+						Name:         serviceName,
+						SourceType:   models.SourceTypeGit,
+						GitRepo:      "github.com/test/repo",
+						GitRef:       "main", // Default ref
+						FlakeOutput:  "packages.x86_64-linux.default",
+						ResourceTier: models.ResourceTierSmall,
+						Replicas:     1,
+					},
+				},
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			st.appStore.apps[app.ID] = app
+
+			// Create deployment handler
+			handler := NewDeploymentHandler(st, q, logger)
+
+			// Create a per-service deployment request with git_ref override
+			reqBody := ServiceDeployRequest{
+				GitRef: overrideRef,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			// Create the HTTP request
+			req := httptest.NewRequest("POST", "/v1/apps/"+app.ID+"/services/"+serviceName+"/deploy", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+
+			// Add URL params
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("appID", app.ID)
+			rctx.URLParams.Add("serviceName", serviceName)
+			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+
+			req = req.WithContext(ctx)
+
+			// Execute the request
+			rr := httptest.NewRecorder()
+			handler.CreateForService(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				return false
+			}
+
+			// Verify the build job uses the override ref
+			if len(q.jobs) != 1 {
+				return false
+			}
+
+			buildJob := q.jobs[0]
+			return buildJob.GitRef == overrideRef
+		},
+		genUserID(),
+		genAppName(),
+		gen.OneConstOf("feature/test", "release/v1.0", "develop", "abc123def456"),
+		genBuildType(),
+	))
+
+	properties.TestingRun(t)
+}
