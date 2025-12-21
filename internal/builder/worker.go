@@ -2,46 +2,303 @@ package builder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/narvanalabs/control-plane/internal/builder/executor"
+	"github.com/narvanalabs/control-plane/internal/builder/retry"
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/queue"
 	"github.com/narvanalabs/control-plane/internal/store"
 )
 
+// Build timeout errors.
+var (
+	// ErrBuildTimeout is returned when a build exceeds its configured timeout.
+	ErrBuildTimeout = errors.New("build exceeded timeout limit")
+	// ErrValidationFailed is returned when build validation fails.
+	ErrValidationFailed = errors.New("build validation failed")
+)
+
+// DefaultBuildTimeout is the default build timeout in seconds (30 minutes).
+const DefaultBuildTimeout = 1800
+
+// ValidationError describes a validation failure.
+type ValidationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+	Code    string `json:"code"`
+}
+
+// Error implements the error interface.
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s (code: %s)", e.Field, e.Message, e.Code)
+}
+
+// ValidationResult contains validation results.
+type ValidationResult struct {
+	Valid    bool              `json:"valid"`
+	Errors   []ValidationError `json:"errors,omitempty"`
+	Warnings []string          `json:"warnings,omitempty"`
+}
+
+// BuildValidator validates build configurations before execution.
+type BuildValidator interface {
+	// Validate checks if a build job configuration is valid.
+	Validate(ctx context.Context, job *models.BuildJob) (*ValidationResult, error)
+}
+
+// DefaultBuildValidator is the default implementation of BuildValidator.
+type DefaultBuildValidator struct {
+	logger *slog.Logger
+}
+
+// NewDefaultBuildValidator creates a new DefaultBuildValidator.
+func NewDefaultBuildValidator(logger *slog.Logger) *DefaultBuildValidator {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &DefaultBuildValidator{logger: logger}
+}
+
+// Validate checks if a build job configuration is valid.
+func (v *DefaultBuildValidator) Validate(ctx context.Context, job *models.BuildJob) (*ValidationResult, error) {
+	result := &ValidationResult{
+		Valid:    true,
+		Errors:   make([]ValidationError, 0),
+		Warnings: make([]string, 0),
+	}
+
+	// Validate required fields
+	if job.ID == "" {
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "id",
+			Message: "build job ID is required",
+			Code:    "REQUIRED_FIELD",
+		})
+	}
+
+	if job.DeploymentID == "" {
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "deployment_id",
+			Message: "deployment ID is required",
+			Code:    "REQUIRED_FIELD",
+		})
+	}
+
+	// Validate build type
+	if job.BuildType == "" {
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "build_type",
+			Message: "build type is required",
+			Code:    "REQUIRED_FIELD",
+		})
+	} else if job.BuildType != models.BuildTypePureNix && job.BuildType != models.BuildTypeOCI {
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "build_type",
+			Message: fmt.Sprintf("invalid build type: %s", job.BuildType),
+			Code:    "INVALID_VALUE",
+		})
+	}
+
+	// Validate build strategy if specified
+	if job.BuildStrategy != "" && !job.BuildStrategy.IsValid() {
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "build_strategy",
+			Message: fmt.Sprintf("invalid build strategy: %s", job.BuildStrategy),
+			Code:    "INVALID_VALUE",
+		})
+	}
+
+	// Validate strategy-specific requirements
+	if job.BuildStrategy == models.BuildStrategyDockerfile || job.BuildStrategy == models.BuildStrategyNixpacks {
+		if job.BuildType != models.BuildTypeOCI {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("strategy %s requires OCI build type, will be enforced", job.BuildStrategy))
+		}
+	}
+
+	// Validate build config if present
+	if job.BuildConfig != nil {
+		v.validateBuildConfig(job.BuildConfig, result)
+	}
+
+	// Validate timeout
+	if job.TimeoutSeconds < 0 {
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "timeout_seconds",
+			Message: "timeout cannot be negative",
+			Code:    "INVALID_VALUE",
+		})
+	}
+
+	// Set valid flag based on errors
+	result.Valid = len(result.Errors) == 0
+
+	return result, nil
+}
+
+// validateBuildConfig validates the build configuration.
+func (v *DefaultBuildValidator) validateBuildConfig(config *models.BuildConfig, result *ValidationResult) {
+	// Validate Go version format if specified
+	if config.GoVersion != "" {
+		if !isValidVersionFormat(config.GoVersion) {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Go version '%s' may not be a valid version format", config.GoVersion))
+		}
+	}
+
+	// Validate Node version format if specified
+	if config.NodeVersion != "" {
+		if !isValidVersionFormat(config.NodeVersion) {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Node version '%s' may not be a valid version format", config.NodeVersion))
+		}
+	}
+
+	// Validate Python version format if specified
+	if config.PythonVersion != "" {
+		if !isValidVersionFormat(config.PythonVersion) {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Python version '%s' may not be a valid version format", config.PythonVersion))
+		}
+	}
+
+	// Validate package manager if specified
+	if config.PackageManager != "" {
+		validManagers := []string{"npm", "yarn", "pnpm"}
+		isValid := false
+		for _, m := range validManagers {
+			if config.PackageManager == m {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("package manager '%s' may not be supported", config.PackageManager))
+		}
+	}
+
+	// Validate build timeout
+	if config.BuildTimeout < 0 {
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "build_config.build_timeout",
+			Message: "build timeout cannot be negative",
+			Code:    "INVALID_VALUE",
+		})
+	}
+}
+
+// isValidVersionFormat checks if a version string has a valid format.
+func isValidVersionFormat(version string) bool {
+	if version == "" {
+		return false
+	}
+	// Basic check: version should start with a digit or 'v'
+	if len(version) > 0 {
+		first := version[0]
+		if (first >= '0' && first <= '9') || first == 'v' {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateBuildJob validates a build job and returns any validation errors.
+// This is a convenience function for external callers.
+func ValidateBuildJob(ctx context.Context, job *models.BuildJob) (*ValidationResult, error) {
+	validator := NewDefaultBuildValidator(nil)
+	return validator.Validate(ctx, job)
+}
+
+// BuildStage represents a phase in the build process.
+type BuildStage string
+
+const (
+	StageCloning         BuildStage = "cloning"
+	StageDetecting       BuildStage = "detecting"
+	StageGenerating      BuildStage = "generating"
+	StageCalculatingHash BuildStage = "calculating_hash"
+	StageBuilding        BuildStage = "building"
+	StagePushing         BuildStage = "pushing"
+	StageCompleted       BuildStage = "completed"
+	StageFailed          BuildStage = "failed"
+)
+
+// BuildProgressTracker reports build progress to users.
+type BuildProgressTracker interface {
+	// ReportStage reports current build stage.
+	ReportStage(ctx context.Context, buildID string, stage BuildStage) error
+	// ReportProgress reports percentage completion.
+	ReportProgress(ctx context.Context, buildID string, percent int, message string) error
+}
+
+// DefaultProgressTracker is a simple progress tracker that logs progress.
+type DefaultProgressTracker struct {
+	logger *slog.Logger
+}
+
+// NewDefaultProgressTracker creates a new DefaultProgressTracker.
+func NewDefaultProgressTracker(logger *slog.Logger) *DefaultProgressTracker {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &DefaultProgressTracker{logger: logger}
+}
+
+// ReportStage logs the current build stage.
+func (t *DefaultProgressTracker) ReportStage(ctx context.Context, buildID string, stage BuildStage) error {
+	t.logger.Info("build stage", "build_id", buildID, "stage", stage)
+	return nil
+}
+
+// ReportProgress logs the build progress.
+func (t *DefaultProgressTracker) ReportProgress(ctx context.Context, buildID string, percent int, message string) error {
+	t.logger.Info("build progress", "build_id", buildID, "percent", percent, "message", message)
+	return nil
+}
+
 // Worker processes build jobs from the queue.
 type Worker struct {
-	store       store.Store
-	queue       queue.Queue
-	nixBuilder  *NixBuilder
-	ociBuilder  *OCIBuilder
-	atticClient *AtticClient
-	logger      *slog.Logger
+	store           store.Store
+	queue           queue.Queue
+	nixBuilder      *NixBuilder
+	ociBuilder      *OCIBuilder
+	atticClient     *AtticClient
+	executorRegistry *executor.ExecutorRegistry
+	retryManager    *retry.Manager
+	progressTracker BuildProgressTracker
+	validator       BuildValidator
+	logger          *slog.Logger
 
-	concurrency int
-	stopCh      chan struct{}
-	wg          sync.WaitGroup
+	concurrency    int
+	defaultTimeout int // Default build timeout in seconds
+	stopCh         chan struct{}
+	wg             sync.WaitGroup
 }
 
 // WorkerConfig holds configuration for the build worker.
 type WorkerConfig struct {
-	Concurrency  int
-	NixConfig    *NixBuilderConfig
-	OCIConfig    *OCIBuilderConfig
-	AtticConfig  *AtticConfig
+	Concurrency     int
+	NixConfig       *NixBuilderConfig
+	OCIConfig       *OCIBuilderConfig
+	AtticConfig     *AtticConfig
+	DefaultTimeout  int // Default build timeout in seconds (default: 1800 = 30 minutes)
 }
 
 // DefaultWorkerConfig returns a WorkerConfig with sensible defaults.
 func DefaultWorkerConfig() *WorkerConfig {
 	return &WorkerConfig{
-		Concurrency: 4,
-		NixConfig:   DefaultNixBuilderConfig(),
-		OCIConfig:   DefaultOCIBuilderConfig(),
-		AtticConfig: DefaultAtticConfig(),
+		Concurrency:    4,
+		NixConfig:      DefaultNixBuilderConfig(),
+		OCIConfig:      DefaultOCIBuilderConfig(),
+		AtticConfig:    DefaultAtticConfig(),
+		DefaultTimeout: 1800, // 30 minutes
 	}
 }
 
@@ -63,15 +320,87 @@ func NewWorker(cfg *WorkerConfig, s store.Store, q queue.Queue, logger *slog.Log
 
 	atticClient := NewAtticClient(cfg.AtticConfig, logger)
 
+	// Create executor registry and register all strategy executors
+	registry := executor.NewExecutorRegistry()
+	
+	// Create adapters for the builders
+	nixBuilderAdapter := &nixBuilderAdapter{nixBuilder}
+	ociBuilderAdapter := &ociBuilderAdapter{ociBuilder}
+
+	// Register flake strategy executor
+	flakeExecutor := executor.NewFlakeStrategyExecutor(nixBuilderAdapter, ociBuilderAdapter, logger)
+	registry.Register(flakeExecutor)
+
+	// Note: Other executors (auto-go, auto-node, etc.) would be registered here
+	// when their dependencies (detector, template engine, hash calculator) are available
+
+	// Create retry manager with notification callback
+	retryMgr := retry.NewManager(
+		retry.WithNotificationCallback(func(notification *retry.FallbackNotification) {
+			logger.Warn("build fallback occurred",
+				"build_id", notification.BuildID,
+				"original_type", notification.OriginalType,
+				"fallback_type", notification.FallbackType,
+				"reason", notification.Reason,
+			)
+		}),
+	)
+
+	// Create progress tracker
+	progressTracker := NewDefaultProgressTracker(logger)
+
+	// Create build validator
+	validator := NewDefaultBuildValidator(logger)
+
 	return &Worker{
-		store:       s,
-		queue:       q,
-		nixBuilder:  nixBuilder,
-		ociBuilder:  ociBuilder,
-		atticClient: atticClient,
-		logger:      logger,
-		concurrency: cfg.Concurrency,
-		stopCh:      make(chan struct{}),
+		store:            s,
+		queue:            q,
+		nixBuilder:       nixBuilder,
+		ociBuilder:       ociBuilder,
+		atticClient:      atticClient,
+		executorRegistry: registry,
+		retryManager:     retryMgr,
+		progressTracker:  progressTracker,
+		validator:        validator,
+		logger:           logger,
+		concurrency:      cfg.Concurrency,
+		defaultTimeout:   cfg.DefaultTimeout,
+		stopCh:           make(chan struct{}),
+	}, nil
+}
+
+// nixBuilderAdapter adapts NixBuilder to the executor.NixBuilder interface.
+type nixBuilderAdapter struct {
+	builder *NixBuilder
+}
+
+func (a *nixBuilderAdapter) BuildWithLogCallback(ctx context.Context, job *models.BuildJob, callback func(line string)) (*executor.NixBuildResult, error) {
+	result, err := a.builder.BuildWithLogCallback(ctx, job, callback)
+	if err != nil {
+		return nil, err
+	}
+	return &executor.NixBuildResult{
+		StorePath: result.StorePath,
+		Logs:      result.Logs,
+		ExitCode:  result.ExitCode,
+	}, nil
+}
+
+// ociBuilderAdapter adapts OCIBuilder to the executor.OCIBuilder interface.
+type ociBuilderAdapter struct {
+	builder *OCIBuilder
+}
+
+func (a *ociBuilderAdapter) BuildWithLogCallback(ctx context.Context, job *models.BuildJob, callback func(line string)) (*executor.OCIBuildResult, error) {
+	result, err := a.builder.BuildWithLogCallback(ctx, job, callback)
+	if err != nil {
+		return nil, err
+	}
+	return &executor.OCIBuildResult{
+		ImageTag:  result.ImageTag,
+		StorePath: result.StorePath,
+		Logs:      result.Logs,
+		ExitCode:  result.ExitCode,
 	}, nil
 }
 
@@ -153,6 +482,7 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		"job_id", job.ID,
 		"deployment_id", job.DeploymentID,
 		"build_type", job.BuildType,
+		"build_strategy", job.BuildStrategy,
 	)
 
 	// First, verify the build record exists in the database
@@ -170,6 +500,37 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 
 	// Use the existing job from the database (it has the correct state)
 	job = existingJob
+
+	// Validate the build job configuration before starting
+	validationResult, err := w.validator.Validate(ctx, job)
+	if err != nil {
+		w.logger.Error("failed to validate build job",
+			"job_id", job.ID,
+			"error", err,
+		)
+		return fmt.Errorf("validating build job: %w", err)
+	}
+
+	if !validationResult.Valid {
+		w.logger.Error("build job validation failed",
+			"job_id", job.ID,
+			"errors", validationResult.Errors,
+		)
+		// Mark job as failed due to validation errors
+		job.Status = models.BuildStatusFailed
+		finishedAt := time.Now()
+		job.FinishedAt = &finishedAt
+		w.store.Builds().Update(ctx, job)
+		return fmt.Errorf("%w: %v", ErrValidationFailed, validationResult.Errors)
+	}
+
+	// Log any validation warnings
+	for _, warning := range validationResult.Warnings {
+		w.logger.Warn("build job validation warning",
+			"job_id", job.ID,
+			"warning", warning,
+		)
+	}
 
 	// Update job status to running
 	now := time.Now()
@@ -199,7 +560,10 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		return fmt.Errorf("updating deployment status: %w", err)
 	}
 
-	// Execute the build based on build type
+	// Report build stage
+	w.progressTracker.ReportStage(ctx, job.ID, StageBuilding)
+
+	// Execute the build using strategy router
 	var artifact string
 	var buildLogs string
 	var buildErr error
@@ -209,14 +573,8 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		w.streamLog(ctx, job.DeploymentID, line)
 	}
 
-	switch job.BuildType {
-	case models.BuildTypeOCI:
-		artifact, buildLogs, buildErr = w.buildOCI(ctx, job, logCallback)
-	case models.BuildTypePureNix:
-		artifact, buildLogs, buildErr = w.buildPureNix(ctx, job, logCallback)
-	default:
-		buildErr = fmt.Errorf("unknown build type: %s", job.BuildType)
-	}
+	// Route to appropriate strategy executor or fall back to legacy build
+	artifact, buildLogs, buildErr = w.executeWithStrategy(ctx, job, logCallback)
 
 	// Update job and deployment status based on result
 	finishedAt := time.Now()
@@ -228,6 +586,54 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 			"error", buildErr,
 		)
 
+		// Check if we should retry
+		if w.retryManager.ShouldRetry(ctx, job, buildErr) {
+			w.logger.Info("preparing build retry",
+				"job_id", job.ID,
+				"retry_count", job.RetryCount,
+			)
+
+			// Record the failed attempt
+			w.retryManager.RecordAttempt(ctx, job.ID, retry.BuildAttempt{
+				AttemptNumber: job.RetryCount + 1,
+				Strategy:      job.BuildStrategy,
+				BuildType:     job.BuildType,
+				StartedAt:     *job.StartedAt,
+				CompletedAt:   &finishedAt,
+				Success:       false,
+				Error:         buildErr.Error(),
+			})
+
+			// Prepare retry job
+			retryJob, retryErr := w.retryManager.PrepareRetry(ctx, job)
+			if retryErr == nil {
+				// Update job for retry
+				job.RetryCount = retryJob.RetryCount
+				job.BuildType = retryJob.BuildType
+				job.RetryAsOCI = retryJob.RetryAsOCI
+				job.Status = models.BuildStatusQueued
+				job.StartedAt = nil
+				job.FinishedAt = nil
+
+				if err := w.store.Builds().Update(ctx, job); err != nil {
+					w.logger.Error("failed to update job for retry", "job_id", job.ID, "error", err)
+				}
+
+				// Re-enqueue the job
+				if err := w.queue.Enqueue(ctx, job); err != nil {
+					w.logger.Error("failed to re-enqueue job for retry", "job_id", job.ID, "error", err)
+				} else {
+					w.logger.Info("job re-enqueued for retry",
+						"job_id", job.ID,
+						"retry_count", job.RetryCount,
+						"build_type", job.BuildType,
+					)
+					return nil
+				}
+			}
+		}
+
+		w.progressTracker.ReportStage(ctx, job.ID, StageFailed)
 		job.Status = models.BuildStatusFailed
 		deployment.Status = models.DeploymentStatusFailed
 
@@ -239,6 +645,7 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 			"artifact", artifact,
 		)
 
+		w.progressTracker.ReportStage(ctx, job.ID, StageCompleted)
 		job.Status = models.BuildStatusSucceeded
 		deployment.Status = models.DeploymentStatusBuilt
 		deployment.Artifact = artifact
@@ -259,6 +666,116 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 	// Return nil to acknowledge the job - build failures are recorded in the database
 	// and should not be retried via the queue
 	return nil
+}
+
+// executeWithStrategy routes the build to the appropriate strategy executor.
+func (w *Worker) executeWithStrategy(ctx context.Context, job *models.BuildJob, logCallback func(string)) (string, string, error) {
+	// Determine the timeout for this build
+	timeout := w.getBuildTimeout(job)
+	
+	// Create a context with timeout
+	buildCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Create a channel to receive the build result
+	type buildResult struct {
+		artifact string
+		logs     string
+		err      error
+	}
+	resultCh := make(chan buildResult, 1)
+
+	// Execute the build in a goroutine
+	go func() {
+		artifact, logs, err := w.executeBuild(buildCtx, job, logCallback)
+		resultCh <- buildResult{artifact, logs, err}
+	}()
+
+	// Wait for either the build to complete or timeout
+	select {
+	case result := <-resultCh:
+		return result.artifact, result.logs, result.err
+	case <-buildCtx.Done():
+		if buildCtx.Err() == context.DeadlineExceeded {
+			logCallback(fmt.Sprintf("=== Build timeout exceeded (%v) ===", timeout))
+			return "", "", fmt.Errorf("%w: build exceeded %v timeout", ErrBuildTimeout, timeout)
+		}
+		return "", "", buildCtx.Err()
+	}
+}
+
+// getBuildTimeout returns the timeout duration for a build job.
+func (w *Worker) getBuildTimeout(job *models.BuildJob) time.Duration {
+	// Use job-specific timeout if configured
+	if job.TimeoutSeconds > 0 {
+		return time.Duration(job.TimeoutSeconds) * time.Second
+	}
+	
+	// Use build config timeout if available
+	if job.BuildConfig != nil && job.BuildConfig.BuildTimeout > 0 {
+		return time.Duration(job.BuildConfig.BuildTimeout) * time.Second
+	}
+	
+	// Use worker default timeout
+	if w.defaultTimeout > 0 {
+		return time.Duration(w.defaultTimeout) * time.Second
+	}
+	
+	// Fall back to global default
+	return time.Duration(DefaultBuildTimeout) * time.Second
+}
+
+// executeBuild performs the actual build execution.
+func (w *Worker) executeBuild(ctx context.Context, job *models.BuildJob, logCallback func(string)) (string, string, error) {
+	// Report initial progress
+	w.progressTracker.ReportProgress(ctx, job.ID, 10, "Starting build execution")
+
+	// If a build strategy is specified, try to use the strategy executor
+	if job.BuildStrategy != "" {
+		w.progressTracker.ReportStage(ctx, job.ID, StageDetecting)
+		w.progressTracker.ReportProgress(ctx, job.ID, 20, "Detecting build strategy")
+
+		strategyExecutor, err := w.executorRegistry.GetExecutor(job.BuildStrategy)
+		if err == nil {
+			logCallback(fmt.Sprintf("=== Using strategy: %s ===", job.BuildStrategy))
+			w.progressTracker.ReportProgress(ctx, job.ID, 30, fmt.Sprintf("Using strategy: %s", job.BuildStrategy))
+
+			// Report generating stage if the strategy generates flakes
+			if job.GeneratedFlake == "" {
+				w.progressTracker.ReportStage(ctx, job.ID, StageGenerating)
+				w.progressTracker.ReportProgress(ctx, job.ID, 40, "Generating build configuration")
+			}
+
+			w.progressTracker.ReportStage(ctx, job.ID, StageBuilding)
+			w.progressTracker.ReportProgress(ctx, job.ID, 50, "Building application")
+
+			result, execErr := strategyExecutor.Execute(ctx, job)
+			if result != nil {
+				if execErr == nil {
+					w.progressTracker.ReportProgress(ctx, job.ID, 90, "Build completed successfully")
+				}
+				return result.Artifact, result.Logs, execErr
+			}
+			return "", "", execErr
+		}
+		// If no executor found for the strategy, log and fall back to legacy
+		w.logger.Warn("no executor found for strategy, falling back to legacy build",
+			"strategy", job.BuildStrategy,
+		)
+	}
+
+	w.progressTracker.ReportStage(ctx, job.ID, StageBuilding)
+	w.progressTracker.ReportProgress(ctx, job.ID, 50, "Building application")
+
+	// Fall back to legacy build based on build type
+	switch job.BuildType {
+	case models.BuildTypeOCI:
+		return w.buildOCI(ctx, job, logCallback)
+	case models.BuildTypePureNix:
+		return w.buildPureNix(ctx, job, logCallback)
+	default:
+		return "", "", fmt.Errorf("unknown build type: %s", job.BuildType)
+	}
 }
 
 // buildOCI executes an OCI mode build.
@@ -286,6 +803,10 @@ func (w *Worker) buildPureNix(ctx context.Context, job *models.BuildJob, logCall
 		return "", logs, err
 	}
 
+	// Report pushing stage
+	w.progressTracker.ReportStage(ctx, job.ID, StagePushing)
+	w.progressTracker.ReportProgress(ctx, job.ID, 80, "Pushing to cache")
+
 	// Push the closure to Attic
 	logCallback("=== Pushing closure to Attic ===")
 	pushResult, err := w.atticClient.PushWithDependencies(ctx, result.StorePath)
@@ -295,6 +816,8 @@ func (w *Worker) buildPureNix(ctx context.Context, job *models.BuildJob, logCall
 
 	logCallback(fmt.Sprintf("Pushed to: %s", pushResult.CacheURL))
 	logCallback(fmt.Sprintf("Store path: %s", result.StorePath))
+
+	w.progressTracker.ReportProgress(ctx, job.ID, 95, "Push completed")
 
 	return result.StorePath, result.Logs, nil
 }
@@ -345,4 +868,68 @@ func (w *Worker) storeBuildLogs(ctx context.Context, deploymentID, logs string) 
 // This is useful for testing or one-off builds.
 func (w *Worker) ProcessSingleJob(ctx context.Context, job *models.BuildJob) error {
 	return w.processJob(ctx, job)
+}
+
+// IsBuildTimeoutError checks if an error is a build timeout error.
+func IsBuildTimeoutError(err error) bool {
+	return errors.Is(err, ErrBuildTimeout)
+}
+
+// GetBuildTimeout returns the effective timeout for a build job.
+// This is useful for testing and external callers.
+func GetBuildTimeout(job *models.BuildJob, defaultTimeout int) time.Duration {
+	// Use job-specific timeout if configured
+	if job.TimeoutSeconds > 0 {
+		return time.Duration(job.TimeoutSeconds) * time.Second
+	}
+
+	// Use build config timeout if available
+	if job.BuildConfig != nil && job.BuildConfig.BuildTimeout > 0 {
+		return time.Duration(job.BuildConfig.BuildTimeout) * time.Second
+	}
+
+	// Use provided default timeout
+	if defaultTimeout > 0 {
+		return time.Duration(defaultTimeout) * time.Second
+	}
+
+	// Fall back to global default
+	return time.Duration(DefaultBuildTimeout) * time.Second
+}
+
+// SetProgressTracker sets a custom progress tracker for the worker.
+// This is useful for integrating with external progress reporting systems.
+func (w *Worker) SetProgressTracker(tracker BuildProgressTracker) {
+	if tracker != nil {
+		w.progressTracker = tracker
+	}
+}
+
+// GetProgressTracker returns the current progress tracker.
+func (w *Worker) GetProgressTracker() BuildProgressTracker {
+	return w.progressTracker
+}
+
+// StageDescription returns a human-readable description of a build stage.
+func StageDescription(stage BuildStage) string {
+	switch stage {
+	case StageCloning:
+		return "Cloning repository"
+	case StageDetecting:
+		return "Detecting build strategy"
+	case StageGenerating:
+		return "Generating build configuration"
+	case StageCalculatingHash:
+		return "Calculating dependency hashes"
+	case StageBuilding:
+		return "Building application"
+	case StagePushing:
+		return "Pushing to cache"
+	case StageCompleted:
+		return "Build completed"
+	case StageFailed:
+		return "Build failed"
+	default:
+		return string(stage)
+	}
 }
