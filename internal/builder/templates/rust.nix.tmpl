@@ -1,0 +1,97 @@
+{
+  description = "Nix flake for {{ .AppName }} (Rust)";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ (import rust-overlay) ];
+        };
+        
+        {{- if .Config.RustEdition }}
+        rustEdition = "{{ .Config.RustEdition }}";
+        {{- else }}
+        rustEdition = "2021";
+        {{- end }}
+        
+        # Use stable Rust toolchain
+        rustToolchain = pkgs.rust-bin.stable.latest.default;
+        
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+        
+        # Common arguments for crane builds
+        commonArgs = {
+          src = craneLib.cleanCargoSource ./.;
+          
+          buildInputs = with pkgs; [
+            # Add any additional dependencies here
+            {{- if .Config.ExtraNixPackages }}
+            {{- range .Config.ExtraNixPackages }}
+            {{ . }}
+            {{- end }}
+            {{- end }}
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.libiconv
+            pkgs.darwin.apple_sdk.frameworks.Security
+          ];
+          
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+        };
+        
+        # Build dependencies separately for caching
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        
+        # Build the actual crate
+        {{ .AppName }} = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+          
+          {{- if .Config.EntryPoint }}
+          cargoExtraArgs = "--bin {{ .Config.EntryPoint }}";
+          {{- else if .EntryPoint }}
+          cargoExtraArgs = "--bin {{ .EntryPoint }}";
+          {{- end }}
+        });
+      in
+      {
+        packages.default = {{ .AppName }};
+        
+        # Clippy check
+        checks.clippy = craneLib.cargoClippy (commonArgs // {
+          inherit cargoArtifacts;
+          cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+        });
+        
+        # Format check
+        checks.fmt = craneLib.cargoFmt {
+          src = ./.;
+        };
+        
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            rustToolchain
+            rust-analyzer
+            cargo-watch
+            cargo-edit
+          ] ++ commonArgs.buildInputs;
+          
+          nativeBuildInputs = commonArgs.nativeBuildInputs;
+        };
+      }
+    );
+}

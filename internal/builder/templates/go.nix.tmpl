@@ -1,0 +1,60 @@
+{
+  description = "Nix flake for {{ .AppName }}";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        {{- if .Config.GoVersion }}
+        goVersion = "{{ .Config.GoVersion }}";
+        {{- else if .Version }}
+        goVersion = "{{ .Version }}";
+        {{- else }}
+        goVersion = "1.21";
+        {{- end }}
+        
+        # Select Go package based on version
+        go = pkgs.go_1_21;
+      in
+      {
+        packages.default = pkgs.buildGoModule {
+          pname = "{{ .AppName }}";
+          version = "0.1.0";
+          
+          src = ./.;
+          
+          {{- if .Config.EntryPoint }}
+          subPackages = [ "{{ .Config.EntryPoint }}" ];
+          {{- else if .EntryPoint }}
+          subPackages = [ "{{ .EntryPoint }}" ];
+          {{- end }}
+          
+          # Vendor hash - will be calculated automatically
+          # Use "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" as placeholder
+          vendorHash = {{ if .Config.GoVersion }}{{ nixString .Config.GoVersion }}{{ else }}"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="{{ end }};
+          
+          CGO_ENABLED = 0;
+          
+          ldflags = [
+            "-s"
+            "-w"
+            "-X main.version=0.1.0"
+          ];
+          
+          meta = with pkgs.lib; {
+            description = "{{ .AppName }}";
+            mainProgram = "{{ default .AppName .EntryPoint }}";
+          };
+        };
+        
+        devShells.default = pkgs.mkShell {
+          buildInputs = [ go pkgs.gopls pkgs.gotools ];
+        };
+      }
+    );
+}

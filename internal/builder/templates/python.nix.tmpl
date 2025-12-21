@@ -1,0 +1,178 @@
+{
+  description = "Nix flake for {{ .AppName }} (Python)";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        
+        {{- if .Config.PythonVersion }}
+        pythonVersion = "{{ .Config.PythonVersion }}";
+        {{- else if .Version }}
+        pythonVersion = "{{ .Version }}";
+        {{- else }}
+        pythonVersion = "3.11";
+        {{- end }}
+        
+        # Select Python package based on version
+        python = pkgs.python311;
+        
+        # Determine framework and create appropriate package
+        {{- if eq .Framework "django" }}
+        frameworkPackages = ps: with ps; [
+          django
+          gunicorn
+          psycopg2
+          whitenoise
+        ];
+        {{- else if eq .Framework "fastapi" }}
+        frameworkPackages = ps: with ps; [
+          fastapi
+          uvicorn
+          pydantic
+        ];
+        {{- else if eq .Framework "flask" }}
+        frameworkPackages = ps: with ps; [
+          flask
+          gunicorn
+        ];
+        {{- else }}
+        frameworkPackages = ps: [];
+        {{- end }}
+        
+        pythonEnv = python.withPackages (ps: 
+          frameworkPackages ps ++ (with ps; [
+            pip
+            setuptools
+            wheel
+            {{- if .Config.ExtraNixPackages }}
+            {{- range .Config.ExtraNixPackages }}
+            {{ . }}
+            {{- end }}
+            {{- end }}
+          ])
+        );
+      in
+      {
+        packages.default = pkgs.stdenv.mkDerivation {
+          pname = "{{ .AppName }}";
+          version = "0.1.0";
+          
+          src = ./.;
+          
+          buildInputs = [ pythonEnv ];
+          
+          buildPhase = ''
+            runHook preBuild
+            
+            # Install dependencies from requirements.txt if it exists
+            if [ -f requirements.txt ]; then
+              ${pythonEnv}/bin/pip install --target=$out/lib/python${python.pythonVersion}/site-packages -r requirements.txt
+            fi
+            
+            # Install from pyproject.toml if it exists
+            if [ -f pyproject.toml ]; then
+              ${pythonEnv}/bin/pip install --target=$out/lib/python${python.pythonVersion}/site-packages .
+            fi
+            
+            {{- if .Config.BuildCommand }}
+            {{ .Config.BuildCommand }}
+            {{- end }}
+            
+            runHook postBuild
+          '';
+          
+          installPhase = ''
+            runHook preInstall
+            
+            mkdir -p $out/app
+            cp -r . $out/app/
+            
+            # Create wrapper script
+            mkdir -p $out/bin
+            {{- if eq .Framework "django" }}
+            {{- if and .Config.DjangoOptions .Config.DjangoOptions.SettingsModule }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            export DJANGO_SETTINGS_MODULE="{{ .Config.DjangoOptions.SettingsModule }}"
+            cd $out/app
+            exec ${pythonEnv}/bin/gunicorn --bind 0.0.0.0:8000 {{ .Config.DjangoOptions.SettingsModule | trimSuffix ".settings" }}.wsgi:application
+            EOF
+            {{- else }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            cd $out/app
+            exec ${pythonEnv}/bin/python manage.py runserver 0.0.0.0:8000
+            EOF
+            {{- end }}
+            {{- else if eq .Framework "fastapi" }}
+            {{- if and .Config.FastAPIOptions .Config.FastAPIOptions.AppModule }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            cd $out/app
+            exec ${pythonEnv}/bin/uvicorn {{ .Config.FastAPIOptions.AppModule }} --host 0.0.0.0 --port 8000
+            EOF
+            {{- else }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            cd $out/app
+            exec ${pythonEnv}/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+            EOF
+            {{- end }}
+            {{- else if eq .Framework "flask" }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            cd $out/app
+            exec ${pythonEnv}/bin/gunicorn --bind 0.0.0.0:8000 app:app
+            EOF
+            {{- else }}
+            {{- if .Config.StartCommand }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            cd $out/app
+            exec ${pythonEnv}/bin/python {{ .Config.StartCommand }}
+            EOF
+            {{- else if .StartCommand }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            cd $out/app
+            exec ${pythonEnv}/bin/python {{ .StartCommand }}
+            EOF
+            {{- else }}
+            cat > $out/bin/{{ .AppName }} << EOF
+            #!${pkgs.bash}/bin/bash
+            export PYTHONPATH=$out/lib/python${python.pythonVersion}/site-packages:$out/app
+            cd $out/app
+            exec ${pythonEnv}/bin/python main.py
+            EOF
+            {{- end }}
+            {{- end }}
+            chmod +x $out/bin/{{ .AppName }}
+            
+            runHook postInstall
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "{{ .AppName }}";
+            mainProgram = "{{ .AppName }}";
+          };
+        };
+        
+        devShells.default = pkgs.mkShell {
+          buildInputs = [ pythonEnv pkgs.black pkgs.ruff ];
+        };
+      }
+    );
+}

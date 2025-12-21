@@ -1,0 +1,113 @@
+{
+  description = "Nix flake for {{ .AppName }} (Next.js)";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        {{- if .Config.NodeVersion }}
+        nodeVersion = "{{ .Config.NodeVersion }}";
+        {{- else if .Version }}
+        nodeVersion = "{{ .Version }}";
+        {{- else }}
+        nodeVersion = "20";
+        {{- end }}
+        
+        # Select Node.js package
+        nodejs = pkgs.nodejs_20;
+        
+        {{- if eq .Config.PackageManager "yarn" }}
+        packageManager = pkgs.yarn;
+        installCmd = "yarn install --frozen-lockfile";
+        {{- else if eq .Config.PackageManager "pnpm" }}
+        packageManager = pkgs.nodePackages.pnpm;
+        installCmd = "pnpm install --frozen-lockfile";
+        {{- else }}
+        packageManager = pkgs.nodePackages.npm;
+        installCmd = "npm ci";
+        {{- end }}
+      in
+      {
+        packages.default = pkgs.buildNpmPackage {
+          pname = "{{ .AppName }}";
+          version = "0.1.0";
+          
+          src = ./.;
+          
+          nodejs = nodejs;
+          
+          # Hash of package-lock.json - will be calculated automatically
+          npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          
+          # Next.js requires these environment variables during build
+          NEXT_TELEMETRY_DISABLED = "1";
+          {{- if and .Config.NextJSOptions .Config.NextJSOptions.BasePath }}
+          NEXT_PUBLIC_BASE_PATH = "{{ .Config.NextJSOptions.BasePath }}";
+          {{- end }}
+          
+          buildPhase = ''
+            runHook preBuild
+            
+            # Build Next.js application
+            {{- if .Config.BuildCommand }}
+            {{ .Config.BuildCommand }}
+            {{- else }}
+            npm run build
+            {{- end }}
+            
+            runHook postBuild
+          '';
+          
+          installPhase = ''
+            runHook preInstall
+            
+            mkdir -p $out
+            
+            {{- if and .Config.NextJSOptions (eq .Config.NextJSOptions.OutputMode "export") }}
+            # Static export mode
+            cp -r out/* $out/
+            {{- else if and .Config.NextJSOptions (eq .Config.NextJSOptions.OutputMode "default") }}
+            # Default mode - copy everything
+            cp -r . $out/
+            {{- else }}
+            # Standalone mode (default for Next.js)
+            # Copy standalone output for production
+            if [ -d ".next/standalone" ]; then
+              cp -r .next/standalone/* $out/
+              cp -r .next/static $out/.next/static
+              cp -r public $out/public 2>/dev/null || true
+            else
+              # Fallback if standalone not available
+              cp -r . $out/
+            fi
+            {{- end }}
+            
+            runHook postInstall
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "{{ .AppName }} - Next.js application";
+          };
+        };
+        
+        # Runner script for standalone mode
+        packages.runner = pkgs.writeShellScriptBin "{{ .AppName }}" ''
+          export NODE_ENV=production
+          {{- if and .Config.NextJSOptions .Config.NextJSOptions.BasePath }}
+          export NEXT_PUBLIC_BASE_PATH="{{ .Config.NextJSOptions.BasePath }}"
+          {{- end }}
+          cd ${self.packages.${system}.default}
+          exec ${nodejs}/bin/node server.js
+        '';
+        
+        devShells.default = pkgs.mkShell {
+          buildInputs = [ nodejs packageManager ];
+        };
+      }
+    );
+}

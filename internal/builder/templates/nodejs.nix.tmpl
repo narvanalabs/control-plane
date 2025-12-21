@@ -1,0 +1,95 @@
+{
+  description = "Nix flake for {{ .AppName }}";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        {{- if .Config.NodeVersion }}
+        nodeVersion = "{{ .Config.NodeVersion }}";
+        {{- else if .Version }}
+        nodeVersion = "{{ .Version }}";
+        {{- else }}
+        nodeVersion = "20";
+        {{- end }}
+        
+        # Select Node.js package based on version
+        nodejs = pkgs.nodejs_20;
+        
+        {{- if eq .Config.PackageManager "yarn" }}
+        packageManager = pkgs.yarn;
+        installCmd = "yarn install --frozen-lockfile";
+        buildCmd = "yarn build";
+        {{- else if eq .Config.PackageManager "pnpm" }}
+        packageManager = pkgs.nodePackages.pnpm;
+        installCmd = "pnpm install --frozen-lockfile";
+        buildCmd = "pnpm build";
+        {{- else }}
+        packageManager = pkgs.nodePackages.npm;
+        installCmd = "npm ci";
+        buildCmd = "npm run build";
+        {{- end }}
+      in
+      {
+        packages.default = pkgs.buildNpmPackage {
+          pname = "{{ .AppName }}";
+          version = "0.1.0";
+          
+          src = ./.;
+          
+          nodejs = nodejs;
+          
+          # Hash of package-lock.json - will be calculated automatically
+          npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          
+          {{- if .Config.BuildCommand }}
+          buildPhase = ''
+            runHook preBuild
+            {{ .Config.BuildCommand }}
+            runHook postBuild
+          '';
+          {{- else if .BuildCommand }}
+          buildPhase = ''
+            runHook preBuild
+            {{ .BuildCommand }}
+            runHook postBuild
+          '';
+          {{- end }}
+          
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out
+            cp -r . $out/
+            runHook postInstall
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "{{ .AppName }}";
+          };
+        };
+        
+        # Wrapper script for running the application
+        packages.runner = pkgs.writeShellScriptBin "{{ .AppName }}" ''
+          {{- if .Config.StartCommand }}
+          cd ${self.packages.${system}.default}
+          exec ${nodejs}/bin/node {{ .Config.StartCommand }}
+          {{- else if .StartCommand }}
+          cd ${self.packages.${system}.default}
+          exec ${nodejs}/bin/node {{ .StartCommand }}
+          {{- else }}
+          cd ${self.packages.${system}.default}
+          exec ${nodejs}/bin/npm start
+          {{- end }}
+        '';
+        
+        devShells.default = pkgs.mkShell {
+          buildInputs = [ nodejs packageManager ];
+        };
+      }
+    );
+}

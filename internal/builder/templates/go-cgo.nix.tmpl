@@ -1,0 +1,82 @@
+{
+  description = "Nix flake for {{ .AppName }} (with CGO)";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        {{- if .Config.GoVersion }}
+        goVersion = "{{ .Config.GoVersion }}";
+        {{- else if .Version }}
+        goVersion = "{{ .Version }}";
+        {{- else }}
+        goVersion = "1.21";
+        {{- end }}
+        
+        # Select Go package based on version
+        go = pkgs.go_1_21;
+      in
+      {
+        packages.default = pkgs.buildGoModule {
+          pname = "{{ .AppName }}";
+          version = "0.1.0";
+          
+          src = ./.;
+          
+          {{- if .Config.EntryPoint }}
+          subPackages = [ "{{ .Config.EntryPoint }}" ];
+          {{- else if .EntryPoint }}
+          subPackages = [ "{{ .EntryPoint }}" ];
+          {{- end }}
+          
+          # Vendor hash - will be calculated automatically
+          vendorHash = {{ if .Config.GoVersion }}{{ nixString .Config.GoVersion }}{{ else }}"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="{{ end }};
+          
+          # CGO is enabled for this build
+          CGO_ENABLED = 1;
+          
+          # Common CGO dependencies
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+          
+          buildInputs = with pkgs; [
+            # Common C libraries that CGO projects might need
+            {{- if .Config.ExtraNixPackages }}
+            {{- range .Config.ExtraNixPackages }}
+            {{ . }}
+            {{- end }}
+            {{- else }}
+            # Add required C libraries here
+            {{- end }}
+          ];
+          
+          ldflags = [
+            "-s"
+            "-w"
+            "-X main.version=0.1.0"
+          ];
+          
+          # Ensure CGO can find libraries
+          preBuild = ''
+            export CGO_CFLAGS="-I${pkgs.lib.getDev pkgs.stdenv.cc.libc}/include"
+            export CGO_LDFLAGS="-L${pkgs.lib.getLib pkgs.stdenv.cc.libc}/lib"
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "{{ .AppName }}";
+            mainProgram = "{{ default .AppName .EntryPoint }}";
+          };
+        };
+        
+        devShells.default = pkgs.mkShell {
+          buildInputs = [ go pkgs.gopls pkgs.gotools pkgs.pkg-config ];
+        };
+      }
+    );
+}
