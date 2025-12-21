@@ -137,10 +137,7 @@ func genUserID() gopter.Gen {
 	return gen.RegexMatch("[a-zA-Z][a-zA-Z0-9]{5,15}")
 }
 
-// genBuildType generates valid build types
-func genBuildType() gopter.Gen {
-	return gen.OneConstOf(models.BuildTypeOCI, models.BuildTypePureNix)
-}
+
 
 func TestApplicationListCompleteness(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
@@ -152,7 +149,7 @@ func TestApplicationListCompleteness(t *testing.T) {
 	logger := slog.Default()
 
 	properties.Property("Application list returns exactly the apps created by user", prop.ForAll(
-		func(userID string, appNames []string, buildType models.BuildType) bool {
+		func(userID string, appNames []string) bool {
 			// Skip if no app names
 			if len(appNames) == 0 {
 				return true
@@ -176,8 +173,7 @@ func TestApplicationListCompleteness(t *testing.T) {
 			createdAppIDs := make(map[string]bool)
 			for _, name := range uniqueNames {
 				reqBody := CreateAppRequest{
-					Name:      name,
-					BuildType: buildType,
+					Name: name,
 				}
 				body, _ := json.Marshal(reqBody)
 
@@ -227,7 +223,6 @@ func TestApplicationListCompleteness(t *testing.T) {
 		},
 		genUserID(),
 		gen.SliceOfN(5, genAppName()),
-		genBuildType(),
 	))
 
 	properties.TestingRun(t)
@@ -243,7 +238,7 @@ func TestApplicationListIsolation(t *testing.T) {
 	logger := slog.Default()
 
 	properties.Property("User A cannot see User B's apps in list", prop.ForAll(
-		func(userA, userB, appName string, buildType models.BuildType) bool {
+		func(userA, userB, appName string) bool {
 			// Skip if users are the same
 			if userA == userB {
 				return true
@@ -255,8 +250,7 @@ func TestApplicationListIsolation(t *testing.T) {
 
 			// User A creates an app
 			reqBody := CreateAppRequest{
-				Name:      appName,
-				BuildType: buildType,
+				Name: appName,
 			}
 			body, _ := json.Marshal(reqBody)
 
@@ -293,7 +287,6 @@ func TestApplicationListIsolation(t *testing.T) {
 		genUserID(),
 		genUserID(),
 		genAppName(),
-		genBuildType(),
 	))
 
 	properties.TestingRun(t)
