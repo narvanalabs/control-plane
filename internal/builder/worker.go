@@ -155,6 +155,22 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		"build_type", job.BuildType,
 	)
 
+	// First, verify the build record exists in the database
+	existingJob, err := w.store.Builds().Get(ctx, job.ID)
+	if err != nil {
+		// If the build record doesn't exist, this is an orphaned queue entry
+		// We should ack it to remove it from the queue and not retry
+		w.logger.Warn("build record not found, removing orphaned job from queue",
+			"job_id", job.ID,
+			"deployment_id", job.DeploymentID,
+		)
+		// Return nil to trigger Ack instead of Nack
+		return nil
+	}
+
+	// Use the existing job from the database (it has the correct state)
+	job = existingJob
+
 	// Update job status to running
 	now := time.Now()
 	job.Status = models.BuildStatusRunning
@@ -166,7 +182,16 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 	// Update deployment status to building
 	deployment, err := w.store.Deployments().Get(ctx, job.DeploymentID)
 	if err != nil {
-		return fmt.Errorf("getting deployment: %w", err)
+		// If deployment doesn't exist, mark job as failed and return nil to ack
+		w.logger.Warn("deployment not found for build job",
+			"job_id", job.ID,
+			"deployment_id", job.DeploymentID,
+		)
+		job.Status = models.BuildStatusFailed
+		finishedAt := time.Now()
+		job.FinishedAt = &finishedAt
+		w.store.Builds().Update(ctx, job)
+		return nil
 	}
 	deployment.Status = models.DeploymentStatusBuilding
 	deployment.UpdatedAt = now
@@ -231,7 +256,9 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		w.logger.Error("failed to update deployment status", "deployment_id", deployment.ID, "error", err)
 	}
 
-	return buildErr
+	// Return nil to acknowledge the job - build failures are recorded in the database
+	// and should not be retried via the queue
+	return nil
 }
 
 // buildOCI executes an OCI mode build.
