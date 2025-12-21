@@ -203,7 +203,6 @@ func TestOwnerAccessAllowed(t *testing.T) {
 				ID:        appID,
 				OwnerID:   ownerID,
 				Name:      "test-app",
-				BuildType: models.BuildTypeOCI,
 				CreatedAt: time.Now(),
 				UpdatedAt: time.Now(),
 			}
