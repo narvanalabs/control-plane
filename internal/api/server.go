@@ -142,7 +142,12 @@ func (s *Server) setupRouter() {
 		nodeHandler := handlers.NewNodeHandler(s.store, s.logger)
 		r.Route("/nodes", func(r chi.Router) {
 			r.Get("/", nodeHandler.List)
+			r.Post("/register", nodeHandler.Register)
 			r.Post("/heartbeat", nodeHandler.Heartbeat)
+			r.Post("/{nodeID}/heartbeat", func(w http.ResponseWriter, req *http.Request) {
+				nodeID := chi.URLParam(req, "nodeID")
+				nodeHandler.HeartbeatByID(w, req, nodeID)
+			})
 		})
 	})
 
