@@ -21,6 +21,8 @@
             protobuf
             protoc-gen-go
             protoc-gen-go-grpc
+            overmind  # Process manager for running multiple services
+            tmux      # Required by overmind
           ];
 
           shellHook = ''
@@ -29,7 +31,9 @@
             export PGPORT="5432"
             export PGDATABASE="testdb"
             export PGUSER="testuser"
-            export TEST_DATABASE_URL="postgres://testuser@localhost:5432/testdb?host=$PGHOST"
+            export DATABASE_URL="postgres://testuser@localhost:5432/testdb?host=$PGHOST"
+            export TEST_DATABASE_URL="$DATABASE_URL"
+            export JWT_SECRET="dev-secret-key-minimum-32-characters-long"
 
             # Initialize PostgreSQL if not already done
             if [ ! -d "$PGDATA" ]; then
@@ -41,25 +45,36 @@
             mkdir -p "$PGHOST"
 
             # Start PostgreSQL if not running
-            if ! pg_isready -q; then
+            if ! pg_isready -q 2>/dev/null; then
               echo "Starting PostgreSQL..."
               pg_ctl start -l "$PGDATA/postgres.log" -o "-k $PGHOST -h '''"
               sleep 2
               
-              # Create test database if it doesn't exist
+              # Create database if it doesn't exist
               if ! psql -lqt | cut -d \| -f 1 | grep -qw testdb; then
                 createdb testdb
               fi
             fi
 
             echo ""
-            echo "PostgreSQL is running!"
-            echo "  Socket: $PGHOST"
-            echo "  Database: $PGDATABASE"
-            echo "  TEST_DATABASE_URL is set"
-            echo ""
-            echo "Run 'make test' to run all tests including database tests"
-            echo "Run 'pg_ctl stop' to stop PostgreSQL when done"
+            echo "╔══════════════════════════════════════════════════════════╗"
+            echo "║           Narvana Control Plane Dev Environment          ║"
+            echo "╠══════════════════════════════════════════════════════════╣"
+            echo "║  PostgreSQL: Running on $PGHOST                          ║"
+            echo "║  Database:   $PGDATABASE                                 ║"
+            echo "╠══════════════════════════════════════════════════════════╣"
+            echo "║  Quick Start:                                            ║"
+            echo "║    make dev-api     - Run API server                     ║"
+            echo "║    make dev-worker  - Run build worker                   ║"
+            echo "║    make dev-all     - Run all services (overmind)        ║"
+            echo "║                                                          ║"
+            echo "║  Database:                                               ║"
+            echo "║    make migrate-up  - Run migrations                     ║"
+            echo "║    make db-stop     - Stop PostgreSQL                    ║"
+            echo "║                                                          ║"
+            echo "║  Testing:                                                ║"
+            echo "║    make test        - Run all tests                      ║"
+            echo "╚══════════════════════════════════════════════════════════╝"
             echo ""
           '';
         };
