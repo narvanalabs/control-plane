@@ -281,7 +281,6 @@ type App struct {
 	OwnerID     string          `json:"owner_id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
-	BuildType   BuildType       `json:"build_type"`
 	Services    []ServiceConfig `json:"services"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
