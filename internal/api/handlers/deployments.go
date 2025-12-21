@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -153,7 +154,7 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create and enqueue build job based on source type
-		buildJob := h.createBuildJobForService(deployment.ID, appID, &svc, gitRef, app.BuildType, now)
+		buildJob := h.createBuildJobForService(r.Context(), deployment.ID, appID, &svc, gitRef, app.BuildType, now)
 
 		if buildJob != nil && h.queue != nil {
 			if err := h.queue.Enqueue(r.Context(), buildJob); err != nil {
@@ -401,7 +402,7 @@ func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Create and enqueue build job based on source type
-	buildJob := h.createBuildJobForService(deployment.ID, appID, service, gitRef, app.BuildType, now)
+	buildJob := h.createBuildJobForService(r.Context(), deployment.ID, appID, service, gitRef, app.BuildType, now)
 
 	if buildJob != nil && h.queue != nil {
 		if err := h.queue.Enqueue(r.Context(), buildJob); err != nil {
@@ -422,10 +423,13 @@ func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Requ
 
 // createBuildJobForService creates a build job based on the service's source type.
 // Returns nil for image sources (no build needed).
-func (h *DeploymentHandler) createBuildJobForService(deploymentID, appID string, service *models.ServiceConfig, gitRef string, buildType models.BuildType, now time.Time) *models.BuildJob {
+// Also creates the build record in the database.
+func (h *DeploymentHandler) createBuildJobForService(ctx context.Context, deploymentID, appID string, service *models.ServiceConfig, gitRef string, buildType models.BuildType, now time.Time) *models.BuildJob {
+	var buildJob *models.BuildJob
+
 	switch service.SourceType {
 	case models.SourceTypeGit:
-		return &models.BuildJob{
+		buildJob = &models.BuildJob{
 			ID:           uuid.New().String(),
 			DeploymentID: deploymentID,
 			AppID:        appID,
@@ -438,7 +442,7 @@ func (h *DeploymentHandler) createBuildJobForService(deploymentID, appID string,
 		}
 	case models.SourceTypeFlake:
 		// For flake sources, use the flake URI directly
-		return &models.BuildJob{
+		buildJob = &models.BuildJob{
 			ID:           uuid.New().String(),
 			DeploymentID: deploymentID,
 			AppID:        appID,
@@ -455,6 +459,17 @@ func (h *DeploymentHandler) createBuildJobForService(deploymentID, appID string,
 	default:
 		return nil
 	}
+
+	// Create the build record in the database
+	if buildJob != nil {
+		if err := h.store.Builds().Create(ctx, buildJob); err != nil {
+			h.logger.Error("failed to create build record", "error", err, "job_id", buildJob.ID)
+			// Return nil to prevent enqueueing a job without a database record
+			return nil
+		}
+	}
+
+	return buildJob
 }
 
 // Rollback handles POST /v1/deployments/:deploymentID/rollback - rolls back to a previous deployment.
