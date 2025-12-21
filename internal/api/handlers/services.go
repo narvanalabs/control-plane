@@ -38,6 +38,10 @@ type CreateServiceRequest struct {
 	FlakeURI    string `json:"flake_uri,omitempty"`
 	Image       string `json:"image,omitempty"`
 
+	// Build strategy configuration
+	BuildStrategy models.BuildStrategy `json:"build_strategy,omitempty"` // Default: "flake"
+	BuildConfig   *models.BuildConfig  `json:"build_config,omitempty"`
+
 	// Runtime
 	ResourceTier models.ResourceTier       `json:"resource_tier,omitempty"` // Default: "small"
 	Replicas     int                       `json:"replicas,omitempty"`      // Default: 1
@@ -55,6 +59,10 @@ type UpdateServiceRequest struct {
 	FlakeOutput *string `json:"flake_output,omitempty"`
 	FlakeURI    *string `json:"flake_uri,omitempty"`
 	Image       *string `json:"image,omitempty"`
+
+	// Build strategy updates
+	BuildStrategy *models.BuildStrategy `json:"build_strategy,omitempty"`
+	BuildConfig   *models.BuildConfig   `json:"build_config,omitempty"`
 
 	// Runtime updates
 	ResourceTier *models.ResourceTier      `json:"resource_tier,omitempty"`
@@ -118,16 +126,18 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Build service config
 	service := models.ServiceConfig{
-		Name:        req.Name,
-		GitRepo:     req.GitRepo,
-		GitRef:      req.GitRef,
-		FlakeOutput: req.FlakeOutput,
-		FlakeURI:    req.FlakeURI,
-		Image:       req.Image,
-		Ports:       req.Ports,
-		HealthCheck: req.HealthCheck,
-		DependsOn:   req.DependsOn,
-		EnvVars:     req.EnvVars,
+		Name:          req.Name,
+		GitRepo:       req.GitRepo,
+		GitRef:        req.GitRef,
+		FlakeOutput:   req.FlakeOutput,
+		FlakeURI:      req.FlakeURI,
+		Image:         req.Image,
+		BuildStrategy: req.BuildStrategy,
+		BuildConfig:   req.BuildConfig,
+		Ports:         req.Ports,
+		HealthCheck:   req.HealthCheck,
+		DependsOn:     req.DependsOn,
+		EnvVars:       req.EnvVars,
 	}
 
 	// Apply defaults for resource tier and replicas
@@ -141,6 +151,17 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		service.Replicas = req.Replicas
 	} else {
 		service.Replicas = 1
+	}
+
+	// Apply default build strategy if not specified
+	if service.BuildStrategy == "" {
+		service.BuildStrategy = models.BuildStrategyFlake
+	}
+
+	// Validate build strategy
+	if !service.BuildStrategy.IsValid() {
+		WriteBadRequest(w, "Invalid build_strategy: must be one of flake, auto-go, auto-rust, auto-node, auto-python, dockerfile, nixpacks, auto")
+		return
 	}
 
 	// Validate service configuration (this also applies defaults for git_ref and flake_output)
@@ -349,6 +370,16 @@ func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		service.Image = *req.Image
 		service.GitRepo = ""
 		service.FlakeURI = ""
+	}
+	if req.BuildStrategy != nil {
+		if !req.BuildStrategy.IsValid() {
+			WriteBadRequest(w, "Invalid build_strategy: must be one of flake, auto-go, auto-rust, auto-node, auto-python, dockerfile, nixpacks, auto")
+			return
+		}
+		service.BuildStrategy = *req.BuildStrategy
+	}
+	if req.BuildConfig != nil {
+		service.BuildConfig = req.BuildConfig
 	}
 	if req.ResourceTier != nil {
 		service.ResourceTier = *req.ResourceTier
