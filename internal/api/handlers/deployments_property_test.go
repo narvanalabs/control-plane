@@ -172,18 +172,17 @@ func TestDeploymentInheritsBuildType(t *testing.T) {
 	logger := slog.Default()
 
 	properties.Property("Deployment inherits build type from application", prop.ForAll(
-		func(userID, appName, gitRef string, buildType models.BuildType) bool {
+		func(userID, appName, gitRef string) bool {
 			// Create a mock store and queue
 			st := newDeploymentMockStore()
 			q := newMockQueue()
 
-			// Create an app with the specified build type
+			// Create an app
 			now := time.Now()
 			app := &models.App{
-				ID:        "app-" + appName,
-				OwnerID:   userID,
-				Name:      appName,
-				BuildType: buildType,
+				ID:      "app-" + appName,
+				OwnerID: userID,
+				Name:    appName,
 				Services: []models.ServiceConfig{
 					{Name: "web", ResourceTier: models.ResourceTierSmall},
 				},
@@ -227,13 +226,12 @@ func TestDeploymentInheritsBuildType(t *testing.T) {
 				return false
 			}
 
-			// Verify the deployment inherited the build type from the app
-			return deployment.BuildType == buildType
+			// Verify the deployment was created successfully
+			return deployment.ID != "" && deployment.AppID == app.ID
 		},
 		genUserID(),
 		genAppName(),
 		gen.RegexMatch("[a-z0-9]{6,12}"), // git ref
-		genBuildType(),
 	))
 
 	properties.TestingRun(t)
@@ -254,7 +252,7 @@ func TestRollbackUsesPreviousArtifact(t *testing.T) {
 	logger := slog.Default()
 
 	properties.Property("Rollback creates deployment with same artifact", prop.ForAll(
-		func(userID, appName, artifact string, buildType models.BuildType) bool {
+		func(userID, appName, artifact string) bool {
 			// Create a mock store and queue
 			st := newDeploymentMockStore()
 			q := newMockQueue()
@@ -265,7 +263,6 @@ func TestRollbackUsesPreviousArtifact(t *testing.T) {
 				ID:        "app-" + appName,
 				OwnerID:   userID,
 				Name:      appName,
-				BuildType: buildType,
 				CreatedAt: now,
 				UpdatedAt: now,
 			}
@@ -277,7 +274,6 @@ func TestRollbackUsesPreviousArtifact(t *testing.T) {
 				AppID:        app.ID,
 				ServiceName:  "web",
 				GitRef:       "main",
-				BuildType:    buildType,
 				Artifact:     artifact,
 				Status:       models.DeploymentStatusRunning,
 				ResourceTier: models.ResourceTierSmall,
@@ -316,13 +312,11 @@ func TestRollbackUsesPreviousArtifact(t *testing.T) {
 
 			// Verify the new deployment has the same artifact as the original
 			return newDeployment.Artifact == artifact &&
-				newDeployment.ID != originalDeployment.ID &&
-				newDeployment.BuildType == buildType
+				newDeployment.ID != originalDeployment.ID
 		},
 		genUserID(),
 		genAppName(),
 		gen.RegexMatch("[a-z0-9/:-]{10,30}"), // artifact (image tag or store path)
-		genBuildType(),
 	))
 
 	properties.TestingRun(t)
@@ -360,7 +354,7 @@ func TestMultiServiceDeploymentCreation(t *testing.T) {
 	}
 
 	properties.Property("Multi-service app creates N deployments for N services", prop.ForAll(
-		func(userID, appName, gitRef string, buildType models.BuildType, serviceCount int) bool {
+		func(userID, appName, gitRef string, serviceCount int) bool {
 			// Generate unique services
 			services := genUniqueServices(serviceCount)
 
@@ -374,7 +368,6 @@ func TestMultiServiceDeploymentCreation(t *testing.T) {
 				ID:        "app-" + appName,
 				OwnerID:   userID,
 				Name:      appName,
-				BuildType: buildType,
 				Services:  services,
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -428,10 +421,6 @@ func TestMultiServiceDeploymentCreation(t *testing.T) {
 				if !serviceNames[d.ServiceName] {
 					return false
 				}
-				// Verify deployment inherits build type
-				if d.BuildType != buildType {
-					return false
-				}
 				// Verify deployment has correct app ID
 				if d.AppID != app.ID {
 					return false
@@ -443,7 +432,6 @@ func TestMultiServiceDeploymentCreation(t *testing.T) {
 		genUserID(),
 		genAppName(),
 		gen.RegexMatch("[a-z0-9]{6,12}"), // git ref
-		genBuildType(),
 		gen.IntRange(1, 5), // service count (1-5 services)
 	))
 
@@ -483,7 +471,7 @@ func TestPerServiceDeploymentIsolation(t *testing.T) {
 	}
 
 	properties.Property("Per-service deployment creates exactly one deployment", prop.ForAll(
-		func(userID, appName string, buildType models.BuildType, serviceCount, targetServiceIndex int) bool {
+		func(userID, appName string, serviceCount, targetServiceIndex int) bool {
 			// Ensure target index is valid
 			if targetServiceIndex >= serviceCount {
 				targetServiceIndex = serviceCount - 1
@@ -503,7 +491,6 @@ func TestPerServiceDeploymentIsolation(t *testing.T) {
 				ID:        "app-" + appName,
 				OwnerID:   userID,
 				Name:      appName,
-				BuildType: buildType,
 				Services:  services,
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -563,7 +550,6 @@ func TestPerServiceDeploymentIsolation(t *testing.T) {
 		},
 		genUserID(),
 		genAppName(),
-		genBuildType(),
 		gen.IntRange(2, 5), // service count (2-5 services to ensure multiple exist)
 		gen.IntRange(0, 4), // target service index
 	))
@@ -586,7 +572,7 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 	logger := slog.Default()
 
 	properties.Property("Deployment build job uses service's git_repo and flake_output", prop.ForAll(
-		func(userID, appName, gitRepo, flakeOutput string, buildType models.BuildType) bool {
+		func(userID, appName, gitRepo, flakeOutput string) bool {
 			// Create a mock store and queue
 			st := newDeploymentMockStore()
 			q := newMockQueue()
@@ -595,10 +581,9 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 			now := time.Now()
 			serviceName := "api"
 			app := &models.App{
-				ID:        "app-" + appName,
-				OwnerID:   userID,
-				Name:      appName,
-				BuildType: buildType,
+				ID:      "app-" + appName,
+				OwnerID: userID,
+				Name:    appName,
 				Services: []models.ServiceConfig{
 					{
 						Name:         serviceName,
@@ -676,12 +661,11 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 		genAppName(),
 		gen.RegexMatch("github\\.com/[a-z]+/[a-z]+"), // git repo
 		gen.OneConstOf("packages.x86_64-linux.default", "packages.x86_64-linux.api", "packages.aarch64-linux.default"),
-		genBuildType(),
 	))
 
 	// Test that git_ref override works
 	properties.Property("Deployment allows git_ref override", prop.ForAll(
-		func(userID, appName, overrideRef string, buildType models.BuildType) bool {
+		func(userID, appName, overrideRef string) bool {
 			// Create a mock store and queue
 			st := newDeploymentMockStore()
 			q := newMockQueue()
@@ -690,10 +674,9 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 			now := time.Now()
 			serviceName := "api"
 			app := &models.App{
-				ID:        "app-" + appName,
-				OwnerID:   userID,
-				Name:      appName,
-				BuildType: buildType,
+				ID:      "app-" + appName,
+				OwnerID: userID,
+				Name:    appName,
 				Services: []models.ServiceConfig{
 					{
 						Name:         serviceName,
@@ -751,7 +734,6 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 		genUserID(),
 		genAppName(),
 		gen.OneConstOf("feature/test", "release/v1.0", "develop", "abc123def456"),
-		genBuildType(),
 	))
 
 	properties.TestingRun(t)
@@ -773,7 +755,7 @@ func TestDependencyOrderInDeployment(t *testing.T) {
 	logger := slog.Default()
 
 	properties.Property("Services are deployed in dependency order", prop.ForAll(
-		func(userID, appName string, buildType models.BuildType) bool {
+		func(userID, appName string) bool {
 			// Create services with a dependency chain: A -> B -> C (C depends on B, B depends on A)
 			services := []models.ServiceConfig{
 				{
@@ -818,7 +800,6 @@ func TestDependencyOrderInDeployment(t *testing.T) {
 				ID:        "app-" + appName,
 				OwnerID:   userID,
 				Name:      appName,
-				BuildType: buildType,
 				Services:  services,
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -912,12 +893,11 @@ func TestDependencyOrderInDeployment(t *testing.T) {
 		},
 		genUserID(),
 		genAppName(),
-		genBuildType(),
 	))
 
 	// Test that services with no dependencies can be deployed in any order relative to each other
 	properties.Property("Independent services can be deployed in any order", prop.ForAll(
-		func(userID, appName string, buildType models.BuildType) bool {
+		func(userID, appName string) bool {
 			// Create independent services (no dependencies between them)
 			services := []models.ServiceConfig{
 				{
@@ -952,7 +932,6 @@ func TestDependencyOrderInDeployment(t *testing.T) {
 				ID:        "app-" + appName,
 				OwnerID:   userID,
 				Name:      appName,
-				BuildType: buildType,
 				Services:  services,
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -1002,7 +981,6 @@ func TestDependencyOrderInDeployment(t *testing.T) {
 		},
 		genUserID(),
 		genAppName(),
-		genBuildType(),
 	))
 
 	properties.TestingRun(t)
