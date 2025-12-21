@@ -119,6 +119,14 @@ func (s *Server) setupRouter() {
 					r.Patch("/{serviceName}", serviceHandler.Update)
 					r.Delete("/{serviceName}", serviceHandler.Delete)
 					r.Post("/{serviceName}/deploy", deploymentHandler.CreateForService)
+
+					// Preview endpoint for build preview
+					previewHandler, err := handlers.NewPreviewHandler(s.store, s.logger)
+					if err != nil {
+						s.logger.Error("failed to create preview handler", "error", err)
+					} else {
+						r.Post("/{serviceName}/preview", previewHandler.Preview)
+					}
 				})
 
 				// Log routes nested under apps
