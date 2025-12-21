@@ -750,10 +750,12 @@ func (x *NodeConfig) GetLogBufferSize() int32 {
 }
 
 type HeartbeatRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	NodeInfo      *NodeInfo              `protobuf:"bytes,2,opt,name=node_info,json=nodeInfo,proto3" json:"node_info,omitempty"`
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	NodeId    string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeInfo  *NodeInfo              `protobuf:"bytes,2,opt,name=node_info,json=nodeInfo,proto3" json:"node_info,omitempty"`
+	Timestamp *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// draining indicates the node is shutting down and should not receive new deployments
+	Draining      bool `protobuf:"varint,4,opt,name=draining,proto3" json:"draining,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -807,6 +809,13 @@ func (x *HeartbeatRequest) GetTimestamp() *timestamppb.Timestamp {
 		return x.Timestamp
 	}
 	return nil
+}
+
+func (x *HeartbeatRequest) GetDraining() bool {
+	if x != nil {
+		return x.Draining
+	}
+	return false
 }
 
 type HeartbeatResponse struct {
@@ -1950,11 +1959,12 @@ const file_api_proto_controlplane_proto_rawDesc = "" +
 	"NodeConfig\x12<\n" +
 	"\x1aheartbeat_interval_seconds\x18\x01 \x01(\x05R\x18heartbeatIntervalSeconds\x12<\n" +
 	"\x1amax_concurrent_deployments\x18\x02 \x01(\x05R\x18maxConcurrentDeployments\x12&\n" +
-	"\x0flog_buffer_size\x18\x03 \x01(\x05R\rlogBufferSize\"\x9a\x01\n" +
+	"\x0flog_buffer_size\x18\x03 \x01(\x05R\rlogBufferSize\"\xb6\x01\n" +
 	"\x10HeartbeatRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x123\n" +
 	"\tnode_info\x18\x02 \x01(\v2\x16.controlplane.NodeInfoR\bnodeInfo\x128\n" +
-	"\ttimestamp\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"-\n" +
+	"\ttimestamp\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x1a\n" +
+	"\bdraining\x18\x04 \x01(\bR\bdraining\"-\n" +
 	"\x11HeartbeatResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"N\n" +
 	"\x14WatchCommandsRequest\x12\x17\n" +
