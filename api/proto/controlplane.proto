@@ -92,6 +92,8 @@ message HeartbeatRequest {
   string node_id = 1;
   NodeInfo node_info = 2;
   google.protobuf.Timestamp timestamp = 3;
+  // draining indicates the node is shutting down and should not receive new deployments
+  bool draining = 4;
 }
 
 message HeartbeatResponse {
