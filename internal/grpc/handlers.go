@@ -215,20 +215,36 @@ func (s *Server) PushLogs(stream pb.ControlPlaneService_PushLogsServer) error {
 }
 
 // WatchCommands handles the command streaming to nodes.
-// This is a placeholder - full implementation is in Task 4.
 // Requirements: 3.1, 3.2, 3.3, 3.4
 func (s *Server) WatchCommands(req *pb.WatchCommandsRequest, stream pb.ControlPlaneService_WatchCommandsServer) error {
 	if req.NodeId == "" {
 		return status.Error(codes.InvalidArgument, "node_id is required")
 	}
 
-	s.logger.Info("node watching for commands", "node_id", req.NodeId)
+	nodeID := req.NodeId
+	s.logger.Info("node watching for commands", "node_id", nodeID)
+
+	// Register the node's command stream with the NodeManager
+	if s.nodeManager != nil {
+		if err := s.nodeManager.RegisterConnection(nodeID, stream); err != nil {
+			s.logger.Error("failed to register node connection",
+				"node_id", nodeID,
+				"error", err,
+			)
+			return status.Error(codes.Internal, "failed to register connection")
+		}
+
+		// Ensure we unregister when the stream closes
+		defer func() {
+			s.nodeManager.UnregisterConnection(nodeID)
+			s.logger.Info("node command stream closed", "node_id", nodeID)
+		}()
+	}
 
 	// Keep the stream open until context is cancelled
-	// Full implementation with NodeManager will be in Task 4
+	// Commands are sent via NodeManager.SendCommand()
 	<-stream.Context().Done()
 
-	s.logger.Info("node command stream closed", "node_id", req.NodeId)
 	return nil
 }
 
