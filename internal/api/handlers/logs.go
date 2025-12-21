@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/store"
 )
@@ -26,7 +27,11 @@ func NewLogHandler(st store.Store, logger *slog.Logger) *LogHandler {
 
 // Get handles GET /v1/apps/:appID/logs - retrieves logs for the most recent deployment.
 func (h *LogHandler) Get(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return

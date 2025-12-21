@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/store"
 )
 
@@ -59,7 +60,11 @@ func (r *CreateSecretRequest) Validate() error {
 
 // Create handles POST /v1/apps/:appID/secrets - creates or updates a secret.
 func (h *SecretHandler) Create(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
@@ -104,7 +109,11 @@ func (h *SecretHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // List handles GET /v1/apps/:appID/secrets - lists secret keys for an app.
 func (h *SecretHandler) List(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
@@ -126,7 +135,11 @@ func (h *SecretHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /v1/apps/:appID/secrets/:key - deletes a secret.
 func (h *SecretHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	key := chi.URLParam(r, "key")
 
 	if appID == "" {
