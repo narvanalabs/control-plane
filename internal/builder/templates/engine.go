@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	builderrors "github.com/narvanalabs/control-plane/internal/builder/errors"
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
@@ -111,12 +112,12 @@ func templateFuncs() template.FuncMap {
 func (e *DefaultTemplateEngine) Render(ctx context.Context, templateName string, data TemplateData) (string, error) {
 	tmpl, ok := e.templates[templateName]
 	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrTemplateNotFound, templateName)
+		return "", builderrors.NewTemplateNotFoundError(templateName)
 	}
 
 	var buf strings.Builder
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrTemplateRenderFailed, err)
+		return "", builderrors.NewTemplateRenderError(err, templateName)
 	}
 
 	return buf.String(), nil
@@ -135,7 +136,11 @@ func (e *DefaultTemplateEngine) Validate(ctx context.Context, flakeContent strin
 	cmd := exec.CommandContext(ctx, "nix", "flake", "check", "--no-build", tmpDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidFlakeSyntax, string(output))
+		// Include the generated flake in the error for debugging
+		return builderrors.NewInvalidFlakeSyntaxError(
+			fmt.Errorf("%s", string(output)),
+			flakeContent,
+		)
 	}
 
 	return nil
@@ -214,35 +219,56 @@ func (e *DefaultTemplateEngine) ValidateSyntax(flakeContent string) error {
 		}
 
 		if braceCount < 0 || bracketCount < 0 || parenCount < 0 {
-			return fmt.Errorf("%w: unbalanced brackets", ErrInvalidFlakeSyntax)
+			return builderrors.NewInvalidFlakeSyntaxError(
+				fmt.Errorf("unbalanced brackets"),
+				flakeContent,
+			)
 		}
 	}
 
 	if braceCount != 0 {
-		return fmt.Errorf("%w: unbalanced braces (count: %d)", ErrInvalidFlakeSyntax, braceCount)
+		return builderrors.NewInvalidFlakeSyntaxError(
+			fmt.Errorf("unbalanced braces (count: %d)", braceCount),
+			flakeContent,
+		)
 	}
 	if bracketCount != 0 {
-		return fmt.Errorf("%w: unbalanced square brackets (count: %d)", ErrInvalidFlakeSyntax, bracketCount)
+		return builderrors.NewInvalidFlakeSyntaxError(
+			fmt.Errorf("unbalanced square brackets (count: %d)", bracketCount),
+			flakeContent,
+		)
 	}
 	if parenCount != 0 {
-		return fmt.Errorf("%w: unbalanced parentheses (count: %d)", ErrInvalidFlakeSyntax, parenCount)
+		return builderrors.NewInvalidFlakeSyntaxError(
+			fmt.Errorf("unbalanced parentheses (count: %d)", parenCount),
+			flakeContent,
+		)
 	}
 
 	// Check for required flake structure
 	if !strings.Contains(flakeContent, "description") {
-		return fmt.Errorf("%w: missing description", ErrInvalidFlakeSyntax)
+		return builderrors.NewInvalidFlakeSyntaxError(
+			fmt.Errorf("missing description"),
+			flakeContent,
+		)
 	}
 	if !strings.Contains(flakeContent, "inputs") {
-		return fmt.Errorf("%w: missing inputs", ErrInvalidFlakeSyntax)
+		return builderrors.NewInvalidFlakeSyntaxError(
+			fmt.Errorf("missing inputs"),
+			flakeContent,
+		)
 	}
 	if !strings.Contains(flakeContent, "outputs") {
-		return fmt.Errorf("%w: missing outputs", ErrInvalidFlakeSyntax)
+		return builderrors.NewInvalidFlakeSyntaxError(
+			fmt.Errorf("missing outputs"),
+			flakeContent,
+		)
 	}
 
 	return nil
 }
 
-// Errors for template operations.
+// Errors for template operations - kept for backward compatibility.
 var (
 	ErrTemplateNotFound     = fmt.Errorf("template not found")
 	ErrTemplateRenderFailed = fmt.Errorf("failed to render template")
