@@ -73,7 +73,11 @@ type ServiceResponse struct {
 
 // Create handles POST /v1/apps/{appID}/services - creates a new service.
 func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
@@ -179,7 +183,11 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // List handles GET /v1/apps/{appID}/services - lists all services for an app.
 func (h *ServiceHandler) List(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
@@ -215,7 +223,11 @@ func (h *ServiceHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get handles GET /v1/apps/{appID}/services/{serviceName} - retrieves a specific service.
 func (h *ServiceHandler) Get(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	serviceName := chi.URLParam(r, "serviceName")
 
 	if appID == "" {
@@ -259,7 +271,11 @@ func (h *ServiceHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Update handles PATCH /v1/apps/{appID}/services/{serviceName} - updates a service.
 func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	serviceName := chi.URLParam(r, "serviceName")
 
 	if appID == "" {
@@ -392,7 +408,11 @@ func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /v1/apps/{appID}/services/{serviceName} - deletes a service.
 func (h *ServiceHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
 	serviceName := chi.URLParam(r, "serviceName")
 
 	if appID == "" {
