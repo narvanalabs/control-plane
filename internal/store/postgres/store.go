@@ -24,6 +24,7 @@ type PostgresStore struct {
 	builds      *BuildStore
 	secrets     *SecretStore
 	logs        *LogStore
+	users       *UserStore
 }
 
 // Config holds PostgreSQL connection configuration.
@@ -84,6 +85,7 @@ func NewPostgresStore(cfg *Config, logger *slog.Logger) (*PostgresStore, error) 
 	s.builds = &BuildStore{db: db, logger: logger}
 	s.secrets = &SecretStore{db: db, logger: logger}
 	s.logs = &LogStore{db: db, logger: logger}
+	s.users = &UserStore{db: db, logger: logger}
 
 	logger.Info("connected to PostgreSQL database")
 	return s, nil
@@ -118,6 +120,11 @@ func (s *PostgresStore) Secrets() store.SecretStore {
 // Logs returns the LogStore.
 func (s *PostgresStore) Logs() store.LogStore {
 	return s.logs
+}
+
+// Users returns the UserStore.
+func (s *PostgresStore) Users() store.UserStore {
+	return s.users
 }
 
 // WithTx executes the given function within a database transaction.
@@ -172,6 +179,7 @@ type txStore struct {
 	builds      *BuildStore
 	secrets     *SecretStore
 	logs        *LogStore
+	users       *UserStore
 }
 
 func (s *txStore) Apps() store.AppStore {
@@ -214,6 +222,13 @@ func (s *txStore) Logs() store.LogStore {
 		s.logs = &LogStore{tx: s.tx, logger: s.logger}
 	}
 	return s.logs
+}
+
+func (s *txStore) Users() store.UserStore {
+	if s.users == nil {
+		s.users = &UserStore{tx: s.tx, logger: s.logger}
+	}
+	return s.users
 }
 
 func (s *txStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
