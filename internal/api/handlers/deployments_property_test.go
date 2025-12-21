@@ -756,3 +756,254 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: service-git-repos, Property 12: Dependency Order in Deployment**
+// *For any* deployment of multiple services with dependencies, services SHALL be
+// deployed in topological order (dependencies before dependents).
+// **Validates: Requirements 9.2**
+
+func TestDependencyOrderInDeployment(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+
+	logger := slog.Default()
+
+	properties.Property("Services are deployed in dependency order", prop.ForAll(
+		func(userID, appName string, buildType models.BuildType) bool {
+			// Create services with a dependency chain: A -> B -> C (C depends on B, B depends on A)
+			services := []models.ServiceConfig{
+				{
+					Name:         "service-c",
+					SourceType:   models.SourceTypeGit,
+					GitRepo:      "github.com/test/repoc",
+					GitRef:       "main",
+					FlakeOutput:  "packages.x86_64-linux.default",
+					ResourceTier: models.ResourceTierSmall,
+					Replicas:     1,
+					DependsOn:    []string{"service-b"},
+				},
+				{
+					Name:         "service-a",
+					SourceType:   models.SourceTypeGit,
+					GitRepo:      "github.com/test/repoa",
+					GitRef:       "main",
+					FlakeOutput:  "packages.x86_64-linux.default",
+					ResourceTier: models.ResourceTierSmall,
+					Replicas:     1,
+					DependsOn:    []string{}, // No dependencies
+				},
+				{
+					Name:         "service-b",
+					SourceType:   models.SourceTypeGit,
+					GitRepo:      "github.com/test/repob",
+					GitRef:       "main",
+					FlakeOutput:  "packages.x86_64-linux.default",
+					ResourceTier: models.ResourceTierSmall,
+					Replicas:     1,
+					DependsOn:    []string{"service-a"},
+				},
+			}
+
+			// Create a mock store and queue
+			st := newDeploymentMockStore()
+			q := newMockQueue()
+
+			// Create an app with services that have dependencies
+			now := time.Now()
+			app := &models.App{
+				ID:        "app-" + appName,
+				OwnerID:   userID,
+				Name:      appName,
+				BuildType: buildType,
+				Services:  services,
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			st.appStore.apps[app.ID] = app
+
+			// Create deployment handler
+			handler := NewDeploymentHandler(st, q, logger)
+
+			// Create a deployment request for all services
+			reqBody := CreateDeploymentRequest{
+				GitRef: "main",
+			}
+			body, _ := json.Marshal(reqBody)
+
+			// Create the HTTP request
+			req := httptest.NewRequest("POST", "/v1/apps/"+app.ID+"/deploy", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+
+			// Add URL params
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("appID", app.ID)
+			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+
+			req = req.WithContext(ctx)
+
+			// Execute the request
+			rr := httptest.NewRecorder()
+			handler.Create(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				t.Logf("Expected status 202, got %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			// Verify all 3 deployments were created
+			if len(st.deploymentStore.deployments) != 3 {
+				t.Logf("Expected 3 deployments, got %d", len(st.deploymentStore.deployments))
+				return false
+			}
+
+			// Verify the build jobs are in dependency order
+			// The order should be: service-a, service-b, service-c
+			if len(q.jobs) != 3 {
+				t.Logf("Expected 3 build jobs, got %d", len(q.jobs))
+				return false
+			}
+
+			// Build a map of deployment IDs to service names
+			deploymentToService := make(map[string]string)
+			for _, d := range st.deploymentStore.deployments {
+				deploymentToService[d.ID] = d.ServiceName
+			}
+
+			// Get the order of services from build jobs
+			var serviceOrder []string
+			for _, job := range q.jobs {
+				serviceName := deploymentToService[job.DeploymentID]
+				serviceOrder = append(serviceOrder, serviceName)
+			}
+
+			// Verify service-a comes before service-b
+			aIndex := -1
+			bIndex := -1
+			cIndex := -1
+			for i, name := range serviceOrder {
+				switch name {
+				case "service-a":
+					aIndex = i
+				case "service-b":
+					bIndex = i
+				case "service-c":
+					cIndex = i
+				}
+			}
+
+			// A must come before B (B depends on A)
+			if aIndex >= bIndex {
+				t.Logf("service-a (index %d) should come before service-b (index %d)", aIndex, bIndex)
+				return false
+			}
+
+			// B must come before C (C depends on B)
+			if bIndex >= cIndex {
+				t.Logf("service-b (index %d) should come before service-c (index %d)", bIndex, cIndex)
+				return false
+			}
+
+			return true
+		},
+		genUserID(),
+		genAppName(),
+		genBuildType(),
+	))
+
+	// Test that services with no dependencies can be deployed in any order relative to each other
+	properties.Property("Independent services can be deployed in any order", prop.ForAll(
+		func(userID, appName string, buildType models.BuildType) bool {
+			// Create independent services (no dependencies between them)
+			services := []models.ServiceConfig{
+				{
+					Name:         "service-x",
+					SourceType:   models.SourceTypeGit,
+					GitRepo:      "github.com/test/repox",
+					GitRef:       "main",
+					FlakeOutput:  "packages.x86_64-linux.default",
+					ResourceTier: models.ResourceTierSmall,
+					Replicas:     1,
+					DependsOn:    []string{},
+				},
+				{
+					Name:         "service-y",
+					SourceType:   models.SourceTypeGit,
+					GitRepo:      "github.com/test/repoy",
+					GitRef:       "main",
+					FlakeOutput:  "packages.x86_64-linux.default",
+					ResourceTier: models.ResourceTierSmall,
+					Replicas:     1,
+					DependsOn:    []string{},
+				},
+			}
+
+			// Create a mock store and queue
+			st := newDeploymentMockStore()
+			q := newMockQueue()
+
+			// Create an app
+			now := time.Now()
+			app := &models.App{
+				ID:        "app-" + appName,
+				OwnerID:   userID,
+				Name:      appName,
+				BuildType: buildType,
+				Services:  services,
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			st.appStore.apps[app.ID] = app
+
+			// Create deployment handler
+			handler := NewDeploymentHandler(st, q, logger)
+
+			// Create a deployment request
+			reqBody := CreateDeploymentRequest{
+				GitRef: "main",
+			}
+			body, _ := json.Marshal(reqBody)
+
+			// Create the HTTP request
+			req := httptest.NewRequest("POST", "/v1/apps/"+app.ID+"/deploy", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+
+			// Add URL params
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("appID", app.ID)
+			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+
+			req = req.WithContext(ctx)
+
+			// Execute the request
+			rr := httptest.NewRecorder()
+			handler.Create(rr, req)
+
+			if rr.Code != http.StatusAccepted {
+				return false
+			}
+
+			// Verify both deployments were created
+			if len(st.deploymentStore.deployments) != 2 {
+				return false
+			}
+
+			// Verify both build jobs were created
+			if len(q.jobs) != 2 {
+				return false
+			}
+
+			return true
+		},
+		genUserID(),
+		genAppName(),
+		genBuildType(),
+	))
+
+	properties.TestingRun(t)
+}
