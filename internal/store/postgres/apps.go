@@ -35,8 +35,8 @@ func (s *AppStore) Create(ctx context.Context, app *models.App) error {
 	}
 
 	query := `
-		INSERT INTO apps (id, owner_id, name, description, build_type, services, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO apps (id, owner_id, name, description, services, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at`
 
 	now := time.Now().UTC()
@@ -52,7 +52,6 @@ func (s *AppStore) Create(ctx context.Context, app *models.App) error {
 		app.OwnerID,
 		app.Name,
 		app.Description,
-		app.BuildType,
 		servicesJSON,
 		app.CreatedAt,
 		app.UpdatedAt,
@@ -72,7 +71,7 @@ func (s *AppStore) Create(ctx context.Context, app *models.App) error {
 // Get retrieves an application by ID.
 func (s *AppStore) Get(ctx context.Context, id string) (*models.App, error) {
 	query := `
-		SELECT id, owner_id, name, description, build_type, services, 
+		SELECT id, owner_id, name, description, services, 
 		       created_at, updated_at, deleted_at
 		FROM apps
 		WHERE id = $1 AND deleted_at IS NULL`
@@ -86,7 +85,6 @@ func (s *AppStore) Get(ctx context.Context, id string) (*models.App, error) {
 		&app.OwnerID,
 		&app.Name,
 		&app.Description,
-		&app.BuildType,
 		&servicesJSON,
 		&app.CreatedAt,
 		&app.UpdatedAt,
@@ -114,7 +112,7 @@ func (s *AppStore) Get(ctx context.Context, id string) (*models.App, error) {
 // GetByName retrieves an application by owner ID and name.
 func (s *AppStore) GetByName(ctx context.Context, ownerID, name string) (*models.App, error) {
 	query := `
-		SELECT id, owner_id, name, description, build_type, services, 
+		SELECT id, owner_id, name, description, services, 
 		       created_at, updated_at, deleted_at
 		FROM apps
 		WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL`
@@ -128,7 +126,6 @@ func (s *AppStore) GetByName(ctx context.Context, ownerID, name string) (*models
 		&app.OwnerID,
 		&app.Name,
 		&app.Description,
-		&app.BuildType,
 		&servicesJSON,
 		&app.CreatedAt,
 		&app.UpdatedAt,
@@ -156,7 +153,7 @@ func (s *AppStore) GetByName(ctx context.Context, ownerID, name string) (*models
 // List retrieves all applications for a given owner.
 func (s *AppStore) List(ctx context.Context, ownerID string) ([]*models.App, error) {
 	query := `
-		SELECT id, owner_id, name, description, build_type, services, 
+		SELECT id, owner_id, name, description, services, 
 		       created_at, updated_at, deleted_at
 		FROM apps
 		WHERE owner_id = $1 AND deleted_at IS NULL
@@ -179,7 +176,6 @@ func (s *AppStore) List(ctx context.Context, ownerID string) ([]*models.App, err
 			&app.OwnerID,
 			&app.Name,
 			&app.Description,
-			&app.BuildType,
 			&servicesJSON,
 			&app.CreatedAt,
 			&app.UpdatedAt,
@@ -217,7 +213,7 @@ func (s *AppStore) Update(ctx context.Context, app *models.App) error {
 
 	query := `
 		UPDATE apps
-		SET name = $2, description = $3, build_type = $4, services = $5, updated_at = $6
+		SET name = $2, description = $3, services = $4, updated_at = $5
 		WHERE id = $1 AND deleted_at IS NULL`
 
 	app.UpdatedAt = time.Now().UTC()
@@ -226,7 +222,6 @@ func (s *AppStore) Update(ctx context.Context, app *models.App) error {
 		app.ID,
 		app.Name,
 		app.Description,
-		app.BuildType,
 		servicesJSON,
 		app.UpdatedAt,
 	)

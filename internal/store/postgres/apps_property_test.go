@@ -75,7 +75,6 @@ func runMigrations(db *sql.DB) error {
 			owner_id VARCHAR(255) NOT NULL,
 			name VARCHAR(63) NOT NULL,
 			description TEXT,
-			build_type VARCHAR(20) NOT NULL CHECK (build_type IN ('oci', 'pure-nix')),
 			services JSONB NOT NULL DEFAULT '[]',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -89,11 +88,6 @@ func runMigrations(db *sql.DB) error {
 	return err
 }
 
-
-// genBuildType generates a random BuildType.
-func genBuildType() gopter.Gen {
-	return gen.OneConstOf(models.BuildTypeOCI, models.BuildTypePureNix)
-}
 
 // genResourceTier generates a random ResourceTier.
 func genResourceTier() gopter.Gen {
@@ -189,7 +183,6 @@ func genAppInput() gopter.Gen {
 		genNonEmptyAlphaString(), // OwnerID
 		genNonEmptyAlphaString(), // Name
 		gen.AlphaString(),        // Description (can be empty)
-		genBuildType(),
 		gen.SliceOfN(2, genServiceConfig()),
 	).Map(func(vals []interface{}) models.App {
 		return models.App{
@@ -197,8 +190,7 @@ func genAppInput() gopter.Gen {
 			OwnerID:     vals[0].(string),
 			Name:        vals[1].(string),
 			Description: vals[2].(string),
-			BuildType:   vals[3].(models.BuildType),
-			Services:    vals[4].([]models.ServiceConfig),
+			Services:    vals[3].([]models.ServiceConfig),
 		}
 	})
 }
@@ -254,10 +246,6 @@ func TestAppCreationRoundTrip(t *testing.T) {
 				t.Logf("Description mismatch: got %s, want %s", retrieved.Description, input.Description)
 				return false
 			}
-			if retrieved.BuildType != input.BuildType {
-				t.Logf("BuildType mismatch: got %s, want %s", retrieved.BuildType, input.BuildType)
-				return false
-			}
 
 			// Verify services match (compare lengths and content)
 			if len(retrieved.Services) != len(input.Services) {
@@ -308,7 +296,6 @@ func TestAppNameUniqueness(t *testing.T) {
 				OwnerID:     input.OwnerID,
 				Name:        input.Name,
 				Description: "duplicate",
-				BuildType:   input.BuildType,
 				Services:    []models.ServiceConfig{},
 			}
 
