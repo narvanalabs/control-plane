@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -111,27 +112,103 @@ func genOptionalHealthCheckConfig() gopter.Gen {
 	}, reflect.TypeOf((*HealthCheckConfig)(nil)))
 }
 
+// genSourceType generates a random SourceType.
+func genSourceType() gopter.Gen {
+	return gen.OneConstOf(SourceTypeGit, SourceTypeFlake, SourceTypeImage)
+}
+
+// genGitRepo generates a valid git repository URL.
+func genGitRepo() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	).Map(func(vals []interface{}) string {
+		return fmt.Sprintf("github.com/%s/%s", vals[0].(string), vals[1].(string))
+	})
+}
+
+// genGitRef generates a valid git ref (branch, tag, or commit).
+func genGitRef() gopter.Gen {
+	return gen.OneConstOf("main", "master", "develop", "release/v1.0")
+}
+
+// genFlakeOutput generates a valid flake output path.
+func genFlakeOutput() gopter.Gen {
+	return gen.OneConstOf(
+		"packages.x86_64-linux.default",
+		"packages.x86_64-linux.api",
+		"packages.aarch64-linux.default",
+		"packages.x86_64-darwin.default",
+	)
+}
+
+// genFlakeURI generates a valid flake URI.
+func genFlakeURI() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	).Map(func(vals []interface{}) string {
+		return fmt.Sprintf("github:%s/%s", vals[0].(string), vals[1].(string))
+	})
+}
+
+// genImageRef generates a valid OCI image reference.
+func genImageRef() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	).Map(func(vals []interface{}) string {
+		return fmt.Sprintf("%s:%s", vals[0].(string), vals[1].(string))
+	})
+}
+
+// genEnvVars generates a map of environment variables.
+func genEnvVars() gopter.Gen {
+	return gen.MapOf(gen.Identifier(), gen.AlphaString())
+}
+
 // genServiceConfig generates a random ServiceConfig.
 func genServiceConfig() gopter.Gen {
-	return gopter.CombineGens(
-		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
-		gen.AlphaString(),
-		genResourceTier(),
-		gen.IntRange(1, 10),
-		gen.SliceOfN(2, genPortMapping()),
-		genOptionalHealthCheckConfig(),
-		gen.SliceOfN(2, gen.AlphaString()),
-	).Map(func(vals []interface{}) ServiceConfig {
-		return ServiceConfig{
-			Name:         vals[0].(string),
-			FlakeOutput:  vals[1].(string),
-			ResourceTier: vals[2].(ResourceTier),
-			Replicas:     vals[3].(int),
-			Ports:        vals[4].([]PortMapping),
-			HealthCheck:  vals[5].(*HealthCheckConfig),
-			DependsOn:    vals[6].([]string),
-		}
-	})
+	return genSourceType().FlatMap(func(v interface{}) gopter.Gen {
+		sourceType := v.(SourceType)
+		return gopter.CombineGens(
+			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+			genResourceTier(),
+			gen.IntRange(1, 10),
+			gen.SliceOfN(2, genPortMapping()),
+			genOptionalHealthCheckConfig(),
+			gen.SliceOfN(2, gen.Identifier()),
+			genEnvVars(),
+			genGitRepo(),
+			genGitRef(),
+			genFlakeOutput(),
+			genFlakeURI(),
+			genImageRef(),
+		).Map(func(vals []interface{}) ServiceConfig {
+			sc := ServiceConfig{
+				Name:         vals[0].(string),
+				SourceType:   sourceType,
+				ResourceTier: vals[1].(ResourceTier),
+				Replicas:     vals[2].(int),
+				Ports:        vals[3].([]PortMapping),
+				HealthCheck:  vals[4].(*HealthCheckConfig),
+				DependsOn:    vals[5].([]string),
+				EnvVars:      vals[6].(map[string]string),
+			}
+			// Set only the appropriate source field based on source type
+			switch sourceType {
+			case SourceTypeGit:
+				sc.GitRepo = vals[7].(string)
+				sc.GitRef = vals[8].(string)
+				sc.FlakeOutput = vals[9].(string)
+			case SourceTypeFlake:
+				sc.FlakeURI = vals[10].(string)
+			case SourceTypeImage:
+				sc.Image = vals[11].(string)
+			}
+			return sc
+		})
+	}, reflect.TypeOf(ServiceConfig{}))
 }
 
 
@@ -372,6 +449,485 @@ func TestNodeJSONRoundTrip(t *testing.T) {
 			return jsonEqual(original, restored)
 		},
 		genNode(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: service-git-repos, Property 1: Source Type Mutual Exclusivity**
+// For any service creation request, if more than one of git_repo, flake_uri, or image
+// is specified, the request SHALL be rejected with a validation error.
+// **Validates: Requirements 1.5, 2.3**
+func TestSourceTypeMutualExclusivity(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for service configs with multiple sources set
+	genMultipleSourceConfig := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+			genGitRepo(),
+			genFlakeURI(),
+			genImageRef(),
+			gen.IntRange(1, 3), // Which combination of sources to set (1=git+flake, 2=git+image, 3=flake+image)
+		).Map(func(vals []interface{}) ServiceConfig {
+			sc := ServiceConfig{
+				Name:         vals[0].(string),
+				ResourceTier: ResourceTierSmall,
+				Replicas:     1,
+			}
+			combo := vals[4].(int)
+			switch combo {
+			case 1: // git + flake
+				sc.GitRepo = vals[1].(string)
+				sc.FlakeURI = vals[2].(string)
+			case 2: // git + image
+				sc.GitRepo = vals[1].(string)
+				sc.Image = vals[3].(string)
+			case 3: // flake + image
+				sc.FlakeURI = vals[2].(string)
+				sc.Image = vals[3].(string)
+			}
+			return sc
+		})
+	}
+
+	properties.Property("Multiple source types should be rejected", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			err := sc.Validate()
+			if err == nil {
+				return false // Should have failed
+			}
+			// Check that it's a validation error about source
+			validationErr, ok := err.(*ValidationError)
+			if !ok {
+				return false
+			}
+			return validationErr.Field == "source" &&
+				validationErr.Message == "only one of git_repo, flake_uri, or image can be specified"
+		},
+		genMultipleSourceConfig(),
+	))
+
+	// Generator for service configs with no sources set
+	genNoSourceConfig := func() gopter.Gen {
+		return gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }).Map(func(name string) ServiceConfig {
+			return ServiceConfig{
+				Name:         name,
+				ResourceTier: ResourceTierSmall,
+				Replicas:     1,
+			}
+		})
+	}
+
+	properties.Property("No source type should be rejected", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			err := sc.Validate()
+			if err == nil {
+				return false // Should have failed
+			}
+			// Check that it's a validation error about source
+			validationErr, ok := err.(*ValidationError)
+			if !ok {
+				return false
+			}
+			return validationErr.Field == "source" &&
+				validationErr.Message == "exactly one of git_repo, flake_uri, or image is required"
+		},
+		genNoSourceConfig(),
+	))
+
+	// Generator for service configs with exactly one source set
+	genSingleSourceConfig := func() gopter.Gen {
+		return genServiceConfig()
+	}
+
+	properties.Property("Single source type should be accepted", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			err := sc.Validate()
+			return err == nil
+		},
+		genSingleSourceConfig(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: service-git-repos, Property 2: Service Source Round-Trip**
+// For any valid service configuration with a source (git_repo, flake_uri, or image),
+// serializing to JSON and deserializing should return the same source configuration.
+// **Validates: Requirements 1.2, 1.3, 1.4, 2.6**
+func TestServiceSourceRoundTrip(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Service source round-trip preserves data", prop.ForAll(
+		func(original ServiceConfig) bool {
+			// Validate first to ensure defaults are applied
+			if err := original.Validate(); err != nil {
+				return false
+			}
+
+			// Serialize to JSON
+			data, err := json.Marshal(original)
+			if err != nil {
+				return false
+			}
+
+			// Deserialize from JSON
+			var restored ServiceConfig
+			if err := json.Unmarshal(data, &restored); err != nil {
+				return false
+			}
+
+			// Check source type is preserved
+			if original.SourceType != restored.SourceType {
+				return false
+			}
+
+			// Check source-specific fields based on type
+			switch original.SourceType {
+			case SourceTypeGit:
+				if original.GitRepo != restored.GitRepo {
+					return false
+				}
+				if original.GitRef != restored.GitRef {
+					return false
+				}
+				if original.FlakeOutput != restored.FlakeOutput {
+					return false
+				}
+			case SourceTypeFlake:
+				if original.FlakeURI != restored.FlakeURI {
+					return false
+				}
+			case SourceTypeImage:
+				if original.Image != restored.Image {
+					return false
+				}
+			}
+
+			return true
+		},
+		genServiceConfig(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: service-git-repos, Property 13: Flake URI Construction Correctness**
+// For any valid git_repo, git_ref, and flake_output, BuildFlakeURI() SHALL produce
+// a valid Nix flake URI format.
+// **Validates: Requirements 1.6, 11.7**
+func TestFlakeURIConstruction(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for git source configs
+	genGitSourceConfig := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+			genGitRepo(),
+			genGitRef(),
+			genFlakeOutput(),
+		).Map(func(vals []interface{}) ServiceConfig {
+			return ServiceConfig{
+				Name:         vals[0].(string),
+				GitRepo:      vals[1].(string),
+				GitRef:       vals[2].(string),
+				FlakeOutput:  vals[3].(string),
+				ResourceTier: ResourceTierSmall,
+				Replicas:     1,
+			}
+		})
+	}
+
+	properties.Property("BuildFlakeURI produces valid format for git sources", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			// Validate to set source type
+			if err := sc.Validate(); err != nil {
+				return false
+			}
+
+			uri := sc.BuildFlakeURI()
+
+			// URI should not be empty for git sources
+			if uri == "" {
+				return false
+			}
+
+			// URI should start with a valid flake prefix
+			validPrefixes := []string{"github:", "gitlab:", "git+https://"}
+			hasValidPrefix := false
+			for _, prefix := range validPrefixes {
+				if len(uri) >= len(prefix) && uri[:len(prefix)] == prefix {
+					hasValidPrefix = true
+					break
+				}
+			}
+			if !hasValidPrefix {
+				return false
+			}
+
+			// URI should contain the flake output after #
+			if sc.FlakeOutput != "" {
+				if !containsString(uri, "#"+sc.FlakeOutput) {
+					return false
+				}
+			}
+
+			return true
+		},
+		genGitSourceConfig(),
+	))
+
+	// Test that flake sources return their URI directly
+	genFlakeSourceConfig := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+			genFlakeURI(),
+		).Map(func(vals []interface{}) ServiceConfig {
+			return ServiceConfig{
+				Name:         vals[0].(string),
+				FlakeURI:     vals[1].(string),
+				ResourceTier: ResourceTierSmall,
+				Replicas:     1,
+			}
+		})
+	}
+
+	properties.Property("BuildFlakeURI returns flake_uri directly for flake sources", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			// Validate to set source type
+			if err := sc.Validate(); err != nil {
+				return false
+			}
+
+			uri := sc.BuildFlakeURI()
+			return uri == sc.FlakeURI
+		},
+		genFlakeSourceConfig(),
+	))
+
+	// Test that image sources return empty string
+	genImageSourceConfig := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+			genImageRef(),
+		).Map(func(vals []interface{}) ServiceConfig {
+			return ServiceConfig{
+				Name:         vals[0].(string),
+				Image:        vals[1].(string),
+				ResourceTier: ResourceTierSmall,
+				Replicas:     1,
+			}
+		})
+	}
+
+	properties.Property("BuildFlakeURI returns empty for image sources", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			// Validate to set source type
+			if err := sc.Validate(); err != nil {
+				return false
+			}
+
+			uri := sc.BuildFlakeURI()
+			return uri == ""
+		},
+		genImageSourceConfig(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// containsString checks if a string contains a substring.
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+
+// **Feature: service-git-repos, Property 14: Git Ref Variants**
+// For any service with git source, git_ref SHALL accept branches, tags, and commit SHAs,
+// and each SHALL produce a buildable flake URI.
+// **Validates: Requirements 5.3, 11.2**
+func TestGitRefVariants(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for branch refs
+	genBranchRef := func() gopter.Gen {
+		return gen.OneConstOf("main", "master", "develop", "feature/test", "release/v1.0")
+	}
+
+	// Generator for tag refs
+	genTagRef := func() gopter.Gen {
+		return gen.OneConstOf("v1.0.0", "v2.0.0-beta", "release-1.0")
+	}
+
+	// Generator for commit SHA refs (40 hex chars)
+	genCommitRef := func() gopter.Gen {
+		return gen.Const("abc123def456789012345678901234567890abcd")
+	}
+
+	// Generator for all ref types
+	genAnyRef := func() gopter.Gen {
+		return gen.OneGenOf(genBranchRef(), genTagRef(), genCommitRef())
+	}
+
+	// Generator for git source configs with various refs
+	genGitSourceWithRef := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+			genGitRepo(),
+			genAnyRef(),
+			genFlakeOutput(),
+		).Map(func(vals []interface{}) ServiceConfig {
+			return ServiceConfig{
+				Name:         vals[0].(string),
+				GitRepo:      vals[1].(string),
+				GitRef:       vals[2].(string),
+				FlakeOutput:  vals[3].(string),
+				ResourceTier: ResourceTierSmall,
+				Replicas:     1,
+			}
+		})
+	}
+
+	properties.Property("Git refs (branches, tags, commits) produce valid flake URIs", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			// Validate to set source type
+			if err := sc.Validate(); err != nil {
+				return false
+			}
+
+			uri := sc.BuildFlakeURI()
+
+			// URI should not be empty
+			if uri == "" {
+				return false
+			}
+
+			// URI should be a valid flake format
+			validPrefixes := []string{"github:", "gitlab:", "git+https://"}
+			hasValidPrefix := false
+			for _, prefix := range validPrefixes {
+				if len(uri) >= len(prefix) && uri[:len(prefix)] == prefix {
+					hasValidPrefix = true
+					break
+				}
+			}
+
+			return hasValidPrefix
+		},
+		genGitSourceWithRef(),
+	))
+
+	// Test that non-main/master refs are included in the URI
+	properties.Property("Non-default refs are included in flake URI", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			// Validate to set source type
+			if err := sc.Validate(); err != nil {
+				return false
+			}
+
+			uri := sc.BuildFlakeURI()
+
+			// If ref is not main or master, it should appear in the URI
+			if sc.GitRef != "main" && sc.GitRef != "master" {
+				return findSubstring(uri, sc.GitRef)
+			}
+
+			// For main/master, the ref may or may not be in the URI (it's the default)
+			return true
+		},
+		genGitSourceWithRef(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: service-git-repos, Property 15: Flake Output System Consistency**
+// For any service with default flake_output, the system in the output path
+// SHALL match the build node's architecture.
+// **Validates: Requirements 1.6, 11.8**
+func TestFlakeOutputSystemConsistency(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for git source configs without explicit flake_output
+	genGitSourceNoOutput := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+			genGitRepo(),
+			genGitRef(),
+		).Map(func(vals []interface{}) ServiceConfig {
+			return ServiceConfig{
+				Name:         vals[0].(string),
+				GitRepo:      vals[1].(string),
+				GitRef:       vals[2].(string),
+				FlakeOutput:  "", // Empty to trigger default
+				ResourceTier: ResourceTierSmall,
+				Replicas:     1,
+			}
+		})
+	}
+
+	properties.Property("Default flake_output contains current system", prop.ForAll(
+		func(sc ServiceConfig) bool {
+			// Validate to apply defaults
+			if err := sc.Validate(); err != nil {
+				return false
+			}
+
+			// Get the current system
+			currentSystem := GetCurrentSystem()
+
+			// The default flake output should contain the current system
+			expectedDefault := fmt.Sprintf("packages.%s.default", currentSystem)
+			return sc.FlakeOutput == expectedDefault
+		},
+		genGitSourceNoOutput(),
+	))
+
+	// Test that GetCurrentSystem returns a valid system string
+	properties.Property("GetCurrentSystem returns valid system string", prop.ForAll(
+		func(_ int) bool {
+			system := GetCurrentSystem()
+
+			// Should be one of the known systems
+			validSystems := []string{
+				"x86_64-linux",
+				"x86_64-darwin",
+				"aarch64-linux",
+				"aarch64-darwin",
+			}
+
+			for _, valid := range validSystems {
+				if system == valid {
+					return true
+				}
+			}
+			return false
+		},
+		gen.IntRange(0, 100), // Dummy generator to run the test
 	))
 
 	properties.TestingRun(t)
