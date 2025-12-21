@@ -106,6 +106,17 @@ func (s *Server) setupRouter() {
 				r.Post("/deploy", deploymentHandler.Create)
 				r.Get("/deployments", deploymentHandler.List)
 
+				// Service routes nested under apps
+				serviceHandler := handlers.NewServiceHandler(s.store, s.logger)
+				r.Route("/services", func(r chi.Router) {
+					r.Post("/", serviceHandler.Create)
+					r.Get("/", serviceHandler.List)
+					r.Get("/{serviceName}", serviceHandler.Get)
+					r.Patch("/{serviceName}", serviceHandler.Update)
+					r.Delete("/{serviceName}", serviceHandler.Delete)
+					r.Post("/{serviceName}/deploy", deploymentHandler.CreateForService)
+				})
+
 				// Log routes nested under apps
 				logHandler := handlers.NewLogHandler(s.store, s.logger)
 				r.Get("/logs", logHandler.Get)
