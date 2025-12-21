@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	builderrors "github.com/narvanalabs/control-plane/internal/builder/errors"
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
@@ -70,7 +71,7 @@ func (a *AutoDetector) DetectAll(ctx context.Context, repoPath string) ([]*model
 	}
 
 	if len(results) == 0 {
-		return nil, ErrNoLanguageDetected
+		return nil, builderrors.NewNoLanguageDetectedError()
 	}
 
 	return results, nil
@@ -89,7 +90,7 @@ func (a *AutoDetector) DetectWithPreference(ctx context.Context, repoPath string
 				RecommendedBuildType: models.BuildTypePureNix,
 			}, nil
 		}
-		return nil, ErrRepositoryAccessFailed
+		return nil, builderrors.NewFlakeNotFoundError()
 
 	case models.BuildStrategyDockerfile:
 		if a.detector.HasDockerfile(ctx, repoPath) {
@@ -100,7 +101,7 @@ func (a *AutoDetector) DetectWithPreference(ctx context.Context, repoPath string
 				RecommendedBuildType: models.BuildTypeOCI,
 			}, nil
 		}
-		return nil, ErrRepositoryAccessFailed
+		return nil, builderrors.NewDockerfileNotFoundError()
 
 	case models.BuildStrategyAutoGo:
 		return a.detector.DetectGo(ctx, repoPath)
@@ -127,7 +128,7 @@ func (a *AutoDetector) DetectWithPreference(ctx context.Context, repoPath string
 		return a.Detect(ctx, repoPath)
 
 	default:
-		return nil, ErrUnsupportedLanguage
+		return nil, builderrors.NewUnsupportedLanguageError(string(preference))
 	}
 }
 
@@ -160,8 +161,8 @@ func (a *AutoDetector) GetRecommendedStrategy(ctx context.Context, repoPath stri
 	// Check for flake first
 	if a.detector.HasFlake(ctx, repoPath) {
 		return &StrategyRecommendation{
-			Strategy: models.BuildStrategyFlake,
-			Reason:   "Repository contains a flake.nix file",
+			Strategy:   models.BuildStrategyFlake,
+			Reason:     "Repository contains a flake.nix file",
 			Confidence: 1.0,
 		}, nil
 	}
@@ -169,12 +170,17 @@ func (a *AutoDetector) GetRecommendedStrategy(ctx context.Context, repoPath stri
 	// Check for mixed languages
 	isMixed, strategies := a.IsMixedLanguageRepo(ctx, repoPath)
 	if isMixed {
+		// Convert strategies to string slice for error message
+		var languageNames []string
+		for _, s := range strategies {
+			languageNames = append(languageNames, string(s))
+		}
 		return &StrategyRecommendation{
 			Strategy:     models.BuildStrategyAuto,
 			Reason:       "Multiple languages detected, please specify a strategy",
 			Confidence:   0.5,
 			Alternatives: strategies,
-		}, nil
+		}, builderrors.NewMultipleLanguagesError(languageNames)
 	}
 
 	// Perform auto-detection
@@ -215,36 +221,59 @@ func (a *AutoDetector) ValidateStrategy(ctx context.Context, repoPath string, st
 	switch strategy {
 	case models.BuildStrategyFlake:
 		if !a.detector.HasFlake(ctx, repoPath) {
-			return ErrRepositoryAccessFailed
+			return builderrors.NewFlakeNotFoundError()
 		}
 	case models.BuildStrategyDockerfile:
 		if !a.detector.HasDockerfile(ctx, repoPath) {
-			return ErrRepositoryAccessFailed
+			return builderrors.NewDockerfileNotFoundError()
 		}
 	case models.BuildStrategyAutoGo:
 		if !fileExists(filepath.Join(repoPath, "go.mod")) {
-			return ErrNoLanguageDetected
+			return builderrors.NewNoLanguageDetectedError().WithDetectedIssues(
+				"No go.mod file found in repository",
+			).WithSuggestions(
+				"Ensure your Go project has a go.mod file",
+				"Run 'go mod init' to create one",
+				"Use a different build strategy",
+			)
 		}
 	case models.BuildStrategyAutoNode:
 		if !fileExists(filepath.Join(repoPath, "package.json")) {
-			return ErrNoLanguageDetected
+			return builderrors.NewNoLanguageDetectedError().WithDetectedIssues(
+				"No package.json file found in repository",
+			).WithSuggestions(
+				"Ensure your Node.js project has a package.json file",
+				"Run 'npm init' to create one",
+				"Use a different build strategy",
+			)
 		}
 	case models.BuildStrategyAutoRust:
 		if !fileExists(filepath.Join(repoPath, "Cargo.toml")) {
-			return ErrNoLanguageDetected
+			return builderrors.NewNoLanguageDetectedError().WithDetectedIssues(
+				"No Cargo.toml file found in repository",
+			).WithSuggestions(
+				"Ensure your Rust project has a Cargo.toml file",
+				"Run 'cargo init' to create one",
+				"Use a different build strategy",
+			)
 		}
 	case models.BuildStrategyAutoPython:
 		hasPython := fileExists(filepath.Join(repoPath, "requirements.txt")) ||
 			fileExists(filepath.Join(repoPath, "pyproject.toml")) ||
 			fileExists(filepath.Join(repoPath, "setup.py"))
 		if !hasPython {
-			return ErrNoLanguageDetected
+			return builderrors.NewNoLanguageDetectedError().WithDetectedIssues(
+				"No Python project files found (requirements.txt, pyproject.toml, or setup.py)",
+			).WithSuggestions(
+				"Add a requirements.txt or pyproject.toml to your project",
+				"Use a different build strategy",
+			)
 		}
 	case models.BuildStrategyNixpacks, models.BuildStrategyAuto:
 		// These strategies can work with any repository
 		return nil
 	default:
-		return ErrUnsupportedLanguage
+		return builderrors.NewUnsupportedLanguageError(string(strategy))
 	}
 	return nil
 }
