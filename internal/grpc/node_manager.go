@@ -49,7 +49,9 @@ type NodeConnection struct {
 	Status        NodeStatus
 	// activeDeployments tracks deployment IDs currently running on this node
 	activeDeployments map[string]bool
-	mu                sync.RWMutex
+	// draining indicates the node is shutting down and should not receive new deployments
+	draining bool
+	mu       sync.RWMutex
 }
 
 // UpdateHeartbeat updates the last heartbeat time and node info.
@@ -104,6 +106,20 @@ func (nc *NodeConnection) RemoveDeployment(deploymentID string) {
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
 	delete(nc.activeDeployments, deploymentID)
+}
+
+// IsDraining returns whether the node is draining.
+func (nc *NodeConnection) IsDraining() bool {
+	nc.mu.RLock()
+	defer nc.mu.RUnlock()
+	return nc.draining
+}
+
+// SetDraining sets the draining flag for the node.
+func (nc *NodeConnection) SetDraining(draining bool) {
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+	nc.draining = draining
 }
 
 // NodeManager manages active node connections and their command streams.
@@ -213,6 +229,7 @@ func (m *NodeManager) GetConnection(nodeID string) (*NodeConnection, bool) {
 
 // SendCommand sends a deployment command to a specific node.
 // Returns ALREADY_EXISTS if trying to deploy a deployment that's already running.
+// Returns UNAVAILABLE if the node is draining or down.
 func (m *NodeManager) SendCommand(ctx context.Context, nodeID string, cmd *pb.DeploymentCommand) error {
 	m.mu.RLock()
 	conn, ok := m.connections[nodeID]
@@ -233,6 +250,12 @@ func (m *NodeManager) SendCommand(ctx context.Context, nodeID string, cmd *pb.De
 	// Check if node is down
 	if conn.GetStatus() == NodeStatusDown {
 		return status.Errorf(codes.Unavailable, "node %s is down", nodeID)
+	}
+
+	// Check if node is draining (Requirement 15.5)
+	// Don't send new deploy commands to draining nodes
+	if cmd.Type == pb.CommandType_COMMAND_DEPLOY && conn.IsDraining() {
+		return status.Errorf(codes.Unavailable, "node %s is draining", nodeID)
 	}
 
 	// Send the command via the stream
@@ -442,4 +465,48 @@ func (m *NodeManager) MarkDeploymentComplete(nodeID, deploymentID string) {
 	if ok {
 		conn.RemoveDeployment(deploymentID)
 	}
+}
+
+// SetNodeDraining sets the draining flag for a node.
+// When a node is draining, it will not receive new deployment commands.
+// Requirement: 15.5
+func (m *NodeManager) SetNodeDraining(nodeID string, draining bool) {
+	m.mu.RLock()
+	conn, ok := m.connections[nodeID]
+	m.mu.RUnlock()
+
+	if ok {
+		conn.SetDraining(draining)
+		m.logger.Info("node draining status changed",
+			"node_id", nodeID,
+			"draining", draining,
+		)
+	}
+}
+
+// IsNodeDraining returns whether a node is draining.
+func (m *NodeManager) IsNodeDraining(nodeID string) bool {
+	m.mu.RLock()
+	conn, ok := m.connections[nodeID]
+	m.mu.RUnlock()
+
+	if ok {
+		return conn.IsDraining()
+	}
+	return false
+}
+
+// GetAvailableNodes returns all nodes that are healthy and not draining.
+// These are the nodes that can accept new deployments.
+func (m *NodeManager) GetAvailableNodes() []*NodeConnection {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var available []*NodeConnection
+	for _, conn := range m.connections {
+		if conn.GetStatus() == NodeStatusHealthy && !conn.IsDraining() {
+			available = append(available, conn)
+		}
+	}
+	return available
 }
