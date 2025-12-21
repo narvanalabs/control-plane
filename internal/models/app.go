@@ -83,6 +83,10 @@ type ServiceConfig struct {
 	// OCI image reference, build phase skipped
 	Image string `json:"image,omitempty"` // e.g., "docker.io/postgres:16"
 
+	// Build strategy configuration
+	BuildStrategy BuildStrategy `json:"build_strategy,omitempty" db:"build_strategy"`
+	BuildConfig   *BuildConfig  `json:"build_config,omitempty" db:"build_config"`
+
 	// Runtime configuration
 	ResourceTier ResourceTier       `json:"resource_tier"`
 	Replicas     int                `json:"replicas"`
