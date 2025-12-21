@@ -1,10 +1,13 @@
-.PHONY: build build-api build-worker test test-unit test-property clean migrate migrate-up migrate-down lint proto
+.PHONY: build build-api build-worker test test-unit test-property clean migrate migrate-up migrate-down lint proto dev dev-api dev-worker dev-all stop-db help
 
 # Proto generation
 proto:
 	protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		api/proto/agent.proto
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		api/proto/controlplane.proto
 
 # Build targets
 build: build-api build-worker
@@ -30,23 +33,97 @@ clean:
 	rm -rf bin/
 	go clean
 
-# Migration targets (requires migrate tool)
-migrate-up:
-	migrate -path migrations -database "$(DATABASE_URL)" up
+# Database targets (requires nix develop shell)
+db-start:
+	@if [ -z "$$PGDATA" ]; then \
+		echo "Error: Run 'nix develop' first to set up PostgreSQL environment"; \
+		exit 1; \
+	fi
+	@if ! pg_isready -q 2>/dev/null; then \
+		echo "Starting PostgreSQL..."; \
+		pg_ctl start -l "$$PGDATA/postgres.log" -o "-k $$PGHOST -h ''"; \
+		sleep 2; \
+	else \
+		echo "PostgreSQL already running"; \
+	fi
+
+db-stop:
+	@if [ -n "$$PGDATA" ] && pg_isready -q 2>/dev/null; then \
+		echo "Stopping PostgreSQL..."; \
+		pg_ctl stop; \
+	fi
+
+db-status:
+	@pg_isready && echo "PostgreSQL is running" || echo "PostgreSQL is not running"
+
+# Migration targets (requires nix develop shell + running db)
+migrate-up: db-start
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "Error: Run 'nix develop' first"; \
+		exit 1; \
+	fi
+	@for f in migrations/*.sql; do \
+		echo "Applying $$f..."; \
+		psql -f "$$f" || exit 1; \
+	done
+	@echo "Migrations complete"
 
 migrate-down:
-	migrate -path migrations -database "$(DATABASE_URL)" down
+	@echo "Manual rollback required - check migrations/ for down scripts"
 
-migrate:
-	migrate -path migrations -database "$(DATABASE_URL)" up
+migrate: migrate-up
 
 # Lint
 lint:
 	golangci-lint run ./...
 
-# Development helpers
-run-api:
+# Development targets (run inside nix develop)
+
+# Run all services with overmind (single terminal!)
+dev-all: db-start migrate-up
+	@echo "Starting all services with overmind..."
+	@echo "Press Ctrl+C to stop all services"
+	@echo ""
+	overmind start -f Procfile.dev
+
+# Run individual services (foreground)
+dev-api: db-start
 	go run ./cmd/api
 
-run-worker:
+dev-worker: db-start
 	go run ./cmd/worker
+
+# Stop services
+dev-stop:
+	@overmind quit 2>/dev/null || true
+	@pkill -f "go run ./cmd/api" 2>/dev/null || true
+	@pkill -f "go run ./cmd/worker" 2>/dev/null || true
+	@echo "Services stopped"
+
+# Legacy aliases
+run-api: dev-api
+run-worker: dev-worker
+
+# Help
+help:
+	@echo "Narvana Control Plane"
+	@echo ""
+	@echo "Prerequisites: Run 'nix develop' first to enter dev shell"
+	@echo ""
+	@echo "Quick Start:"
+	@echo "  make dev-all     - Run ALL services in one terminal (recommended)"
+	@echo ""
+	@echo "Individual Services:"
+	@echo "  make dev-api     - Run API server only"
+	@echo "  make dev-worker  - Run build worker only"
+	@echo "  make dev-stop    - Stop all services"
+	@echo ""
+	@echo "Database:"
+	@echo "  make db-start    - Start PostgreSQL"
+	@echo "  make db-stop     - Stop PostgreSQL"
+	@echo "  make migrate-up  - Run migrations"
+	@echo ""
+	@echo "Build & Test:"
+	@echo "  make build       - Build all binaries"
+	@echo "  make test        - Run all tests"
+	@echo "  make lint        - Run linter"
