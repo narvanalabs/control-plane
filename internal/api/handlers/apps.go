@@ -33,7 +33,6 @@ func NewAppHandler(st store.Store, logger *slog.Logger) *AppHandler {
 type CreateAppRequest struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
-	BuildType   models.BuildType       `json:"build_type"`
 	Services    []models.ServiceConfig `json:"services"`
 }
 
@@ -44,11 +43,6 @@ func (r *CreateAppRequest) Validate() error {
 	}
 	if len(r.Name) > 63 {
 		return &APIError{Code: ErrCodeInvalidRequest, Message: "name must be 63 characters or less"}
-	}
-	// Build type is optional at app level - services define their own source types
-	// If provided, validate it
-	if r.BuildType != "" && r.BuildType != models.BuildTypeOCI && r.BuildType != models.BuildTypePureNix {
-		return &APIError{Code: ErrCodeInvalidRequest, Message: "build_type must be 'oci' or 'pure-nix'"}
 	}
 	return nil
 }
@@ -86,18 +80,11 @@ func (h *AppHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	
-	// Default build_type to 'oci' if not provided (database requires non-null)
-	buildType := req.BuildType
-	if buildType == "" {
-		buildType = models.BuildTypeOCI
-	}
-	
 	app := &models.App{
 		ID:          uuid.New().String(),
 		OwnerID:     userID,
 		Name:        strings.TrimSpace(req.Name),
 		Description: strings.TrimSpace(req.Description),
-		BuildType:   buildType,
 		Services:    req.Services,
 		CreatedAt:   now,
 		UpdatedAt:   now,
