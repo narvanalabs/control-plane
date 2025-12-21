@@ -105,7 +105,7 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 }
 
 // RequireOwnership returns a middleware that verifies the authenticated user owns the resource.
-// It expects the appID to be in the URL path parameter.
+// It expects the appID to be in the URL path parameter. The appID can be either a UUID or an app name.
 func RequireOwnership(st store.Store, logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,34 +115,52 @@ func RequireOwnership(st store.Store, logger *slog.Logger) func(http.Handler) ht
 				return
 			}
 
-			appID := chi.URLParam(r, "appID")
-			if appID == "" {
+			appIDOrName := chi.URLParam(r, "appID")
+			if appIDOrName == "" {
 				// No app ID in path, continue
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Get the app and verify ownership
-			app, err := st.Apps().Get(r.Context(), appID)
+			// Try to get the app by ID first, then by name
+			app, err := st.Apps().Get(r.Context(), appIDOrName)
 			if err != nil {
-				logger.Debug("failed to get app for ownership check", "error", err, "app_id", appID)
-				writeNotFound(w, "Application not found")
-				return
+				// Try by name
+				app, err = st.Apps().GetByName(r.Context(), userID, appIDOrName)
+				if err != nil {
+					logger.Debug("failed to get app for ownership check", "error", err, "app_id_or_name", appIDOrName)
+					writeNotFound(w, "Application not found")
+					return
+				}
 			}
 
 			if app.OwnerID != userID {
 				logger.Debug("ownership check failed",
 					"user_id", userID,
 					"owner_id", app.OwnerID,
-					"app_id", appID,
+					"app_id", app.ID,
 				)
 				writeForbidden(w, "Access denied")
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// Store the resolved app ID in context for handlers to use
+			ctx := context.WithValue(r.Context(), appIDKey, app.ID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// appIDKey is the context key for the resolved app ID.
+const appIDKey contextKey = "resolved_app_id"
+
+// GetResolvedAppID extracts the resolved app ID from the request context.
+// This is set by RequireOwnership middleware after resolving name to ID.
+func GetResolvedAppID(ctx context.Context) string {
+	if v := ctx.Value(appIDKey); v != nil {
+		return v.(string)
+	}
+	return ""
 }
 
 func writeUnauthorized(w http.ResponseWriter, message string) {
