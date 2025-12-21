@@ -1,0 +1,5 @@
+# Development Procfile for overmind
+# Run with: overmind start -f Procfile.dev
+
+api: go run ./cmd/api
+worker: go run ./cmd/worker
