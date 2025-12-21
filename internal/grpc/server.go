@@ -76,6 +76,7 @@ type Server struct {
 
 	grpcServer    *grpc.Server
 	healthChecker HealthChecker
+	nodeManager   *NodeManager
 
 	// Server state
 	serving atomic.Bool
@@ -96,6 +97,7 @@ func NewServer(cfg *Config, st store.Store, authSvc AuthService, logger *slog.Lo
 		store:       st,
 		authService: authSvc,
 		logger:      logger,
+		nodeManager: NewNodeManager(st, logger),
 	}
 
 	return s, nil
@@ -104,6 +106,16 @@ func NewServer(cfg *Config, st store.Store, authSvc AuthService, logger *slog.Lo
 // SetHealthChecker sets the health checker for the server.
 func (s *Server) SetHealthChecker(hc HealthChecker) {
 	s.healthChecker = hc
+}
+
+// NodeManager returns the server's NodeManager instance.
+func (s *Server) NodeManager() *NodeManager {
+	return s.nodeManager
+}
+
+// SetNodeManager sets a custom NodeManager (useful for testing).
+func (s *Server) SetNodeManager(nm *NodeManager) {
+	s.nodeManager = nm
 }
 
 // buildServerOptions constructs the gRPC server options.
@@ -165,6 +177,11 @@ func (s *Server) Start(ctx context.Context) error {
 	s.serving.Store(true)
 	s.logger.Info("gRPC server starting", "address", addr)
 
+	// Start the node manager health checker
+	if s.nodeManager != nil {
+		s.nodeManager.StartHealthChecker(ctx)
+	}
+
 	go func() {
 		<-ctx.Done()
 		s.Stop(context.Background())
@@ -181,6 +198,11 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Stop(ctx context.Context) error {
 	s.serving.Store(false)
 	s.logger.Info("gRPC server stopping")
+
+	// Stop the node manager
+	if s.nodeManager != nil {
+		s.nodeManager.Stop()
+	}
 
 	if s.grpcServer == nil {
 		return nil
