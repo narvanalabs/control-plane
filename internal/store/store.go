@@ -21,6 +21,8 @@ type Store interface {
 	Secrets() SecretStore
 	// Logs returns the LogStore for log operations.
 	Logs() LogStore
+	// Users returns the UserStore for user operations.
+	Users() UserStore
 
 	// WithTx executes the given function within a database transaction.
 	// If the function returns an error, the transaction is rolled back.
@@ -29,6 +31,26 @@ type Store interface {
 
 	// Close closes the database connection.
 	Close() error
+}
+
+// User represents a user in the system.
+type User struct {
+	ID        string
+	Email     string
+	IsAdmin   bool
+	CreatedAt int64
+}
+
+// UserStore defines operations for user management.
+type UserStore interface {
+	// Create creates a new user with hashed password.
+	Create(ctx context.Context, email, password string, isAdmin bool) (*User, error)
+	// GetByEmail retrieves a user by email.
+	GetByEmail(ctx context.Context, email string) (*User, error)
+	// Authenticate verifies credentials and returns the user.
+	Authenticate(ctx context.Context, email, password string) (*User, error)
+	// List retrieves all users.
+	List(ctx context.Context) ([]*User, error)
 }
 
 // AppStore defines operations for application management.
