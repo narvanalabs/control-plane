@@ -45,7 +45,9 @@ func (r *CreateAppRequest) Validate() error {
 	if len(r.Name) > 63 {
 		return &APIError{Code: ErrCodeInvalidRequest, Message: "name must be 63 characters or less"}
 	}
-	if r.BuildType != models.BuildTypeOCI && r.BuildType != models.BuildTypePureNix {
+	// Build type is optional at app level - services define their own source types
+	// If provided, validate it
+	if r.BuildType != "" && r.BuildType != models.BuildTypeOCI && r.BuildType != models.BuildTypePureNix {
 		return &APIError{Code: ErrCodeInvalidRequest, Message: "build_type must be 'oci' or 'pure-nix'"}
 	}
 	return nil
@@ -83,12 +85,19 @@ func (h *AppHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
+	
+	// Default build_type to 'oci' if not provided (database requires non-null)
+	buildType := req.BuildType
+	if buildType == "" {
+		buildType = models.BuildTypeOCI
+	}
+	
 	app := &models.App{
 		ID:          uuid.New().String(),
 		OwnerID:     userID,
 		Name:        strings.TrimSpace(req.Name),
 		Description: strings.TrimSpace(req.Description),
-		BuildType:   req.BuildType,
+		BuildType:   buildType,
 		Services:    req.Services,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -129,7 +138,12 @@ func (h *AppHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get handles GET /v1/apps/:appID - retrieves a specific application.
 func (h *AppHandler) Get(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		// Fallback to URL param if middleware didn't resolve it
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
@@ -147,7 +161,12 @@ func (h *AppHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /v1/apps/:appID - soft-deletes an application.
 func (h *AppHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
+	// Use resolved app ID from middleware (handles both UUID and name lookup)
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		// Fallback to URL param if middleware didn't resolve it
+		appID = chi.URLParam(r, "appID")
+	}
 	if appID == "" {
 		WriteBadRequest(w, "Application ID is required")
 		return
