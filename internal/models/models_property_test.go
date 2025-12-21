@@ -219,7 +219,6 @@ func genApp() gopter.Gen {
 		gen.Identifier(),
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
 		gen.AlphaString(),
-		genBuildType(),
 		gen.SliceOfN(3, genServiceConfig()),
 		genTime(),
 		genTime(),
@@ -230,11 +229,10 @@ func genApp() gopter.Gen {
 			OwnerID:     vals[1].(string),
 			Name:        vals[2].(string),
 			Description: vals[3].(string),
-			BuildType:   vals[4].(BuildType),
-			Services:    vals[5].([]ServiceConfig),
-			CreatedAt:   vals[6].(time.Time),
-			UpdatedAt:   vals[7].(time.Time),
-			DeletedAt:   vals[8].(*time.Time),
+			Services:    vals[4].([]ServiceConfig),
+			CreatedAt:   vals[5].(time.Time),
+			UpdatedAt:   vals[6].(time.Time),
+			DeletedAt:   vals[7].(*time.Time),
 		}
 	})
 }
