@@ -115,6 +115,10 @@ func (m *mockStore) Logs() store.LogStore {
 	return nil
 }
 
+func (m *mockStore) Users() store.UserStore {
+	return nil
+}
+
 func (m *mockStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
 	return fn(m)
 }
