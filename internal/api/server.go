@@ -91,6 +91,10 @@ func (s *Server) setupRouter() {
 			w.Write([]byte(`{"status":"ok","user_id":"` + userID + `"}`))
 		})
 
+		// Detection endpoint
+		detectHandler := handlers.NewDetectHandler(s.logger)
+		r.Post("/detect", detectHandler.Detect)
+
 		// App routes
 		appHandler := handlers.NewAppHandler(s.store, s.logger)
 		r.Route("/apps", func(r chi.Router) {
