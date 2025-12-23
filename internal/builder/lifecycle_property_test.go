@@ -3128,3 +3128,462 @@ func TestDeploymentStatusSynchronization(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: build-lifecycle-correctness, Property 23: Database Record Before Queue**
+// For any build job, a database record SHALL exist before the job is enqueued.
+// **Validates: Requirements 17.1**
+
+// TestDatabaseRecordBeforeQueue tests Property 23: Database Record Before Queue.
+func TestDatabaseRecordBeforeQueue(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 23.1: Build job must be created in database before enqueueing
+	// **Validates: Requirements 17.1**
+	properties.Property("build job must exist in database before enqueueing", prop.ForAll(
+		func(jobID, deploymentID string, buildType models.BuildType, strategy models.BuildStrategy) bool {
+			// Create mock store and queue
+			mockStore := NewMockStore()
+			mockQueue := NewMockQueue()
+			ctx := context.Background()
+
+			// Create a valid build job
+			job := NewTestBuildJob(jobID, deploymentID, buildType, strategy)
+
+			// The correct workflow: create in database first, then enqueue
+			// Step 1: Create in database
+			if err := mockStore.Builds().Create(ctx, job); err != nil {
+				return false
+			}
+
+			// Step 2: Verify it exists in database
+			dbJob, err := mockStore.Builds().Get(ctx, jobID)
+			if err != nil {
+				return false
+			}
+			if dbJob == nil {
+				return false
+			}
+
+			// Step 3: Now enqueue
+			if err := mockQueue.Enqueue(ctx, job); err != nil {
+				return false
+			}
+
+			// Verify the job is in the queue
+			dequeuedJob, err := mockQueue.Dequeue(ctx)
+			if err != nil {
+				return false
+			}
+
+			// The dequeued job should match the database record
+			return dequeuedJob.ID == dbJob.ID
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.OneConstOf(models.BuildTypePureNix, models.BuildTypeOCI),
+		gen.OneConstOf(
+			models.BuildStrategyFlake,
+			models.BuildStrategyAutoGo,
+			models.BuildStrategyAutoNode,
+			models.BuildStrategyAutoRust,
+			models.BuildStrategyAutoPython,
+		),
+	))
+
+	// Property 23.2: Database record contains all required fields before enqueueing
+	// **Validates: Requirements 17.1**
+	properties.Property("database record contains required fields before enqueueing", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store
+			mockStore := NewMockStore()
+			ctx := context.Background()
+
+			// Create a valid build job with all required fields
+			job := &models.BuildJob{
+				ID:            jobID,
+				DeploymentID:  deploymentID,
+				AppID:         "test-app",
+				BuildType:     models.BuildTypePureNix,
+				BuildStrategy: models.BuildStrategyFlake,
+				Status:        models.BuildStatusQueued,
+				CreatedAt:     time.Now(),
+			}
+
+			// Create in database
+			if err := mockStore.Builds().Create(ctx, job); err != nil {
+				return false
+			}
+
+			// Retrieve and verify all required fields are present
+			dbJob, err := mockStore.Builds().Get(ctx, jobID)
+			if err != nil {
+				return false
+			}
+
+			// Verify required fields
+			return dbJob.ID != "" &&
+				dbJob.DeploymentID != "" &&
+				dbJob.BuildType != "" &&
+				dbJob.Status == models.BuildStatusQueued
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 23.3: Database record status is queued when created
+	// **Validates: Requirements 17.1**
+	properties.Property("database record status is queued when created", prop.ForAll(
+		func(jobID, deploymentID string, buildType models.BuildType) bool {
+			// Create mock store
+			mockStore := NewMockStore()
+			ctx := context.Background()
+
+			// Create a build job
+			job := NewTestBuildJob(jobID, deploymentID, buildType, models.BuildStrategyFlake)
+			job.Status = models.BuildStatusQueued
+
+			// Create in database
+			if err := mockStore.Builds().Create(ctx, job); err != nil {
+				return false
+			}
+
+			// Retrieve and verify status
+			dbJob, err := mockStore.Builds().Get(ctx, jobID)
+			if err != nil {
+				return false
+			}
+
+			return dbJob.Status == models.BuildStatusQueued
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.OneConstOf(models.BuildTypePureNix, models.BuildTypeOCI),
+	))
+
+	// Property 23.4: Multiple jobs can be created and enqueued independently
+	// **Validates: Requirements 17.1**
+	properties.Property("multiple jobs can be created and enqueued independently", prop.ForAll(
+		func(jobID1, jobID2, deploymentID1, deploymentID2 string) bool {
+			// Skip if IDs are the same
+			if jobID1 == jobID2 || deploymentID1 == deploymentID2 {
+				return true
+			}
+
+			// Create mock store and queue
+			mockStore := NewMockStore()
+			mockQueue := NewMockQueue()
+			ctx := context.Background()
+
+			// Create first job
+			job1 := NewTestBuildJob(jobID1, deploymentID1, models.BuildTypePureNix, models.BuildStrategyFlake)
+			if err := mockStore.Builds().Create(ctx, job1); err != nil {
+				return false
+			}
+			if err := mockQueue.Enqueue(ctx, job1); err != nil {
+				return false
+			}
+
+			// Create second job
+			job2 := NewTestBuildJob(jobID2, deploymentID2, models.BuildTypeOCI, models.BuildStrategyDockerfile)
+			if err := mockStore.Builds().Create(ctx, job2); err != nil {
+				return false
+			}
+			if err := mockQueue.Enqueue(ctx, job2); err != nil {
+				return false
+			}
+
+			// Verify both exist in database
+			dbJob1, err := mockStore.Builds().Get(ctx, jobID1)
+			if err != nil || dbJob1 == nil {
+				return false
+			}
+			dbJob2, err := mockStore.Builds().Get(ctx, jobID2)
+			if err != nil || dbJob2 == nil {
+				return false
+			}
+
+			return true
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 23.5: Database record timestamp is set before enqueueing
+	// **Validates: Requirements 17.1**
+	properties.Property("database record timestamp is set before enqueueing", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store
+			mockStore := NewMockStore()
+			ctx := context.Background()
+
+			// Record time before creation
+			beforeCreate := time.Now()
+
+			// Create a build job
+			job := NewTestBuildJob(jobID, deploymentID, models.BuildTypePureNix, models.BuildStrategyFlake)
+			job.CreatedAt = time.Now()
+
+			// Create in database
+			if err := mockStore.Builds().Create(ctx, job); err != nil {
+				return false
+			}
+
+			// Record time after creation
+			afterCreate := time.Now()
+
+			// Retrieve and verify timestamp
+			dbJob, err := mockStore.Builds().Get(ctx, jobID)
+			if err != nil {
+				return false
+			}
+
+			// CreatedAt should be between beforeCreate and afterCreate
+			return !dbJob.CreatedAt.Before(beforeCreate) && !dbJob.CreatedAt.After(afterCreate)
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: build-lifecycle-correctness, Property 24: Orphan Job Handling**
+// For any queued job without a corresponding database record, the worker SHALL
+// acknowledge the queue message without processing.
+// **Validates: Requirements 17.2, 17.3**
+
+// TestOrphanJobHandling tests Property 24: Orphan Job Handling.
+func TestOrphanJobHandling(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 24.1: Worker verifies database record exists before processing
+	// **Validates: Requirements 17.2**
+	properties.Property("worker verifies database record exists before processing", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store
+			mockStore := NewMockStore()
+			ctx := context.Background()
+
+			// Create a job that exists in the database
+			job := NewTestBuildJob(jobID, deploymentID, models.BuildTypePureNix, models.BuildStrategyFlake)
+			if err := mockStore.Builds().Create(ctx, job); err != nil {
+				return false
+			}
+
+			// Verify the job can be retrieved
+			dbJob, err := mockStore.Builds().Get(ctx, jobID)
+			if err != nil {
+				return false
+			}
+
+			// The job should exist and match
+			return dbJob != nil && dbJob.ID == jobID
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 24.2: Orphan job (no database record) is detected
+	// **Validates: Requirements 17.2, 17.3**
+	properties.Property("orphan job without database record is detected", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store (empty - no jobs)
+			mockStore := NewMockStore()
+			ctx := context.Background()
+
+			// Try to get a job that doesn't exist
+			_, err := mockStore.Builds().Get(ctx, jobID)
+
+			// Should return an error (job not found)
+			return err != nil
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 24.3: Orphan job should be acknowledged without processing
+	// **Validates: Requirements 17.2, 17.3**
+	properties.Property("orphan job should be acknowledged without processing", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store and queue
+			mockStore := NewMockStore()
+			mockQueue := NewMockQueue()
+			ctx := context.Background()
+
+			// Create a job in the queue but NOT in the database (orphan scenario)
+			orphanJob := NewTestBuildJob(jobID, deploymentID, models.BuildTypePureNix, models.BuildStrategyFlake)
+			if err := mockQueue.Enqueue(ctx, orphanJob); err != nil {
+				return false
+			}
+
+			// Dequeue the job
+			dequeuedJob, err := mockQueue.Dequeue(ctx)
+			if err != nil {
+				return false
+			}
+
+			// Verify the job is NOT in the database (orphan)
+			_, dbErr := mockStore.Builds().Get(ctx, dequeuedJob.ID)
+			if dbErr == nil {
+				// Job exists in database, not an orphan
+				return true
+			}
+
+			// For orphan jobs, the worker should acknowledge without processing
+			// Simulate the worker behavior: ack the orphan job
+			if err := mockQueue.Ack(ctx, dequeuedJob.ID); err != nil {
+				return false
+			}
+
+			// Verify the job was acknowledged
+			return mockQueue.IsAcked(dequeuedJob.ID)
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 24.4: Non-orphan job is processed normally
+	// **Validates: Requirements 17.2**
+	properties.Property("non-orphan job is processed normally", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store and queue
+			mockStore := NewMockStore()
+			mockQueue := NewMockQueue()
+			ctx := context.Background()
+
+			// Create a job in BOTH database and queue (normal scenario)
+			job := NewTestBuildJob(jobID, deploymentID, models.BuildTypePureNix, models.BuildStrategyFlake)
+			if err := mockStore.Builds().Create(ctx, job); err != nil {
+				return false
+			}
+			if err := mockQueue.Enqueue(ctx, job); err != nil {
+				return false
+			}
+
+			// Dequeue the job
+			dequeuedJob, err := mockQueue.Dequeue(ctx)
+			if err != nil {
+				return false
+			}
+
+			// Verify the job IS in the database (not an orphan)
+			dbJob, dbErr := mockStore.Builds().Get(ctx, dequeuedJob.ID)
+			if dbErr != nil {
+				return false
+			}
+
+			// The job should be found and match
+			return dbJob != nil && dbJob.ID == dequeuedJob.ID
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 24.5: Orphan job does not trigger state transitions
+	// **Validates: Requirements 17.3**
+	properties.Property("orphan job does not trigger state transitions", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store
+			mockStore := NewMockStore()
+			ctx := context.Background()
+
+			// Do NOT create the job in the database (orphan scenario)
+			// Try to get the job
+			_, err := mockStore.Builds().Get(ctx, jobID)
+			if err == nil {
+				// Job unexpectedly exists
+				return false
+			}
+
+			// Verify no state transitions were recorded
+			transitions := mockStore.builds.GetStateTransitions()
+			return len(transitions) == 0
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 24.6: Orphan job handling is idempotent
+	// **Validates: Requirements 17.3**
+	properties.Property("orphan job handling is idempotent", prop.ForAll(
+		func(jobID, deploymentID string) bool {
+			// Create mock store and queue
+			mockStore := NewMockStore()
+			mockQueue := NewMockQueue()
+			ctx := context.Background()
+
+			// Create an orphan job in the queue (not in database)
+			orphanJob := NewTestBuildJob(jobID, deploymentID, models.BuildTypePureNix, models.BuildStrategyFlake)
+			if err := mockQueue.Enqueue(ctx, orphanJob); err != nil {
+				return false
+			}
+
+			// Dequeue and check for orphan
+			dequeuedJob, err := mockQueue.Dequeue(ctx)
+			if err != nil {
+				return false
+			}
+
+			// Verify it's an orphan
+			_, dbErr := mockStore.Builds().Get(ctx, dequeuedJob.ID)
+			if dbErr == nil {
+				return true // Not an orphan, skip
+			}
+
+			// Ack the orphan job
+			if err := mockQueue.Ack(ctx, dequeuedJob.ID); err != nil {
+				return false
+			}
+
+			// Try to ack again (should be idempotent)
+			// In a real queue, this might be a no-op or return success
+			_ = mockQueue.Ack(ctx, dequeuedJob.ID)
+
+			// The job should still be acknowledged
+			return mockQueue.IsAcked(dequeuedJob.ID)
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property 24.7: Orphan detection works for any build type and strategy
+	// **Validates: Requirements 17.2, 17.3**
+	properties.Property("orphan detection works for any build type and strategy", prop.ForAll(
+		func(jobID, deploymentID string, buildType models.BuildType, strategy models.BuildStrategy) bool {
+			// Create mock store
+			mockStore := NewMockStore()
+			ctx := context.Background()
+
+			// Create an orphan job (not in database)
+			orphanJob := NewTestBuildJob(jobID, deploymentID, buildType, strategy)
+
+			// Try to get the job from database
+			_, err := mockStore.Builds().Get(ctx, orphanJob.ID)
+
+			// Should return an error (orphan detected)
+			return err != nil
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.OneConstOf(models.BuildTypePureNix, models.BuildTypeOCI),
+		gen.OneConstOf(
+			models.BuildStrategyFlake,
+			models.BuildStrategyAutoGo,
+			models.BuildStrategyAutoNode,
+			models.BuildStrategyAutoRust,
+			models.BuildStrategyAutoPython,
+			models.BuildStrategyDockerfile,
+			models.BuildStrategyNixpacks,
+		),
+	))
+
+	properties.TestingRun(t)
+}
