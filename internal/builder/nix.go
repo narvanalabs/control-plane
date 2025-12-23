@@ -36,7 +36,7 @@ func DefaultNixBuilderConfig() *NixBuilderConfig {
 	return &NixBuilderConfig{
 		WorkDir:      "/tmp/narvana-builds",
 		PodmanSocket: "unix:///run/user/1000/podman/podman.sock",
-		NixImage:     "nixos/nix:latest",
+		NixImage:     "docker.io/nixos/nix:latest",
 	}
 }
 

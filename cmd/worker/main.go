@@ -43,13 +43,13 @@ func main() {
 		NixConfig: &builder.NixBuilderConfig{
 			WorkDir:      cfg.Worker.WorkDir,
 			PodmanSocket: cfg.Worker.PodmanSocket,
-			NixImage:     "nixos/nix:latest",
+			NixImage:     "docker.io/nixos/nix:latest",
 		},
 		OCIConfig: &builder.OCIBuilderConfig{
 			NixBuilderConfig: &builder.NixBuilderConfig{
 				WorkDir:      cfg.Worker.WorkDir,
 				PodmanSocket: cfg.Worker.PodmanSocket,
-				NixImage:     "nixos/nix:latest",
+				NixImage:     "docker.io/nixos/nix:latest",
 			},
 			Registry:     cfg.RegistryURL,
 			PodmanSocket: cfg.Worker.PodmanSocket,
