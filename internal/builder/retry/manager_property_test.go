@@ -3,6 +3,8 @@ package retry
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -790,6 +792,478 @@ func TestFallbackNotificationContent(t *testing.T) {
 		},
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
 		gen.IntRange(0, 5),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: build-lifecycle-correctness, Property 25: Validation Error Non-Retry**
+// For any build that fails due to validation error, the Build_System SHALL NOT retry the build.
+// **Validates: Requirements 15.7**
+
+// genValidationError generates errors that are validation errors and should NOT trigger retries.
+func genValidationError() gopter.Gen {
+	return gen.OneGenOf(
+		// Wrapped ErrValidationFailed
+		gen.Const(fmt.Errorf("%w: missing required field", ErrValidationFailed)),
+		gen.Const(fmt.Errorf("%w: invalid build type", ErrValidationFailed)),
+		gen.Const(fmt.Errorf("%w: negative timeout", ErrValidationFailed)),
+		// Error messages containing validation patterns
+		gen.Const(errors.New("validation failed: missing id")),
+		gen.Const(errors.New("validation error: invalid configuration")),
+		gen.Const(errors.New("required field is missing")),
+		gen.Const(errors.New("invalid value for build_type")),
+		gen.Const(errors.New("negative value for timeout")),
+	)
+}
+
+func TestValidationErrorNonRetry(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: IsValidationError returns true for validation errors
+	properties.Property("IsValidationError returns true for validation errors", prop.ForAll(
+		func(err error) bool {
+			return IsValidationError(err)
+		},
+		genValidationError(),
+	))
+
+	// Property: IsValidationError returns false for non-validation errors
+	properties.Property("IsValidationError returns false for non-validation errors", prop.ForAll(
+		func(err error) bool {
+			return !IsValidationError(err)
+		},
+		genRetryableError(),
+	))
+
+	// Property: IsValidationError returns false for nil
+	properties.Property("IsValidationError returns false for nil", prop.ForAll(
+		func(_ int) bool {
+			return !IsValidationError(nil)
+		},
+		gen.Int(),
+	))
+
+	// Property: ShouldRetry returns false for validation errors regardless of retry count
+	properties.Property("ShouldRetry returns false for validation errors", prop.ForAll(
+		func(job *models.BuildJob, err error) bool {
+			manager := NewManager()
+			// ShouldRetry should always return false for validation errors
+			return !manager.ShouldRetry(context.Background(), job, err)
+		},
+		genBuildJob(),
+		genValidationError(),
+	))
+
+	// Property: ShouldRetry returns false for validation errors even with no prior attempts
+	properties.Property("ShouldRetry returns false for validation errors even with no prior attempts", prop.ForAll(
+		func(job *models.BuildJob) bool {
+			manager := NewManager()
+			// Create a fresh job with no retry history
+			job.RetryCount = 0
+
+			// Test with various validation errors
+			validationErrors := []error{
+				fmt.Errorf("%w: test", ErrValidationFailed),
+				errors.New("validation failed: test"),
+				errors.New("validation error: test"),
+				errors.New("required field missing"),
+				errors.New("invalid value"),
+			}
+
+			for _, err := range validationErrors {
+				if manager.ShouldRetry(context.Background(), job, err) {
+					return false
+				}
+			}
+			return true
+		},
+		genBuildJob(),
+	))
+
+	// Property: ShouldRetry returns false for validation errors even with RetryAsOCI enabled
+	properties.Property("ShouldRetry returns false for validation errors even with RetryAsOCI", prop.ForAll(
+		func(job *models.BuildJob, err error) bool {
+			strategy := &RetryStrategy{
+				MaxAttempts:     10, // High max attempts
+				RetryAsOCI:      true,
+				RetryableErrors: retryableErrorPatterns,
+				BackoffDuration: time.Second,
+			}
+			manager := NewManager(WithRetryStrategy(strategy))
+
+			// Even with RetryAsOCI enabled and high max attempts, validation errors should not retry
+			return !manager.ShouldRetry(context.Background(), job, err)
+		},
+		genBuildJob(),
+		genValidationError(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: build-lifecycle-correctness, Property 26: Max Retry Enforcement**
+// For any build job with retry_count >= MaxRetries (default 2), the Build_System
+// SHALL NOT retry and SHALL mark as permanently failed.
+// **Validates: Requirements 15.5**
+
+func TestMaxRetryEnforcement(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: ShouldRetry returns false when job.RetryCount >= MaxRetries
+	properties.Property("ShouldRetry returns false when retry count >= MaxRetries", prop.ForAll(
+		func(job *models.BuildJob, retryCount int) bool {
+			// Ensure retry count is at or above MaxRetries
+			if retryCount < MaxRetries {
+				retryCount = MaxRetries
+			}
+			job.RetryCount = retryCount
+
+			manager := NewManager()
+			err := errors.New("hash mismatch error") // A retryable error
+
+			// ShouldRetry should return false when retry count >= MaxRetries
+			return !manager.ShouldRetry(context.Background(), job, err)
+		},
+		genBuildJob(),
+		gen.IntRange(MaxRetries, MaxRetries+10),
+	))
+
+	// Property: ShouldRetry returns true when job.RetryCount < MaxRetries for retryable errors
+	properties.Property("ShouldRetry returns true when retry count < MaxRetries for retryable errors", prop.ForAll(
+		func(job *models.BuildJob, err error) bool {
+			// Ensure retry count is below MaxRetries
+			job.RetryCount = 0
+
+			manager := NewManager()
+
+			// ShouldRetry should return true for retryable errors when under max retries
+			return manager.ShouldRetry(context.Background(), job, err)
+		},
+		genBuildJob(),
+		genRetryableError(),
+	))
+
+	// Property: MaxRetries constant equals 2 (as per requirements)
+	properties.Property("MaxRetries constant equals 2", prop.ForAll(
+		func(_ int) bool {
+			return MaxRetries == 2
+		},
+		gen.Int(),
+	))
+
+	// Property: ShouldRetry returns false when recorded attempts >= strategy.MaxAttempts
+	properties.Property("ShouldRetry returns false when recorded attempts >= MaxAttempts", prop.ForAll(
+		func(job *models.BuildJob, maxAttempts int) bool {
+			if maxAttempts < 1 {
+				maxAttempts = 1
+			}
+			if maxAttempts > 10 {
+				maxAttempts = 10
+			}
+
+			strategy := &RetryStrategy{
+				MaxAttempts:     maxAttempts,
+				RetryAsOCI:      true,
+				RetryableErrors: retryableErrorPatterns,
+				BackoffDuration: time.Second,
+			}
+			manager := NewManager(WithRetryStrategy(strategy))
+
+			// Record maxAttempts attempts
+			for i := 0; i < maxAttempts; i++ {
+				manager.RecordAttempt(context.Background(), job.ID, BuildAttempt{
+					AttemptNumber: i + 1,
+					Strategy:      job.BuildStrategy,
+					BuildType:     job.BuildType,
+					StartedAt:     time.Now(),
+					Success:       false,
+					Error:         "test error",
+				})
+			}
+
+			err := errors.New("hash mismatch error") // A retryable error
+			return !manager.ShouldRetry(context.Background(), job, err)
+		},
+		genBuildJob(),
+		gen.IntRange(1, 10),
+	))
+
+	// Property: Both job.RetryCount and recorded attempts are checked
+	properties.Property("both job.RetryCount and recorded attempts are checked", prop.ForAll(
+		func(job *models.BuildJob) bool {
+			manager := NewManager()
+
+			// Case 1: job.RetryCount >= MaxRetries, no recorded attempts
+			job.RetryCount = MaxRetries
+			err := errors.New("hash mismatch error")
+			if manager.ShouldRetry(context.Background(), job, err) {
+				return false // Should not retry
+			}
+
+			// Case 2: job.RetryCount < MaxRetries, but recorded attempts >= MaxAttempts
+			job.RetryCount = 0
+			for i := 0; i < manager.GetMaxAttempts(); i++ {
+				manager.RecordAttempt(context.Background(), job.ID, BuildAttempt{
+					AttemptNumber: i + 1,
+					Strategy:      job.BuildStrategy,
+					BuildType:     job.BuildType,
+					StartedAt:     time.Now(),
+					Success:       false,
+					Error:         "test error",
+				})
+			}
+			if manager.ShouldRetry(context.Background(), job, err) {
+				return false // Should not retry
+			}
+
+			return true
+		},
+		genBuildJob(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: build-lifecycle-correctness, Property 27: OCI Fallback on Retry**
+// For any build job configured with AutoRetryAsOCI and retrying due to dependency error,
+// the Build_System SHALL switch build_type to OCI.
+// **Validates: Requirements 15.3, 15.9**
+
+// genDependencyError generates errors that should trigger OCI fallback.
+func genDependencyError() gopter.Gen {
+	return gen.OneConstOf(
+		"native dependency not found",
+		"unsupported platform for binary",
+		"binary not found in PATH",
+		"linking failed: undefined reference",
+		"undefined reference to symbol",
+		"cannot find -lssl",
+		"pkg-config not found",
+		"cmake is required",
+		"autoconf failed",
+	).Map(func(msg string) error {
+		return errors.New(msg)
+	})
+}
+
+func TestOCIFallbackOnRetry(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: ShouldRetry returns true for dependency errors on pure-nix builds with RetryAsOCI
+	properties.Property("ShouldRetry returns true for dependency errors on pure-nix with RetryAsOCI", prop.ForAll(
+		func(job *models.BuildJob, err error) bool {
+			// Ensure job is pure-nix and has no prior retries
+			job.BuildType = models.BuildTypePureNix
+			job.RetryCount = 0
+
+			strategy := &RetryStrategy{
+				MaxAttempts:     5,
+				RetryAsOCI:      true,
+				RetryableErrors: retryableErrorPatterns,
+				BackoffDuration: time.Second,
+			}
+			manager := NewManager(WithRetryStrategy(strategy))
+
+			// ShouldRetry should return true for dependency errors on pure-nix builds
+			return manager.ShouldRetry(context.Background(), job, err)
+		},
+		genBuildJob(),
+		genDependencyError(),
+	))
+
+	// Property: PrepareRetry switches build_type to OCI for dependency errors on pure-nix builds
+	properties.Property("PrepareRetry switches to OCI for dependency errors on pure-nix", prop.ForAll(
+		func(jobID string, errMsg string) bool {
+			if jobID == "" {
+				return true // Skip empty job IDs
+			}
+
+			job := &models.BuildJob{
+				ID:            jobID,
+				BuildType:     models.BuildTypePureNix,
+				BuildStrategy: models.BuildStrategyAutoGo,
+				RetryCount:    0,
+			}
+
+			manager := NewManager()
+
+			// Record an attempt with a dependency error
+			manager.RecordAttempt(context.Background(), job.ID, BuildAttempt{
+				AttemptNumber: 1,
+				Strategy:      job.BuildStrategy,
+				BuildType:     job.BuildType,
+				StartedAt:     time.Now(),
+				Success:       false,
+				Error:         errMsg,
+			})
+
+			retryJob, err := manager.PrepareRetry(context.Background(), job)
+			if err != nil {
+				return false
+			}
+
+			// Should switch to OCI and set RetryAsOCI flag
+			return retryJob.BuildType == models.BuildTypeOCI && retryJob.RetryAsOCI
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.OneConstOf(
+			"native dependency not found",
+			"linking failed: undefined reference",
+			"cannot find -lssl",
+			"pkg-config not found",
+		),
+	))
+
+	// Property: PrepareRetry does NOT switch to OCI for non-dependency errors
+	properties.Property("PrepareRetry does not switch to OCI for non-dependency errors", prop.ForAll(
+		func(jobID string, errMsg string) bool {
+			if jobID == "" {
+				return true // Skip empty job IDs
+			}
+
+			job := &models.BuildJob{
+				ID:            jobID,
+				BuildType:     models.BuildTypePureNix,
+				BuildStrategy: models.BuildStrategyAutoGo,
+				RetryCount:    0,
+			}
+
+			manager := NewManager()
+
+			// Record an attempt with a non-dependency error
+			manager.RecordAttempt(context.Background(), job.ID, BuildAttempt{
+				AttemptNumber: 1,
+				Strategy:      job.BuildStrategy,
+				BuildType:     job.BuildType,
+				StartedAt:     time.Now(),
+				Success:       false,
+				Error:         errMsg,
+			})
+
+			retryJob, err := manager.PrepareRetry(context.Background(), job)
+			if err != nil {
+				return false
+			}
+
+			// Should NOT switch to OCI
+			return retryJob.BuildType == models.BuildTypePureNix && !retryJob.RetryAsOCI
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.OneConstOf(
+			"hash mismatch in derivation",
+			"network error: connection reset",
+			"timeout exceeded",
+		),
+	))
+
+	// Property: OCI builds do not trigger OCI fallback (already OCI)
+	properties.Property("OCI builds do not trigger OCI fallback", prop.ForAll(
+		func(jobID string, errMsg string) bool {
+			if jobID == "" {
+				return true // Skip empty job IDs
+			}
+
+			job := &models.BuildJob{
+				ID:            jobID,
+				BuildType:     models.BuildTypeOCI, // Already OCI
+				BuildStrategy: models.BuildStrategyDockerfile,
+				RetryCount:    0,
+			}
+
+			manager := NewManager()
+
+			// Record an attempt with a dependency error
+			manager.RecordAttempt(context.Background(), job.ID, BuildAttempt{
+				AttemptNumber: 1,
+				Strategy:      job.BuildStrategy,
+				BuildType:     job.BuildType,
+				StartedAt:     time.Now(),
+				Success:       false,
+				Error:         errMsg,
+			})
+
+			retryJob, err := manager.PrepareRetry(context.Background(), job)
+			if err != nil {
+				return false
+			}
+
+			// Should stay OCI (no change)
+			return retryJob.BuildType == models.BuildTypeOCI
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.OneConstOf(
+			"native dependency not found",
+			"linking failed: undefined reference",
+		),
+	))
+
+	// Property: PrepareRetry increments retry count
+	properties.Property("PrepareRetry increments retry count", prop.ForAll(
+		func(job *models.BuildJob) bool {
+			manager := NewManager()
+			originalCount := job.RetryCount
+
+			retryJob, err := manager.PrepareRetry(context.Background(), job)
+			if err != nil {
+				return false
+			}
+
+			return retryJob.RetryCount == originalCount+1
+		},
+		genBuildJob(),
+	))
+
+	// Property: ShouldRetry returns false for dependency errors when RetryAsOCI is disabled
+	properties.Property("ShouldRetry returns false for dependency errors when RetryAsOCI disabled", prop.ForAll(
+		func(job *models.BuildJob, errMsg string) bool {
+			// Ensure job is pure-nix
+			job.BuildType = models.BuildTypePureNix
+			job.RetryCount = 0
+
+			strategy := &RetryStrategy{
+				MaxAttempts:     5,
+				RetryAsOCI:      false, // Disabled
+				RetryableErrors: retryableErrorPatterns,
+				BackoffDuration: time.Second,
+			}
+			manager := NewManager(WithRetryStrategy(strategy))
+
+			err := errors.New(errMsg)
+
+			// ShouldRetry should return false for dependency errors when RetryAsOCI is disabled
+			// (unless the error matches a retryable pattern)
+			result := manager.ShouldRetry(context.Background(), job, err)
+
+			// If the error is a retryable pattern, it should still retry
+			isRetryablePattern := false
+			for _, pattern := range retryableErrorPatterns {
+				if strings.Contains(strings.ToLower(errMsg), strings.ToLower(pattern)) {
+					isRetryablePattern = true
+					break
+				}
+			}
+
+			if isRetryablePattern {
+				return result == true
+			}
+			return result == false
+		},
+		genBuildJob(),
+		gen.OneConstOf(
+			"native dependency not found",
+			"linking failed: undefined reference",
+			"pkg-config not found",
+		),
 	))
 
 	properties.TestingRun(t)

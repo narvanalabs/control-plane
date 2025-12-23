@@ -10,6 +10,15 @@ import (
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
+// MaxRetries is the default maximum retry count.
+// **Validates: Requirements 15.5**
+const MaxRetries = 2
+
+// ErrValidationFailed is the sentinel error for validation failures.
+// This error type should never trigger a retry.
+// **Validates: Requirements 15.7**
+var ErrValidationFailed = errors.New("build validation failed")
+
 // Retryable error patterns that indicate a build should be retried.
 var retryableErrorPatterns = []string{
 	"hash mismatch",
@@ -113,14 +122,25 @@ func NewManager(opts ...ManagerOption) *Manager {
 }
 
 // ShouldRetry determines if a failed build should be retried.
+// **Validates: Requirements 15.5, 15.7**
 func (m *Manager) ShouldRetry(ctx context.Context, job *models.BuildJob, err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// Check if we've exceeded max attempts
+	// **Validates: Requirements 15.7** - Validation errors are never retryable
+	if IsValidationError(err) {
+		return false
+	}
+
+	// **Validates: Requirements 15.5** - Check if we've exceeded max attempts
 	attempts := m.GetAttempts(job.ID)
 	if len(attempts) >= m.strategy.MaxAttempts {
+		return false
+	}
+
+	// Also check the job's retry count against MaxRetries constant
+	if job.RetryCount >= MaxRetries {
 		return false
 	}
 
@@ -262,4 +282,37 @@ func (m *Manager) IsOCIFallbackError(err error) bool {
 	}
 
 	return m.shouldFallbackToOCI(err.Error())
+}
+
+// IsValidationError checks if an error is a validation error.
+// Validation errors should never trigger a retry.
+// **Validates: Requirements 15.7**
+func IsValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check if the error is or wraps ErrValidationFailed
+	if errors.Is(err, ErrValidationFailed) {
+		return true
+	}
+
+	// Also check for common validation error patterns in the error message
+	errStr := strings.ToLower(err.Error())
+	validationPatterns := []string{
+		"validation failed",
+		"validation error",
+		"invalid configuration",
+		"required field",
+		"invalid value",
+		"negative value",
+	}
+
+	for _, pattern := range validationPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
