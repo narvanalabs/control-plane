@@ -78,6 +78,7 @@ func (b *NixBuilder) Build(ctx context.Context, job *models.BuildJob) (*NixBuild
 		"git_url", job.GitURL,
 		"git_ref", job.GitRef,
 		"flake_output", job.FlakeOutput,
+		"has_generated_flake", job.GeneratedFlake != "",
 	)
 
 	// Create a unique build directory
@@ -87,13 +88,33 @@ func (b *NixBuilder) Build(ctx context.Context, job *models.BuildJob) (*NixBuild
 	}
 	defer os.RemoveAll(buildDir) // Clean up after build
 
-	// Build the nix build command
-	flakeRef := job.GitURL
-	if job.GitRef != "" {
-		flakeRef = fmt.Sprintf("%s?ref=%s", job.GitURL, job.GitRef)
-	}
-	if job.FlakeOutput != "" {
-		flakeRef = fmt.Sprintf("%s#%s", flakeRef, job.FlakeOutput)
+	var flakeRef string
+
+	// Check if we have a generated flake - if so, write it to the build directory
+	// and build from there instead of the git URL
+	if job.GeneratedFlake != "" {
+		flakePath := filepath.Join(buildDir, "flake.nix")
+		if err := os.WriteFile(flakePath, []byte(job.GeneratedFlake), 0644); err != nil {
+			return nil, fmt.Errorf("writing generated flake: %w", err)
+		}
+		b.logger.Info("wrote generated flake to build directory",
+			"job_id", job.ID,
+			"flake_path", flakePath,
+		)
+		// Build from the local directory
+		flakeRef = "/build"
+		if job.FlakeOutput != "" {
+			flakeRef = fmt.Sprintf("/build#%s", job.FlakeOutput)
+		}
+	} else {
+		// Build from the git URL
+		flakeRef = job.GitURL
+		if job.GitRef != "" {
+			flakeRef = fmt.Sprintf("%s?ref=%s", job.GitURL, job.GitRef)
+		}
+		if job.FlakeOutput != "" {
+			flakeRef = fmt.Sprintf("%s#%s", flakeRef, job.FlakeOutput)
+		}
 	}
 
 	// Create a log buffer to capture output
@@ -117,6 +138,31 @@ func (b *NixBuilder) Build(ctx context.Context, job *models.BuildJob) (*NixBuild
 func (b *NixBuilder) buildInContainer(ctx context.Context, job *models.BuildJob, buildDir, flakeRef string, logWriter io.Writer) (*NixBuildResult, error) {
 	start := time.Now()
 
+	// Determine if we need to clone the repo (for generated flakes, the source needs to be present)
+	needsClone := job.GeneratedFlake != "" && job.GitURL != ""
+	
+	var cloneScript string
+	if needsClone {
+		// Clone the repo into /build/src, then copy the generated flake
+		gitRef := job.GitRef
+		if gitRef == "" {
+			gitRef = "HEAD"
+		}
+		cloneScript = fmt.Sprintf(`
+echo "=== Cloning repository ==="
+git clone --depth 1 --branch %s %s /build/src 2>&1 || git clone --depth 1 %s /build/src 2>&1
+cd /build/src
+# Copy the generated flake.nix into the repo
+cp /build/flake.nix /build/src/flake.nix
+echo "Repository cloned and flake.nix added"
+`, gitRef, job.GitURL, job.GitURL)
+		// Update flakeRef to point to the cloned directory
+		flakeRef = "/build/src"
+		if job.FlakeOutput != "" {
+			flakeRef = fmt.Sprintf("/build/src#%s", job.FlakeOutput)
+		}
+	}
+
 	// Build script that will run inside the container
 	buildScript := fmt.Sprintf(`
 set -e
@@ -128,13 +174,15 @@ echo ""
 # Enable flakes
 export NIX_CONFIG="experimental-features = nix-command flakes"
 
+%s
+
 # Run the build with sandbox enabled
 echo "=== Running nix build ==="
 nix build '%s' --print-out-paths --no-link 2>&1
 
 echo ""
 echo "=== Build Complete ==="
-`, flakeRef, job.BuildType, flakeRef)
+`, flakeRef, job.BuildType, cloneScript, flakeRef)
 
 	containerName := fmt.Sprintf("narvana-build-%s", job.ID)
 
@@ -213,6 +261,7 @@ func (b *NixBuilder) parseStorePath(output string) string {
 func (b *NixBuilder) BuildWithLogCallback(ctx context.Context, job *models.BuildJob, callback func(line string)) (*NixBuildResult, error) {
 	b.logger.Info("starting nix build with log callback",
 		"job_id", job.ID,
+		"has_generated_flake", job.GeneratedFlake != "",
 	)
 
 	// Create a unique build directory
@@ -222,13 +271,34 @@ func (b *NixBuilder) BuildWithLogCallback(ctx context.Context, job *models.Build
 	}
 	defer os.RemoveAll(buildDir)
 
-	// Build the flake reference
-	flakeRef := job.GitURL
-	if job.GitRef != "" {
-		flakeRef = fmt.Sprintf("%s?ref=%s", job.GitURL, job.GitRef)
-	}
-	if job.FlakeOutput != "" {
-		flakeRef = fmt.Sprintf("%s#%s", flakeRef, job.FlakeOutput)
+	var flakeRef string
+
+	// Check if we have a generated flake - if so, write it to the build directory
+	// and build from there instead of the git URL
+	if job.GeneratedFlake != "" {
+		callback("=== Using generated flake.nix ===")
+		flakePath := filepath.Join(buildDir, "flake.nix")
+		if err := os.WriteFile(flakePath, []byte(job.GeneratedFlake), 0644); err != nil {
+			return nil, fmt.Errorf("writing generated flake: %w", err)
+		}
+		b.logger.Info("wrote generated flake to build directory",
+			"job_id", job.ID,
+			"flake_path", flakePath,
+		)
+		// Build from the local directory
+		flakeRef = "/build"
+		if job.FlakeOutput != "" {
+			flakeRef = fmt.Sprintf("/build#%s", job.FlakeOutput)
+		}
+	} else {
+		// Build from the git URL
+		flakeRef = job.GitURL
+		if job.GitRef != "" {
+			flakeRef = fmt.Sprintf("%s?ref=%s", job.GitURL, job.GitRef)
+		}
+		if job.FlakeOutput != "" {
+			flakeRef = fmt.Sprintf("%s#%s", flakeRef, job.FlakeOutput)
+		}
 	}
 
 	// Create a writer that calls the callback for each line
