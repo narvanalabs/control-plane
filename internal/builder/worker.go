@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/narvanalabs/control-plane/internal/builder/detector"
 	"github.com/narvanalabs/control-plane/internal/builder/executor"
+	"github.com/narvanalabs/control-plane/internal/builder/hash"
 	"github.com/narvanalabs/control-plane/internal/builder/retry"
+	"github.com/narvanalabs/control-plane/internal/builder/templates"
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/queue"
 	"github.com/narvanalabs/control-plane/internal/store"
@@ -322,7 +325,7 @@ func NewWorker(cfg *WorkerConfig, s store.Store, q queue.Queue, logger *slog.Log
 
 	// Create executor registry and register all strategy executors
 	registry := executor.NewExecutorRegistry()
-	
+
 	// Create adapters for the builders
 	nixBuilderAdapter := &nixBuilderAdapter{nixBuilder}
 	ociBuilderAdapter := &ociBuilderAdapter{ociBuilder}
@@ -331,8 +334,32 @@ func NewWorker(cfg *WorkerConfig, s store.Store, q queue.Queue, logger *slog.Log
 	flakeExecutor := executor.NewFlakeStrategyExecutor(nixBuilderAdapter, ociBuilderAdapter, logger)
 	registry.Register(flakeExecutor)
 
-	// Note: Other executors (auto-go, auto-node, etc.) would be registered here
-	// when their dependencies (detector, template engine, hash calculator) are available
+	// Create shared dependencies for auto-* executors
+	det := detector.NewDetector()
+	tmplEngine, tmplErr := templates.NewTemplateEngine()
+	if tmplErr != nil {
+		logger.Warn("failed to create template engine, auto-* strategies will not be available", "error", tmplErr)
+	} else {
+		hashCalc := hash.NewCalculator()
+
+		// Register auto-go executor
+		autoGoExecutor := executor.NewAutoGoStrategyExecutor(det, tmplEngine, hashCalc, nixBuilderAdapter, ociBuilderAdapter, logger)
+		registry.Register(autoGoExecutor)
+
+		// Register auto-node executor
+		autoNodeExecutor := executor.NewAutoNodeStrategyExecutor(det, tmplEngine, hashCalc, nixBuilderAdapter, ociBuilderAdapter, logger)
+		registry.Register(autoNodeExecutor)
+
+		// Register auto-rust executor
+		autoRustExecutor := executor.NewAutoRustStrategyExecutor(det, tmplEngine, hashCalc, nixBuilderAdapter, ociBuilderAdapter, logger)
+		registry.Register(autoRustExecutor)
+
+		// Register auto-python executor (doesn't use hash calculator)
+		autoPythonExecutor := executor.NewAutoPythonStrategyExecutor(det, tmplEngine, nixBuilderAdapter, ociBuilderAdapter, logger)
+		registry.Register(autoPythonExecutor)
+
+		logger.Info("registered auto-* strategy executors")
+	}
 
 	// Create retry manager with notification callback
 	retryMgr := retry.NewManager(
@@ -732,11 +759,13 @@ func (w *Worker) executeBuild(ctx context.Context, job *models.BuildJob, logCall
 
 	// If a build strategy is specified, try to use the strategy executor
 	if job.BuildStrategy != "" {
+		w.logger.Info("looking up executor for strategy", "strategy", job.BuildStrategy)
 		w.progressTracker.ReportStage(ctx, job.ID, StageDetecting)
 		w.progressTracker.ReportProgress(ctx, job.ID, 20, "Detecting build strategy")
 
 		strategyExecutor, err := w.executorRegistry.GetExecutor(job.BuildStrategy)
 		if err == nil {
+			w.logger.Info("found executor for strategy", "strategy", job.BuildStrategy)
 			logCallback(fmt.Sprintf("=== Using strategy: %s ===", job.BuildStrategy))
 			w.progressTracker.ReportProgress(ctx, job.ID, 30, fmt.Sprintf("Using strategy: %s", job.BuildStrategy))
 
