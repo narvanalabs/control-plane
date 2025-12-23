@@ -7,6 +7,9 @@ var (
 	// ErrNoExecutorFound is returned when no executor supports the given strategy.
 	ErrNoExecutorFound = errors.New("no executor found for strategy")
 
+	// ErrMissingRequiredExecutors is returned when required strategy executors are not registered.
+	ErrMissingRequiredExecutors = errors.New("missing required executors")
+
 	// ErrFlakeNotFound is returned when a flake.nix is required but not found.
 	ErrFlakeNotFound = errors.New("flake.nix not found in repository")
 
