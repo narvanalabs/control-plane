@@ -783,6 +783,7 @@ func (m *MockUserStore) List(ctx context.Context) ([]*store.User, error) {
 }
 
 // MockProgressTracker is a mock implementation of BuildProgressTracker for testing.
+// It also implements ProgressTrackerWithHistory for testing progress tracking verification.
 type MockProgressTracker struct {
 	mu              sync.Mutex
 	StageReports    []StageReport
@@ -847,6 +848,96 @@ func (m *MockProgressTracker) GetProgressReports() []ProgressReport {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]ProgressReport{}, m.ProgressReports...)
+}
+
+// GetProgressHistory returns the progress history for a build (implements ProgressTrackerWithHistory).
+func (m *MockProgressTracker) GetProgressHistory(buildID string) []ProgressRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []ProgressRecord
+	for _, report := range m.ProgressReports {
+		if report.BuildID == buildID {
+			result = append(result, ProgressRecord{
+				BuildID:   report.BuildID,
+				Percent:   report.Percent,
+				Message:   report.Message,
+				Timestamp: report.Timestamp,
+			})
+		}
+	}
+	return result
+}
+
+// GetStageHistory returns the stage history for a build (implements ProgressTrackerWithHistory).
+func (m *MockProgressTracker) GetStageHistory(buildID string) []StageRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []StageRecord
+	for _, report := range m.StageReports {
+		if report.BuildID == buildID {
+			result = append(result, StageRecord{
+				BuildID:   report.BuildID,
+				Stage:     report.Stage,
+				Timestamp: report.Timestamp,
+			})
+		}
+	}
+	return result
+}
+
+// IsProgressMonotonic checks if all progress reports for a build are monotonically increasing.
+func (m *MockProgressTracker) IsProgressMonotonic(buildID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	var buildReports []ProgressReport
+	for _, report := range m.ProgressReports {
+		if report.BuildID == buildID {
+			buildReports = append(buildReports, report)
+		}
+	}
+	
+	if len(buildReports) <= 1 {
+		return true
+	}
+	
+	for i := 1; i < len(buildReports); i++ {
+		if buildReports[i].Percent < buildReports[i-1].Percent {
+			return false
+		}
+	}
+	return true
+}
+
+// HasTerminalStage checks if the build has reported a terminal stage (completed or failed).
+func (m *MockProgressTracker) HasTerminalStage(buildID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	for _, report := range m.StageReports {
+		if report.BuildID == buildID {
+			if report.Stage == StageCompleted || report.Stage == StageFailed {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetLastStage returns the last reported stage for a build.
+func (m *MockProgressTracker) GetLastStage(buildID string) (BuildStage, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	var lastStage BuildStage
+	found := false
+	for _, report := range m.StageReports {
+		if report.BuildID == buildID {
+			lastStage = report.Stage
+			found = true
+		}
+	}
+	return lastStage, found
 }
 
 // Reset clears all recorded reports.
@@ -1049,30 +1140,15 @@ func NewBuildJobFixtures() *BuildJobFixtures {
 	}
 }
 
-// ValidTransitions defines the allowed state transitions for build jobs.
-var ValidTransitions = map[models.BuildStatus][]models.BuildStatus{
-	models.BuildStatusQueued:    {models.BuildStatusRunning},
-	models.BuildStatusRunning:   {models.BuildStatusSucceeded, models.BuildStatusFailed, models.BuildStatusQueued}, // Queued only for retry
-	models.BuildStatusSucceeded: {}, // Terminal state
-	models.BuildStatusFailed:    {}, // Terminal state
-}
+// ValidTransitions is an alias to models.ValidStatusTransitions for backward compatibility in tests.
+var ValidTransitions = models.ValidStatusTransitions
 
-// CanTransition checks if a state transition is valid.
+// CanTransition delegates to models.CanTransition for state transition validation.
 func CanTransition(from, to models.BuildStatus, isRetry bool) bool {
-	allowed := ValidTransitions[from]
-	for _, s := range allowed {
-		if s == to {
-			// Special case: running -> queued only allowed for retry
-			if from == models.BuildStatusRunning && to == models.BuildStatusQueued && !isRetry {
-				return false
-			}
-			return true
-		}
-	}
-	return false
+	return models.CanTransition(from, to, isRetry)
 }
 
-// IsTerminalState returns true if the status is a terminal state.
+// IsTerminalState delegates to models.IsTerminalState for terminal state checking.
 func IsTerminalState(status models.BuildStatus) bool {
-	return status == models.BuildStatusSucceeded || status == models.BuildStatusFailed
+	return models.IsTerminalState(status)
 }
