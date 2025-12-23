@@ -1205,3 +1205,133 @@ func TestBuildJobStrategyDeterminism(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: build-lifecycle-correctness, Property 15: Build Type Enforcement for Dockerfile**
+// *For any* build job with `build_strategy: dockerfile`, the effective build_type SHALL be `oci`
+// regardless of user specification.
+// **Validates: Requirements 10.2, 18.1**
+func TestBuildTypeEnforcementDockerfile(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: Dockerfile strategy always enforces OCI build type
+	properties.Property("dockerfile strategy enforces OCI build type", prop.ForAll(
+		func(requestedType BuildType) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyDockerfile, requestedType)
+			
+			// Enforced type must always be OCI for dockerfile strategy
+			if enforcedType != BuildTypeOCI {
+				return false
+			}
+			
+			// wasChanged should be true if requested type was not OCI
+			if requestedType != BuildTypeOCI && !wasChanged {
+				return false
+			}
+			
+			// wasChanged should be false if requested type was already OCI
+			if requestedType == BuildTypeOCI && wasChanged {
+				return false
+			}
+			
+			return true
+		},
+		gen.OneConstOf(BuildTypePureNix, BuildTypeOCI, BuildType("")),
+	))
+
+	// Property: Dockerfile strategy with pure-nix request returns OCI and wasChanged=true
+	properties.Property("dockerfile with pure-nix returns OCI and wasChanged=true", prop.ForAll(
+		func(_ int) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyDockerfile, BuildTypePureNix)
+			return enforcedType == BuildTypeOCI && wasChanged
+		},
+		gen.IntRange(0, 100), // Dummy generator
+	))
+
+	// Property: Dockerfile strategy with OCI request returns OCI and wasChanged=false
+	properties.Property("dockerfile with OCI returns OCI and wasChanged=false", prop.ForAll(
+		func(_ int) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyDockerfile, BuildTypeOCI)
+			return enforcedType == BuildTypeOCI && !wasChanged
+		},
+		gen.IntRange(0, 100), // Dummy generator
+	))
+
+	// Property: Dockerfile strategy with empty request returns OCI and wasChanged=true
+	properties.Property("dockerfile with empty type returns OCI and wasChanged=true", prop.ForAll(
+		func(_ int) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyDockerfile, BuildType(""))
+			return enforcedType == BuildTypeOCI && wasChanged
+		},
+		gen.IntRange(0, 100), // Dummy generator
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: build-lifecycle-correctness, Property 16: Build Type Enforcement for Nixpacks**
+// *For any* build job with `build_strategy: nixpacks`, the effective build_type SHALL be `oci`
+// regardless of user specification.
+// **Validates: Requirements 11.2, 18.2**
+func TestBuildTypeEnforcementNixpacks(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: Nixpacks strategy always enforces OCI build type
+	properties.Property("nixpacks strategy enforces OCI build type", prop.ForAll(
+		func(requestedType BuildType) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyNixpacks, requestedType)
+			
+			// Enforced type must always be OCI for nixpacks strategy
+			if enforcedType != BuildTypeOCI {
+				return false
+			}
+			
+			// wasChanged should be true if requested type was not OCI
+			if requestedType != BuildTypeOCI && !wasChanged {
+				return false
+			}
+			
+			// wasChanged should be false if requested type was already OCI
+			if requestedType == BuildTypeOCI && wasChanged {
+				return false
+			}
+			
+			return true
+		},
+		gen.OneConstOf(BuildTypePureNix, BuildTypeOCI, BuildType("")),
+	))
+
+	// Property: Nixpacks strategy with pure-nix request returns OCI and wasChanged=true
+	properties.Property("nixpacks with pure-nix returns OCI and wasChanged=true", prop.ForAll(
+		func(_ int) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyNixpacks, BuildTypePureNix)
+			return enforcedType == BuildTypeOCI && wasChanged
+		},
+		gen.IntRange(0, 100), // Dummy generator
+	))
+
+	// Property: Nixpacks strategy with OCI request returns OCI and wasChanged=false
+	properties.Property("nixpacks with OCI returns OCI and wasChanged=false", prop.ForAll(
+		func(_ int) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyNixpacks, BuildTypeOCI)
+			return enforcedType == BuildTypeOCI && !wasChanged
+		},
+		gen.IntRange(0, 100), // Dummy generator
+	))
+
+	// Property: Nixpacks strategy with empty request returns OCI and wasChanged=true
+	properties.Property("nixpacks with empty type returns OCI and wasChanged=true", prop.ForAll(
+		func(_ int) bool {
+			enforcedType, wasChanged := EnforceBuildType(BuildStrategyNixpacks, BuildType(""))
+			return enforcedType == BuildTypeOCI && wasChanged
+		},
+		gen.IntRange(0, 100), // Dummy generator
+	))
+
+	properties.TestingRun(t)
+}
