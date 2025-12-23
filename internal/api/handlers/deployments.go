@@ -449,28 +449,32 @@ func (h *DeploymentHandler) createBuildJobForService(ctx context.Context, deploy
 	switch service.SourceType {
 	case models.SourceTypeGit:
 		buildJob = &models.BuildJob{
-			ID:           uuid.New().String(),
-			DeploymentID: deploymentID,
-			AppID:        appID,
-			GitURL:       service.GitRepo,
-			GitRef:       gitRef,
-			FlakeOutput:  service.FlakeOutput,
-			BuildType:    buildType,
-			Status:       models.BuildStatusQueued,
-			CreatedAt:    now,
+			ID:            uuid.New().String(),
+			DeploymentID:  deploymentID,
+			AppID:         appID,
+			GitURL:        service.GitRepo,
+			GitRef:        gitRef,
+			FlakeOutput:   service.FlakeOutput,
+			BuildType:     buildType,
+			BuildStrategy: service.BuildStrategy,
+			BuildConfig:   service.BuildConfig,
+			Status:        models.BuildStatusQueued,
+			CreatedAt:     now,
 		}
 	case models.SourceTypeFlake:
 		// For flake sources, use the flake URI directly
 		buildJob = &models.BuildJob{
-			ID:           uuid.New().String(),
-			DeploymentID: deploymentID,
-			AppID:        appID,
-			GitURL:       service.FlakeURI, // Store flake URI in GitURL field
-			GitRef:       "",               // Not applicable for flake sources
-			FlakeOutput:  "",               // Output is part of the flake URI
-			BuildType:    buildType,
-			Status:       models.BuildStatusQueued,
-			CreatedAt:    now,
+			ID:            uuid.New().String(),
+			DeploymentID:  deploymentID,
+			AppID:         appID,
+			GitURL:        service.FlakeURI, // Store flake URI in GitURL field
+			GitRef:        "",               // Not applicable for flake sources
+			FlakeOutput:   "",               // Output is part of the flake URI
+			BuildType:     buildType,
+			BuildStrategy: models.BuildStrategyFlake, // Flake sources always use flake strategy
+			BuildConfig:   service.BuildConfig,
+			Status:        models.BuildStatusQueued,
+			CreatedAt:     now,
 		}
 	case models.SourceTypeImage:
 		// No build job needed for image sources - skip build phase
