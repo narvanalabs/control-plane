@@ -25,10 +25,36 @@ var (
 	ErrBuildTimeout = errors.New("build exceeded timeout limit")
 	// ErrValidationFailed is returned when build validation fails.
 	ErrValidationFailed = errors.New("build validation failed")
+	// ErrInvalidStateTransition is returned when an invalid state transition is attempted.
+	ErrInvalidStateTransition = errors.New("invalid state transition")
 )
 
 // DefaultBuildTimeout is the default build timeout in seconds (30 minutes).
 const DefaultBuildTimeout = 1800
+
+// Validation error codes.
+// These codes are used to categorize validation errors for programmatic handling.
+// **Validates: Requirements 3.4, 3.5, 3.6, 3.7, 3.8, 3.9**
+const (
+	// ValidationCodeRequiredField indicates a required field is missing or empty.
+	ValidationCodeRequiredField = "REQUIRED_FIELD"
+	// ValidationCodeInvalidValue indicates a field has an invalid value.
+	ValidationCodeInvalidValue = "INVALID_VALUE"
+	// ValidationCodeNegativeValue indicates a field has a negative value when it should be non-negative.
+	ValidationCodeNegativeValue = "NEGATIVE_VALUE"
+)
+
+// transitionJobStatus validates and performs a state transition for a build job.
+// It returns an error if the transition is not allowed by the state machine.
+// The isRetry parameter indicates if this is a retry operation (allows running → queued).
+func transitionJobStatus(job *models.BuildJob, newStatus models.BuildStatus, isRetry bool) error {
+	if !models.CanTransition(job.Status, newStatus, isRetry) {
+		return fmt.Errorf("%w: cannot transition from %s to %s (isRetry=%v)",
+			ErrInvalidStateTransition, job.Status, newStatus, isRetry)
+	}
+	job.Status = newStatus
+	return nil
+}
 
 // ValidationError describes a validation failure.
 type ValidationError struct {
@@ -69,6 +95,7 @@ func NewDefaultBuildValidator(logger *slog.Logger) *DefaultBuildValidator {
 }
 
 // Validate checks if a build job configuration is valid.
+// **Validates: Requirements 3.1, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9**
 func (v *DefaultBuildValidator) Validate(ctx context.Context, job *models.BuildJob) (*ValidationResult, error) {
 	result := &ValidationResult{
 		Valid:    true,
@@ -77,43 +104,48 @@ func (v *DefaultBuildValidator) Validate(ctx context.Context, job *models.BuildJ
 	}
 
 	// Validate required fields
+	// **Validates: Requirements 3.4** - empty id field
 	if job.ID == "" {
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "id",
 			Message: "build job ID is required",
-			Code:    "REQUIRED_FIELD",
+			Code:    ValidationCodeRequiredField,
 		})
 	}
 
+	// **Validates: Requirements 3.5** - empty deployment_id field
 	if job.DeploymentID == "" {
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "deployment_id",
 			Message: "deployment ID is required",
-			Code:    "REQUIRED_FIELD",
+			Code:    ValidationCodeRequiredField,
 		})
 	}
 
 	// Validate build type
+	// **Validates: Requirements 3.6** - empty build_type field
 	if job.BuildType == "" {
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "build_type",
 			Message: "build type is required",
-			Code:    "REQUIRED_FIELD",
+			Code:    ValidationCodeRequiredField,
 		})
 	} else if job.BuildType != models.BuildTypePureNix && job.BuildType != models.BuildTypeOCI {
+		// **Validates: Requirements 3.7** - invalid build_type
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "build_type",
 			Message: fmt.Sprintf("invalid build type: %s", job.BuildType),
-			Code:    "INVALID_VALUE",
+			Code:    ValidationCodeInvalidValue,
 		})
 	}
 
 	// Validate build strategy if specified
+	// **Validates: Requirements 3.8** - invalid build_strategy
 	if job.BuildStrategy != "" && !job.BuildStrategy.IsValid() {
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "build_strategy",
 			Message: fmt.Sprintf("invalid build strategy: %s", job.BuildStrategy),
-			Code:    "INVALID_VALUE",
+			Code:    ValidationCodeInvalidValue,
 		})
 	}
 
@@ -131,11 +163,12 @@ func (v *DefaultBuildValidator) Validate(ctx context.Context, job *models.BuildJ
 	}
 
 	// Validate timeout
+	// **Validates: Requirements 3.9** - negative timeout_seconds
 	if job.TimeoutSeconds < 0 {
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "timeout_seconds",
 			Message: "timeout cannot be negative",
-			Code:    "INVALID_VALUE",
+			Code:    ValidationCodeNegativeValue,
 		})
 	}
 
@@ -187,12 +220,12 @@ func (v *DefaultBuildValidator) validateBuildConfig(config *models.BuildConfig, 
 		}
 	}
 
-	// Validate build timeout
+	// Validate build timeout - negative values are not allowed
 	if config.BuildTimeout < 0 {
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "build_config.build_timeout",
 			Message: "build timeout cannot be negative",
-			Code:    "INVALID_VALUE",
+			Code:    ValidationCodeNegativeValue,
 		})
 	}
 }
@@ -241,9 +274,40 @@ type BuildProgressTracker interface {
 	ReportProgress(ctx context.Context, buildID string, percent int, message string) error
 }
 
-// DefaultProgressTracker is a simple progress tracker that logs progress.
+// ProgressTrackerWithHistory extends BuildProgressTracker with history retrieval.
+// **Validates: Requirements 4.1, 4.2, 4.3**
+type ProgressTrackerWithHistory interface {
+	BuildProgressTracker
+	// GetProgressHistory returns the progress history for a build.
+	GetProgressHistory(buildID string) []ProgressRecord
+	// GetStageHistory returns the stage history for a build.
+	GetStageHistory(buildID string) []StageRecord
+}
+
+// ProgressRecord tracks a single progress report for verification.
+// **Validates: Requirements 4.1, 4.2, 4.3**
+type ProgressRecord struct {
+	BuildID   string
+	Percent   int
+	Message   string
+	Timestamp time.Time
+}
+
+// StageRecord tracks a single stage report for verification.
+// **Validates: Requirements 4.1, 4.2**
+type StageRecord struct {
+	BuildID   string
+	Stage     BuildStage
+	Timestamp time.Time
+}
+
+// DefaultProgressTracker is a progress tracker that logs progress and maintains history.
+// **Validates: Requirements 4.1, 4.2, 4.3**
 type DefaultProgressTracker struct {
-	logger *slog.Logger
+	logger          *slog.Logger
+	mu              sync.RWMutex
+	progressHistory map[string][]ProgressRecord
+	stageHistory    map[string][]StageRecord
 }
 
 // NewDefaultProgressTracker creates a new DefaultProgressTracker.
@@ -251,19 +315,158 @@ func NewDefaultProgressTracker(logger *slog.Logger) *DefaultProgressTracker {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &DefaultProgressTracker{logger: logger}
+	return &DefaultProgressTracker{
+		logger:          logger,
+		progressHistory: make(map[string][]ProgressRecord),
+		stageHistory:    make(map[string][]StageRecord),
+	}
 }
 
-// ReportStage logs the current build stage.
+// ReportStage logs the current build stage and stores it in history.
 func (t *DefaultProgressTracker) ReportStage(ctx context.Context, buildID string, stage BuildStage) error {
 	t.logger.Info("build stage", "build_id", buildID, "stage", stage)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	record := StageRecord{
+		BuildID:   buildID,
+		Stage:     stage,
+		Timestamp: time.Now(),
+	}
+	t.stageHistory[buildID] = append(t.stageHistory[buildID], record)
+
 	return nil
 }
 
-// ReportProgress logs the build progress.
+// ReportProgress logs the build progress, validates monotonicity, and stores it in history.
+// **Validates: Requirements 4.3** - Progress monotonicity validation
 func (t *DefaultProgressTracker) ReportProgress(ctx context.Context, buildID string, percent int, message string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Check for monotonicity violation
+	// **Validates: Requirements 4.3**
+	history := t.progressHistory[buildID]
+	if len(history) > 0 {
+		lastPercent := history[len(history)-1].Percent
+		if percent < lastPercent {
+			t.logger.Warn("non-monotonic progress detected",
+				"build_id", buildID,
+				"previous_percent", lastPercent,
+				"new_percent", percent,
+				"message", message,
+			)
+		}
+	}
+
 	t.logger.Info("build progress", "build_id", buildID, "percent", percent, "message", message)
+
+	record := ProgressRecord{
+		BuildID:   buildID,
+		Percent:   percent,
+		Message:   message,
+		Timestamp: time.Now(),
+	}
+	t.progressHistory[buildID] = append(t.progressHistory[buildID], record)
+
 	return nil
+}
+
+// GetProgressHistory returns the progress history for a build.
+// **Validates: Requirements 4.1, 4.2, 4.3**
+func (t *DefaultProgressTracker) GetProgressHistory(buildID string) []ProgressRecord {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	history := t.progressHistory[buildID]
+	if history == nil {
+		return []ProgressRecord{}
+	}
+	// Return a copy to prevent external modification
+	result := make([]ProgressRecord, len(history))
+	copy(result, history)
+	return result
+}
+
+// GetStageHistory returns the stage history for a build.
+// **Validates: Requirements 4.1, 4.2**
+func (t *DefaultProgressTracker) GetStageHistory(buildID string) []StageRecord {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	history := t.stageHistory[buildID]
+	if history == nil {
+		return []StageRecord{}
+	}
+	// Return a copy to prevent external modification
+	result := make([]StageRecord, len(history))
+	copy(result, history)
+	return result
+}
+
+// IsProgressMonotonic checks if all progress reports for a build are monotonically increasing.
+// **Validates: Requirements 4.3**
+func (t *DefaultProgressTracker) IsProgressMonotonic(buildID string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	history := t.progressHistory[buildID]
+	if len(history) <= 1 {
+		return true
+	}
+
+	for i := 1; i < len(history); i++ {
+		if history[i].Percent < history[i-1].Percent {
+			return false
+		}
+	}
+	return true
+}
+
+// HasTerminalStage checks if the build has reported a terminal stage (completed or failed).
+// **Validates: Requirements 4.5, 4.6**
+func (t *DefaultProgressTracker) HasTerminalStage(buildID string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	history := t.stageHistory[buildID]
+	for _, record := range history {
+		if record.Stage == StageCompleted || record.Stage == StageFailed {
+			return true
+		}
+	}
+	return false
+}
+
+// GetLastStage returns the last reported stage for a build.
+func (t *DefaultProgressTracker) GetLastStage(buildID string) (BuildStage, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	history := t.stageHistory[buildID]
+	if len(history) == 0 {
+		return "", false
+	}
+	return history[len(history)-1].Stage, true
+}
+
+// ClearHistory clears the history for a specific build (useful for testing).
+func (t *DefaultProgressTracker) ClearHistory(buildID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	delete(t.progressHistory, buildID)
+	delete(t.stageHistory, buildID)
+}
+
+// ClearAllHistory clears all history (useful for testing).
+func (t *DefaultProgressTracker) ClearAllHistory() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.progressHistory = make(map[string][]ProgressRecord)
+	t.stageHistory = make(map[string][]StageRecord)
 }
 
 // Worker processes build jobs from the queue.
@@ -378,6 +581,19 @@ func NewWorker(cfg *WorkerConfig, s store.Store, q queue.Queue, logger *slog.Log
 
 	// Create build validator
 	validator := NewDefaultBuildValidator(logger)
+
+	// Verify all required executors are registered
+	// **Validates: Requirements 2.1**
+	if err := registry.VerifyRequiredExecutors(); err != nil {
+		return nil, fmt.Errorf("verifying required executors: %w", err)
+	}
+
+	// Log registered executors on success
+	registeredStrategies := registry.GetRegisteredStrategies()
+	logger.Info("executor registry verified",
+		"registered_strategies", registeredStrategies,
+		"required_strategies", executor.RequiredStrategies,
+	)
 
 	return &Worker{
 		store:            s,
@@ -543,10 +759,23 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 			"job_id", job.ID,
 			"errors", validationResult.Errors,
 		)
-		// Mark job as failed due to validation errors
-		job.Status = models.BuildStatusFailed
-		finishedAt := time.Now()
-		job.FinishedAt = &finishedAt
+		// Transition to running first (job was picked up), then to failed
+		// This follows the state machine: queued → running → failed
+		if err := transitionJobStatus(job, models.BuildStatusRunning, false); err != nil {
+			w.logger.Error("failed to transition job status to running",
+				"job_id", job.ID,
+				"error", err,
+			)
+		}
+		now := time.Now()
+		job.StartedAt = &now
+		if err := transitionJobStatus(job, models.BuildStatusFailed, false); err != nil {
+			w.logger.Error("failed to transition job status to failed",
+				"job_id", job.ID,
+				"error", err,
+			)
+		}
+		job.FinishedAt = &now
 		w.store.Builds().Update(ctx, job)
 		return fmt.Errorf("%w: %v", ErrValidationFailed, validationResult.Errors)
 	}
@@ -559,9 +788,27 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		)
 	}
 
+	// Enforce build type based on strategy
+	// **Validates: Requirements 10.2, 11.2, 18.1, 18.2, 18.5**
+	if job.BuildStrategy != "" {
+		enforcedType, wasChanged := models.EnforceBuildType(job.BuildStrategy, job.BuildType)
+		if wasChanged {
+			// **Validates: Requirements 18.5** - Log warning when build type is enforced
+			w.logger.Warn("build type enforced by strategy",
+				"job_id", job.ID,
+				"strategy", job.BuildStrategy,
+				"requested_type", job.BuildType,
+				"enforced_type", enforcedType,
+			)
+			job.BuildType = enforcedType
+		}
+	}
+
 	// Update job status to running
 	now := time.Now()
-	job.Status = models.BuildStatusRunning
+	if err := transitionJobStatus(job, models.BuildStatusRunning, false); err != nil {
+		return fmt.Errorf("transitioning job status to running: %w", err)
+	}
 	job.StartedAt = &now
 	if err := w.store.Builds().Update(ctx, job); err != nil {
 		return fmt.Errorf("updating job status to running: %w", err)
@@ -575,7 +822,12 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 			"job_id", job.ID,
 			"deployment_id", job.DeploymentID,
 		)
-		job.Status = models.BuildStatusFailed
+		if err := transitionJobStatus(job, models.BuildStatusFailed, false); err != nil {
+			w.logger.Error("failed to transition job status to failed",
+				"job_id", job.ID,
+				"error", err,
+			)
+		}
 		finishedAt := time.Now()
 		job.FinishedAt = &finishedAt
 		w.store.Builds().Update(ctx, job)
@@ -634,34 +886,45 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 			// Prepare retry job
 			retryJob, retryErr := w.retryManager.PrepareRetry(ctx, job)
 			if retryErr == nil {
-				// Update job for retry
+				// Update job for retry - use isRetry=true to allow running → queued transition
 				job.RetryCount = retryJob.RetryCount
 				job.BuildType = retryJob.BuildType
 				job.RetryAsOCI = retryJob.RetryAsOCI
-				job.Status = models.BuildStatusQueued
-				job.StartedAt = nil
-				job.FinishedAt = nil
-
-				if err := w.store.Builds().Update(ctx, job); err != nil {
-					w.logger.Error("failed to update job for retry", "job_id", job.ID, "error", err)
-				}
-
-				// Re-enqueue the job
-				if err := w.queue.Enqueue(ctx, job); err != nil {
-					w.logger.Error("failed to re-enqueue job for retry", "job_id", job.ID, "error", err)
-				} else {
-					w.logger.Info("job re-enqueued for retry",
+				if err := transitionJobStatus(job, models.BuildStatusQueued, true); err != nil {
+					w.logger.Error("failed to transition job status for retry",
 						"job_id", job.ID,
-						"retry_count", job.RetryCount,
-						"build_type", job.BuildType,
+						"error", err,
 					)
-					return nil
+				} else {
+					job.StartedAt = nil
+					job.FinishedAt = nil
+
+					if err := w.store.Builds().Update(ctx, job); err != nil {
+						w.logger.Error("failed to update job for retry", "job_id", job.ID, "error", err)
+					}
+
+					// Re-enqueue the job
+					if err := w.queue.Enqueue(ctx, job); err != nil {
+						w.logger.Error("failed to re-enqueue job for retry", "job_id", job.ID, "error", err)
+					} else {
+						w.logger.Info("job re-enqueued for retry",
+							"job_id", job.ID,
+							"retry_count", job.RetryCount,
+							"build_type", job.BuildType,
+						)
+						return nil
+					}
 				}
 			}
 		}
 
 		w.progressTracker.ReportStage(ctx, job.ID, StageFailed)
-		job.Status = models.BuildStatusFailed
+		if err := transitionJobStatus(job, models.BuildStatusFailed, false); err != nil {
+			w.logger.Error("failed to transition job status to failed",
+				"job_id", job.ID,
+				"error", err,
+			)
+		}
 		deployment.Status = models.DeploymentStatusFailed
 
 		// Store the build logs even on failure
@@ -673,7 +936,12 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		)
 
 		w.progressTracker.ReportStage(ctx, job.ID, StageCompleted)
-		job.Status = models.BuildStatusSucceeded
+		if err := transitionJobStatus(job, models.BuildStatusSucceeded, false); err != nil {
+			w.logger.Error("failed to transition job status to succeeded",
+				"job_id", job.ID,
+				"error", err,
+			)
+		}
 		deployment.Status = models.DeploymentStatusBuilt
 		deployment.Artifact = artifact
 	}
@@ -904,26 +1172,37 @@ func IsBuildTimeoutError(err error) bool {
 	return errors.Is(err, ErrBuildTimeout)
 }
 
-// GetBuildTimeout returns the effective timeout for a build job.
-// This is useful for testing and external callers.
-func GetBuildTimeout(job *models.BuildJob, defaultTimeout int) time.Duration {
-	// Use job-specific timeout if configured
+// GetEffectiveTimeout returns the effective timeout for a build job.
+// The timeout priority is: job.TimeoutSeconds > job.BuildConfig.BuildTimeout > defaultTimeout > DefaultBuildTimeout
+// **Validates: Requirements 12.1, 12.2, 12.3**
+func GetEffectiveTimeout(job *models.BuildJob, defaultTimeout int) time.Duration {
+	// Priority 1: Use job-specific timeout if configured
+	// **Validates: Requirements 12.1**
 	if job.TimeoutSeconds > 0 {
 		return time.Duration(job.TimeoutSeconds) * time.Second
 	}
 
-	// Use build config timeout if available
+	// Priority 2: Use build config timeout if available
+	// **Validates: Requirements 12.2**
 	if job.BuildConfig != nil && job.BuildConfig.BuildTimeout > 0 {
 		return time.Duration(job.BuildConfig.BuildTimeout) * time.Second
 	}
 
-	// Use provided default timeout
+	// Priority 3: Use provided default timeout
+	// **Validates: Requirements 12.3**
 	if defaultTimeout > 0 {
 		return time.Duration(defaultTimeout) * time.Second
 	}
 
-	// Fall back to global default
+	// Priority 4: Fall back to global default (1800 seconds = 30 minutes)
+	// **Validates: Requirements 12.3**
 	return time.Duration(DefaultBuildTimeout) * time.Second
+}
+
+// GetBuildTimeout is an alias for GetEffectiveTimeout for backward compatibility.
+// Deprecated: Use GetEffectiveTimeout instead.
+func GetBuildTimeout(job *models.BuildJob, defaultTimeout int) time.Duration {
+	return GetEffectiveTimeout(job, defaultTimeout)
 }
 
 // SetProgressTracker sets a custom progress tracker for the worker.
