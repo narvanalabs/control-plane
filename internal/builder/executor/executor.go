@@ -4,9 +4,21 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/narvanalabs/control-plane/internal/models"
 )
+
+// RequiredStrategies lists strategies that MUST have executors registered.
+// These are the core strategies that the build system must support.
+// **Validates: Requirements 2.1**
+var RequiredStrategies = []models.BuildStrategy{
+	models.BuildStrategyFlake,
+	models.BuildStrategyAutoGo,
+	models.BuildStrategyAutoNode,
+	models.BuildStrategyAutoRust,
+	models.BuildStrategyAutoPython,
+}
 
 // BuildResult represents the output of a completed build.
 type BuildResult struct {
@@ -54,4 +66,74 @@ func (r *ExecutorRegistry) GetExecutor(strategy models.BuildStrategy) (StrategyE
 		}
 	}
 	return nil, fmt.Errorf("%w: %s", ErrNoExecutorFound, strategy)
+}
+
+// VerifyRequiredExecutors checks that all required strategies have registered executors.
+// Returns an error listing any missing executors.
+// **Validates: Requirements 2.1, 2.2**
+func (r *ExecutorRegistry) VerifyRequiredExecutors() error {
+	var missing []string
+	
+	for _, strategy := range RequiredStrategies {
+		_, err := r.GetExecutor(strategy)
+		if err != nil {
+			missing = append(missing, string(strategy))
+		}
+	}
+	
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: missing executors for strategies: %s", 
+			ErrMissingRequiredExecutors, strings.Join(missing, ", "))
+	}
+	
+	return nil
+}
+
+// GetRegisteredStrategies returns a list of all strategies that have registered executors.
+func (r *ExecutorRegistry) GetRegisteredStrategies() []models.BuildStrategy {
+	var strategies []models.BuildStrategy
+	seen := make(map[models.BuildStrategy]bool)
+	
+	for _, executor := range r.executors {
+		for _, strategy := range models.ValidBuildStrategies() {
+			if executor.Supports(strategy) && !seen[strategy] {
+				strategies = append(strategies, strategy)
+				seen[strategy] = true
+			}
+		}
+	}
+	
+	return strategies
+}
+
+// VerifyStrategyExecutorMapping verifies that GetExecutor returns the correct executor type
+// for each strategy. It checks that the returned executor actually supports the requested strategy.
+// **Validates: Requirements 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 11.1**
+func (r *ExecutorRegistry) VerifyStrategyExecutorMapping(strategy models.BuildStrategy) error {
+	executor, err := r.GetExecutor(strategy)
+	if err != nil {
+		return fmt.Errorf("no executor found for strategy %s: %w", strategy, err)
+	}
+	
+	// Verify the executor actually supports the strategy
+	if !executor.Supports(strategy) {
+		return fmt.Errorf("executor returned for strategy %s does not support that strategy", strategy)
+	}
+	
+	return nil
+}
+
+// VerifyAllStrategyMappings verifies that all valid strategies have correct executor mappings.
+// Returns a map of strategy to error for any strategies that fail verification.
+// **Validates: Requirements 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 11.1**
+func (r *ExecutorRegistry) VerifyAllStrategyMappings() map[models.BuildStrategy]error {
+	results := make(map[models.BuildStrategy]error)
+	
+	for _, strategy := range models.ValidBuildStrategies() {
+		if err := r.VerifyStrategyExecutorMapping(strategy); err != nil {
+			results[strategy] = err
+		}
+	}
+	
+	return results
 }
