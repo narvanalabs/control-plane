@@ -12,6 +12,39 @@ const (
 	BuildStatusFailed    BuildStatus = "failed"
 )
 
+// ValidStatusTransitions defines the allowed state transitions for build jobs.
+// The state machine is: queued → running → (succeeded | failed)
+// with running → queued only allowed for retry operations.
+var ValidStatusTransitions = map[BuildStatus][]BuildStatus{
+	BuildStatusQueued:    {BuildStatusRunning},
+	BuildStatusRunning:   {BuildStatusSucceeded, BuildStatusFailed, BuildStatusQueued}, // Queued only for retry
+	BuildStatusSucceeded: {}, // Terminal state
+	BuildStatusFailed:    {}, // Terminal state
+}
+
+// CanTransition checks if a state transition is valid.
+// The isRetry parameter indicates if this is a retry operation, which allows
+// the special case of running → queued transition.
+func CanTransition(from, to BuildStatus, isRetry bool) bool {
+	allowed := ValidStatusTransitions[from]
+	for _, s := range allowed {
+		if s == to {
+			// Special case: running -> queued only allowed for retry
+			if from == BuildStatusRunning && to == BuildStatusQueued && !isRetry {
+				return false
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// IsTerminalState returns true if the status is a terminal state (succeeded or failed).
+// Terminal states do not allow any further transitions.
+func IsTerminalState(status BuildStatus) bool {
+	return status == BuildStatusSucceeded || status == BuildStatusFailed
+}
+
 // BuildStrategy represents the method used to build an application.
 type BuildStrategy string
 
@@ -167,4 +200,129 @@ type BuildResult struct {
 	StorePath string `json:"store_path,omitempty"` // For pure-nix
 	ImageTag  string `json:"image_tag,omitempty"`  // For OCI
 	Logs      string `json:"logs"`
+}
+
+// EnforceBuildType ensures the correct build type for a strategy.
+// Some strategies (dockerfile, nixpacks) require OCI build type.
+// Returns the enforced build type and whether it was changed from the requested type.
+// **Validates: Requirements 10.2, 11.2, 18.1, 18.2**
+func EnforceBuildType(strategy BuildStrategy, requestedType BuildType) (BuildType, bool) {
+	switch strategy {
+	case BuildStrategyDockerfile, BuildStrategyNixpacks:
+		// Dockerfile and Nixpacks strategies always require OCI build type
+		// **Validates: Requirements 10.2, 18.1** (dockerfile)
+		// **Validates: Requirements 11.2, 18.2** (nixpacks)
+		return BuildTypeOCI, requestedType != BuildTypeOCI
+	case BuildStrategyFlake:
+		// Flake strategy uses the user's choice
+		// **Validates: Requirements 18.3**
+		return requestedType, false
+	default:
+		// Auto-* strategies: user's choice or default to pure-nix
+		// **Validates: Requirements 18.4**
+		if requestedType == "" {
+			return BuildTypePureNix, false
+		}
+		return requestedType, false
+	}
+}
+
+// ArtifactType represents the type of build artifact produced.
+type ArtifactType string
+
+const (
+	// ArtifactTypeStorePath represents a Nix store path artifact (for pure-nix builds).
+	ArtifactTypeStorePath ArtifactType = "store_path"
+	// ArtifactTypeImageTag represents an OCI image tag artifact (for OCI builds).
+	ArtifactTypeImageTag ArtifactType = "image_tag"
+	// ArtifactTypeUnknown represents an unknown or invalid artifact type.
+	ArtifactTypeUnknown ArtifactType = "unknown"
+)
+
+// ValidateArtifact validates that an artifact is appropriate for the given build type.
+// For pure-nix builds, the artifact should be a Nix store path.
+// For OCI builds, the artifact should be an image tag.
+// **Validates: Requirements 13.1, 13.2**
+func ValidateArtifact(buildType BuildType, artifact string) (ArtifactType, bool) {
+	if artifact == "" {
+		return ArtifactTypeUnknown, false
+	}
+
+	switch buildType {
+	case BuildTypePureNix:
+		// Pure-nix builds should produce Nix store paths
+		// **Validates: Requirements 13.1**
+		if IsNixStorePath(artifact) {
+			return ArtifactTypeStorePath, true
+		}
+		return ArtifactTypeUnknown, false
+
+	case BuildTypeOCI:
+		// OCI builds should produce image tags
+		// **Validates: Requirements 13.2**
+		if IsOCIImageTag(artifact) {
+			return ArtifactTypeImageTag, true
+		}
+		return ArtifactTypeUnknown, false
+
+	default:
+		return ArtifactTypeUnknown, false
+	}
+}
+
+// IsNixStorePath checks if a string is a valid Nix store path.
+// Nix store paths follow the format: /nix/store/<hash>-<name>
+// **Validates: Requirements 13.1**
+func IsNixStorePath(path string) bool {
+	if path == "" {
+		return false
+	}
+	// Nix store paths start with /nix/store/
+	if len(path) < 44 { // /nix/store/ (11) + hash (32) + - (1) = 44 minimum
+		return false
+	}
+	return len(path) >= 11 && path[:11] == "/nix/store/"
+}
+
+// IsOCIImageTag checks if a string is a valid OCI image tag.
+// OCI image tags follow formats like:
+// - registry.example.com/image:tag
+// - registry.example.com/namespace/image:tag
+// - image:tag
+// - image@sha256:digest
+// **Validates: Requirements 13.2**
+func IsOCIImageTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	// Basic validation: should contain either : or @ for tag/digest
+	// and should not start with /nix/store/ (which would be a store path)
+	if len(tag) >= 11 && tag[:11] == "/nix/store/" {
+		return false
+	}
+	// Must contain a colon (for tag) or @ (for digest)
+	hasTag := false
+	hasDigest := false
+	for _, c := range tag {
+		if c == ':' {
+			hasTag = true
+		}
+		if c == '@' {
+			hasDigest = true
+		}
+	}
+	return hasTag || hasDigest
+}
+
+// GetExpectedArtifactType returns the expected artifact type for a build type.
+// **Validates: Requirements 13.1, 13.2**
+func GetExpectedArtifactType(buildType BuildType) ArtifactType {
+	switch buildType {
+	case BuildTypePureNix:
+		return ArtifactTypeStorePath
+	case BuildTypeOCI:
+		return ArtifactTypeImageTag
+	default:
+		return ArtifactTypeUnknown
+	}
 }
