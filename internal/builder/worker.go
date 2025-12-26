@@ -620,6 +620,14 @@ type nixBuilderAdapter struct {
 func (a *nixBuilderAdapter) BuildWithLogCallback(ctx context.Context, job *models.BuildJob, callback func(line string)) (*executor.NixBuildResult, error) {
 	result, err := a.builder.BuildWithLogCallback(ctx, job, callback)
 	if err != nil {
+		// Return the result even on error so logs are preserved
+		if result != nil {
+			return &executor.NixBuildResult{
+				StorePath: result.StorePath,
+				Logs:      result.Logs,
+				ExitCode:  result.ExitCode,
+			}, err
+		}
 		return nil, err
 	}
 	return &executor.NixBuildResult{
