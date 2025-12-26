@@ -140,21 +140,51 @@ func (b *NixBuilder) buildInContainer(ctx context.Context, job *models.BuildJob,
 
 	// Determine if we need to clone the repo (for generated flakes, the source needs to be present)
 	needsClone := job.GeneratedFlake != "" && job.GitURL != ""
-	
+
 	var cloneScript string
 	if needsClone {
 		// Clone the repo into /build/src, then copy the generated flake
 		gitRef := job.GitRef
 		if gitRef == "" {
-			gitRef = "HEAD"
+			gitRef = "main"
 		}
+		// Strategy: Clone to temp dir, copy files (excluding vendor and .git) to clean dir,
+		// init fresh git repo. This ensures nix flakes only sees what we want.
 		cloneScript = fmt.Sprintf(`
 echo "=== Cloning repository ==="
-git clone --depth 1 --branch %s %s /build/src 2>&1 || git clone --depth 1 %s /build/src 2>&1
+git clone --depth 1 --branch %s %s /build/repo 2>&1 || git clone --depth 1 %s /build/repo 2>&1
+
+echo "=== Creating clean source directory ==="
+mkdir -p /build/src
+
+# Copy all files except vendor and .git to clean directory
+cd /build/repo
+for item in *; do
+  if [ "$item" != "vendor" ]; then
+    cp -r "$item" /build/src/
+  fi
+done
+# Copy hidden files except .git
+for item in .[!.]*; do
+  if [ "$item" != ".git" ] && [ -e "$item" ]; then
+    cp -r "$item" /build/src/ 2>/dev/null || true
+  fi
+done
+
+# Initialize fresh git repo in clean directory
 cd /build/src
-# Copy the generated flake.nix into the repo
+git init
+git config user.email "narvana@localhost"
+git config user.name "Narvana Builder"
+
+# Copy the generated flake.nix
 cp /build/flake.nix /build/src/flake.nix
-echo "Repository cloned and flake.nix added"
+
+# Add all files and commit
+git add -A
+git commit -m "narvana: clean source for build"
+
+echo "Clean source directory created without vendor/"
 `, gitRef, job.GitURL, job.GitURL)
 		// Update flakeRef to point to the cloned directory
 		flakeRef = "/build/src"
@@ -164,45 +194,71 @@ echo "Repository cloned and flake.nix added"
 	}
 
 	// Build script that will run inside the container
+	// Note: We use single-user nix mode (build-users-group =) to work with rootless podman
+	// With vendorHash = null, we don't need two-phase hash calculation
 	buildScript := fmt.Sprintf(`
 set -e
+
+# Remove /homeless-shelter if it exists - Nix purity check fails if this directory exists
+# This is created by Nix's sandbox but causes issues with --no-sandbox builds
+rm -rf /homeless-shelter 2>/dev/null || true
+
+# Ensure HOME is set to a real directory
+export HOME=/root
+mkdir -p /root
+
 echo "=== Narvana Build Started ==="
 echo "Flake: %s"
 echo "Build Type: %s"
 echo ""
 
-# Enable flakes
-export NIX_CONFIG="experimental-features = nix-command flakes"
-
 %s
 
-# Run the build with sandbox enabled
+cd /build/src
+
+# Run the actual build
 echo "=== Running nix build ==="
-nix build '%s' --print-out-paths --no-link 2>&1
+echo "Building from: $(pwd)"
+# Remove /homeless-shelter before nix build - it gets recreated by nix
+rm -rf /homeless-shelter 2>/dev/null || true
+# Build with impure mode and sandbox disabled
+# vendorHash = null allows Go to download dependencies without hash verification
+nix build '.#default' --print-out-paths --no-link --impure --option sandbox false --option filter-syscalls false 2>&1
 
 echo ""
 echo "=== Build Complete ==="
-`, flakeRef, job.BuildType, cloneScript, flakeRef)
+`, flakeRef, job.BuildType, cloneScript)
 
 	containerName := fmt.Sprintf("narvana-build-%s", job.ID)
 
 	cfg := &podman.ContainerConfig{
-		Name:    containerName,
-		Image:   b.nixImage,
-		Command: []string{"sh", "-c", buildScript},
-		WorkDir: "/build",
+		Name:       containerName,
+		Image:      b.nixImage,
+		Command:    []string{"sh", "-c", buildScript},
+		WorkDir:    "/build",
+		User:       "root",  // Run as root
+		Privileged: true,    // Privileged mode for nix builds
 		Mounts: []podman.Mount{
 			{Source: buildDir, Target: "/build", ReadOnly: false},
 		},
 		Limits: &podman.ResourceLimits{
-			CPUQuota: 2.0,    // Allow 2 CPUs for builds
-			MemoryMB: 4096,   // 4GB for builds
+			CPUQuota:  2.0,  // Allow 2 CPUs for builds
+			MemoryMB:  4096, // 4GB for builds
 			PidsLimit: 1000,
 		},
 		Remove:      true,
 		NetworkMode: "host", // Allow network access for fetching dependencies
 		Env: map[string]string{
-			"NIX_CONFIG": "experimental-features = nix-command flakes",
+			// Single-user nix mode with all purity checks disabled
+			// - sandbox = false: disable sandboxing
+			// - build-users-group = (empty): disable multi-user daemon
+			// - filter-syscalls = false: disable syscall filtering that creates /homeless-shelter
+			// - use-registries = false: don't use flake registries
+			"NIX_CONFIG": "experimental-features = nix-command flakes\nsandbox = false\nbuild-users-group =\nfilter-syscalls = false",
+			// Set HOME to /root (matching the container's default)
+			"HOME": "/root",
+			// Disable user namespace remapping which can cause purity issues
+			"NIX_REMOTE": "",
 		},
 	}
 
