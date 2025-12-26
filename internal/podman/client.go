@@ -32,7 +32,9 @@ type ContainerConfig struct {
 	Limits       *ResourceLimits
 	User         string
 	NetworkMode  string
-	Remove       bool // Remove container after exit
+	Remove       bool   // Remove container after exit
+	Privileged   bool   // Run container in privileged mode
+	UserNS       string // User namespace mode (e.g., "keep-id", "host")
 }
 
 // Mount defines a bind mount for a container.
@@ -135,9 +137,11 @@ func (c *Client) RunWithStreaming(ctx context.Context, cfg *ContainerConfig, std
 	start := time.Now()
 
 	args := c.buildRunArgs(cfg)
-	c.logger.Debug("running podman container with streaming",
+	c.logger.Info("running podman container with streaming",
 		"name", cfg.Name,
 		"image", cfg.Image,
+		"privileged", cfg.Privileged,
+		"args", args,
 	)
 
 	cmd := exec.CommandContext(ctx, "podman", args...)
@@ -189,6 +193,16 @@ func (c *Client) buildRunArgs(cfg *ContainerConfig) []string {
 	// Network mode
 	if cfg.NetworkMode != "" {
 		args = append(args, "--network", cfg.NetworkMode)
+	}
+
+	// Privileged mode
+	if cfg.Privileged {
+		args = append(args, "--privileged")
+	}
+
+	// User namespace mode
+	if cfg.UserNS != "" {
+		args = append(args, "--userns", cfg.UserNS)
 	}
 
 	// Environment variables
