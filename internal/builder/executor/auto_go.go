@@ -88,6 +88,7 @@ func (e *AutoGoStrategyExecutor) Execute(ctx context.Context, job *models.BuildJ
 	e.logger.Info("executing auto-go strategy",
 		"job_id", job.ID,
 		"build_type", job.BuildType,
+		"has_generated_flake_before", job.GeneratedFlake != "",
 	)
 
 	var logs string
@@ -120,6 +121,11 @@ func (e *AutoGoStrategyExecutor) Execute(ctx context.Context, job *models.BuildJ
 		}
 
 		job.GeneratedFlake = flakeContent
+		e.logger.Info("generated flake for job",
+			"job_id", job.ID,
+			"flake_length", len(flakeContent),
+			"has_generated_flake_after", job.GeneratedFlake != "",
+		)
 		logCallback("Generated flake.nix successfully")
 	}
 
