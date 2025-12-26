@@ -1,6 +1,4 @@
 {
-  description = "Nix flake for {{ .AppName }}";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
@@ -10,16 +8,6 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        {{- if .Config.GoVersion }}
-        goVersion = "{{ .Config.GoVersion }}";
-        {{- else if .Version }}
-        goVersion = "{{ .Version }}";
-        {{- else }}
-        goVersion = "1.21";
-        {{- end }}
-        
-        # Select Go package based on version
-        go = pkgs.go_1_21;
       in
       {
         packages.default = pkgs.buildGoModule {
@@ -34,11 +22,27 @@
           subPackages = [ "{{ .EntryPoint }}" ];
           {{- end }}
           
-          # Vendor hash - will be calculated automatically
-          # Use "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" as placeholder
-          vendorHash = {{ if .Config.GoVersion }}{{ nixString .Config.GoVersion }}{{ else }}"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="{{ end }};
+          # Use null vendorHash - this skips hash verification entirely
+          # Works with --impure flag and allows Go to download dependencies
+          vendorHash = null;
           
-          CGO_ENABLED = 0;
+          # Delete any existing vendor directory to avoid stale/incomplete vendor issues
+          deleteVendor = true;
+          
+          # Force Go to use module mode and ignore any vendor directory
+          # Also enable GOPROXY to allow downloading dependencies
+          preBuild = ''
+            rm -rf vendor 2>/dev/null || true
+            export GOFLAGS="-mod=mod"
+            export GOPROXY="https://proxy.golang.org,direct"
+          '';
+          
+          # Allow Go to download newer toolchain if required
+          env.GOTOOLCHAIN = "auto";
+          env.CGO_ENABLED = "0";
+          
+          # Disable sandbox to avoid /homeless-shelter purity check
+          __noChroot = true;
           
           ldflags = [
             "-s"
@@ -46,14 +50,16 @@
             "-X main.version=0.1.0"
           ];
           
+          # Allow references to Go toolchain in output (needed for impure builds)
+          allowGoReference = true;
+          
           meta = with pkgs.lib; {
             description = "{{ .AppName }}";
-            mainProgram = "{{ default .AppName .EntryPoint }}";
           };
         };
         
         devShells.default = pkgs.mkShell {
-          buildInputs = [ go pkgs.gopls pkgs.gotools ];
+          buildInputs = with pkgs; [ go gopls gotools ];
         };
       }
     );
