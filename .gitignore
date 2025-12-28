@@ -2,6 +2,10 @@
 bin/
 narvana-api
 
+# Embedded web UI (built from ../web)
+ui/dist/*
+!ui/dist/.gitkeep
+
 # PostgreSQL data (created by flake.nix dev shell)
 .pg-data/
 .pg-socket/
