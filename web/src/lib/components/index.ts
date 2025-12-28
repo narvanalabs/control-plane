@@ -26,7 +26,7 @@ export {
 } from './layout';
 
 // Domain components
-export { AppCard } from './domain';
+export { AppCard, ServiceCard } from './domain';
 
 
 
