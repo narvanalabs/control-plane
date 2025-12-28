@@ -23,6 +23,9 @@
             protoc-gen-go-grpc
             overmind  # Process manager for running multiple services
             tmux      # Required by overmind
+            caddy     # Reverse proxy for routing deployments
+            attic-server  # Nix binary cache server
+            attic-client  # Client for pushing/pulling from cache
           ];
 
           shellHook = ''
