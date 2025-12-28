@@ -72,8 +72,13 @@ func (e *AutoRustStrategyExecutor) GenerateFlake(ctx context.Context, detection 
 	return flakeContent, nil
 }
 
-// Execute runs the build for a Rust application.
+// Execute runs the build for a Rust application (without external log streaming).
 func (e *AutoRustStrategyExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
+	return e.ExecuteWithLogs(ctx, job, nil)
+}
+
+// ExecuteWithLogs runs the build for a Rust application with real-time log streaming.
+func (e *AutoRustStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, externalCallback LogCallback) (*BuildResult, error) {
 	e.logger.Info("executing auto-rust strategy",
 		"job_id", job.ID,
 		"build_type", job.BuildType,
@@ -82,6 +87,9 @@ func (e *AutoRustStrategyExecutor) Execute(ctx context.Context, job *models.Buil
 	var logs string
 	logCallback := func(line string) {
 		logs += line + "\n"
+		if externalCallback != nil {
+			externalCallback(line)
+		}
 	}
 
 	// If we don't have a generated flake yet, we need to generate one

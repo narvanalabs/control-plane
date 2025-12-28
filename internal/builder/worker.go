@@ -470,6 +470,11 @@ func (t *DefaultProgressTracker) ClearAllHistory() {
 }
 
 // Worker processes build jobs from the queue.
+// SchedulerInterface defines the scheduling operations needed by the worker.
+type SchedulerInterface interface {
+	ScheduleAndAssign(ctx context.Context, deployment *models.Deployment) error
+}
+
 type Worker struct {
 	store           store.Store
 	queue           queue.Queue
@@ -480,6 +485,7 @@ type Worker struct {
 	retryManager    *retry.Manager
 	progressTracker BuildProgressTracker
 	validator       BuildValidator
+	scheduler       SchedulerInterface
 	logger          *slog.Logger
 
 	concurrency    int
@@ -658,6 +664,11 @@ func (a *ociBuilderAdapter) BuildWithLogCallback(ctx context.Context, job *model
 
 // Start begins processing build jobs from the queue.
 // It spawns multiple goroutines based on the configured concurrency.
+// SetScheduler sets the scheduler for the worker to use after builds complete.
+func (w *Worker) SetScheduler(s SchedulerInterface) {
+	w.scheduler = s
+}
+
 func (w *Worker) Start(ctx context.Context) error {
 	w.logger.Info("starting build worker", "concurrency", w.concurrency)
 
@@ -666,7 +677,67 @@ func (w *Worker) Start(ctx context.Context) error {
 		go w.workerLoop(ctx, i)
 	}
 
+	// Start the scheduler loop if scheduler is configured
+	if w.scheduler != nil {
+		w.wg.Add(1)
+		go w.schedulerLoop(ctx)
+	}
+
 	return nil
+}
+
+// schedulerLoop periodically checks for built deployments and schedules them.
+func (w *Worker) schedulerLoop(ctx context.Context) {
+	defer w.wg.Done()
+
+	w.logger.Info("starting scheduler loop")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			w.logger.Info("scheduler loop context cancelled")
+			return
+		case <-w.stopCh:
+			w.logger.Info("scheduler loop stop signal received")
+			return
+		case <-ticker.C:
+			w.processBuiltDeployments(ctx)
+		}
+	}
+}
+
+// processBuiltDeployments finds deployments with status=built and schedules them.
+func (w *Worker) processBuiltDeployments(ctx context.Context) {
+	deployments, err := w.store.Deployments().ListByStatus(ctx, models.DeploymentStatusBuilt)
+	if err != nil {
+		w.logger.Error("failed to list built deployments", "error", err)
+		return
+	}
+
+	for _, deployment := range deployments {
+		w.logger.Info("scheduling built deployment",
+			"deployment_id", deployment.ID,
+			"service_name", deployment.ServiceName,
+		)
+
+		if err := w.scheduler.ScheduleAndAssign(ctx, deployment); err != nil {
+			w.logger.Error("failed to schedule deployment",
+				"deployment_id", deployment.ID,
+				"error", err,
+			)
+			// Log to the deployment logs
+			w.streamLog(ctx, deployment.ID, fmt.Sprintf("Scheduling failed: %v", err))
+			continue
+		}
+
+		w.streamLog(ctx, deployment.ID, "=== Deployment scheduled to node ===")
+		w.logger.Info("deployment scheduled",
+			"deployment_id", deployment.ID,
+			"node_id", deployment.NodeID,
+		)
+	}
 }
 
 // Stop gracefully stops the worker and waits for all jobs to complete.
@@ -1054,7 +1125,8 @@ func (w *Worker) executeBuild(ctx context.Context, job *models.BuildJob, logCall
 			w.progressTracker.ReportStage(ctx, job.ID, StageBuilding)
 			w.progressTracker.ReportProgress(ctx, job.ID, 50, "Building application")
 
-			result, execErr := strategyExecutor.Execute(ctx, job)
+			// Use ExecuteWithLogs to stream logs in real-time
+			result, execErr := strategyExecutor.ExecuteWithLogs(ctx, job, logCallback)
 			if result != nil {
 				if execErr == nil {
 					w.progressTracker.ReportProgress(ctx, job.ID, 90, "Build completed successfully")

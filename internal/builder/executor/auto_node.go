@@ -79,8 +79,13 @@ func (e *AutoNodeStrategyExecutor) GenerateFlake(ctx context.Context, detection 
 	return flakeContent, nil
 }
 
-// Execute runs the build for a Node.js application.
+// Execute runs the build for a Node.js application (without external log streaming).
 func (e *AutoNodeStrategyExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
+	return e.ExecuteWithLogs(ctx, job, nil)
+}
+
+// ExecuteWithLogs runs the build for a Node.js application with real-time log streaming.
+func (e *AutoNodeStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, externalCallback LogCallback) (*BuildResult, error) {
 	e.logger.Info("executing auto-node strategy",
 		"job_id", job.ID,
 		"build_type", job.BuildType,
@@ -89,6 +94,9 @@ func (e *AutoNodeStrategyExecutor) Execute(ctx context.Context, job *models.Buil
 	var logs string
 	logCallback := func(line string) {
 		logs += line + "\n"
+		if externalCallback != nil {
+			externalCallback(line)
+		}
 	}
 
 	// If we don't have a generated flake yet, we need to generate one

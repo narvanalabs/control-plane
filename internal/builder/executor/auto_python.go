@@ -68,8 +68,13 @@ func (e *AutoPythonStrategyExecutor) GenerateFlake(ctx context.Context, detectio
 	return flakeContent, nil
 }
 
-// Execute runs the build for a Python application.
+// Execute runs the build for a Python application (without external log streaming).
 func (e *AutoPythonStrategyExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
+	return e.ExecuteWithLogs(ctx, job, nil)
+}
+
+// ExecuteWithLogs runs the build for a Python application with real-time log streaming.
+func (e *AutoPythonStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, externalCallback LogCallback) (*BuildResult, error) {
 	e.logger.Info("executing auto-python strategy",
 		"job_id", job.ID,
 		"build_type", job.BuildType,
@@ -78,6 +83,9 @@ func (e *AutoPythonStrategyExecutor) Execute(ctx context.Context, job *models.Bu
 	var logs string
 	logCallback := func(line string) {
 		logs += line + "\n"
+		if externalCallback != nil {
+			externalCallback(line)
+		}
 	}
 
 	// If we don't have a generated flake yet, we need to generate one

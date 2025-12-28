@@ -399,6 +399,18 @@ func (m *MockDeploymentStore) ListByNode(ctx context.Context, nodeID string) ([]
 	return result, nil
 }
 
+func (m *MockDeploymentStore) ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.Deployment
+	for _, d := range m.deployments {
+		if d.Status == status {
+			result = append(result, d)
+		}
+	}
+	return result, nil
+}
+
 func (m *MockDeploymentStore) Update(ctx context.Context, deployment *models.Deployment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

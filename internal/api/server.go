@@ -16,6 +16,7 @@ import (
 	"github.com/narvanalabs/control-plane/internal/queue"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/pkg/config"
+	"github.com/narvanalabs/control-plane/ui"
 )
 
 // Server represents the HTTP API server.
@@ -73,10 +74,6 @@ func (s *Server) setupRouter() {
 		r.Post("/device/approve", authHandler.DeviceAuthApprove)
 	})
 
-	// Serve static web UI for auth
-	r.Get("/", s.serveAuthUI)
-	r.Get("/auth/device", s.serveDeviceAuthUI)
-
 	// API v1 routes
 	r.Route("/v1", func(r chi.Router) {
 		// Auth middleware for all v1 routes
@@ -132,6 +129,10 @@ func (s *Server) setupRouter() {
 				// Log routes nested under apps
 				logHandler := handlers.NewLogHandler(s.store, s.logger)
 				r.Get("/logs", logHandler.Get)
+				
+				// Real-time log streaming via SSE
+				logStreamHandler := handlers.NewLogStreamHandler(s.store, s.logger)
+				r.Get("/logs/stream", logStreamHandler.Stream)
 
 				// Secret routes nested under apps
 				secretHandler := handlers.NewSecretHandler(s.store, s.logger)
@@ -162,6 +163,18 @@ func (s *Server) setupRouter() {
 			})
 		})
 	})
+
+	// Serve embedded SvelteKit web UI for all other routes
+	// This must be last so API routes take precedence
+	if ui.Available() {
+		s.logger.Info("serving embedded web UI")
+		r.NotFound(ui.Handler().ServeHTTP)
+	} else {
+		s.logger.Warn("embedded web UI not available, run 'make build-ui' to build it")
+		// Fallback to inline HTML for basic auth UI if embedded UI not available
+		r.Get("/", s.serveAuthUI)
+		r.Get("/auth/device", s.serveDeviceAuthUI)
+	}
 
 	s.router = r
 }

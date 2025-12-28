@@ -21,6 +21,9 @@ type NixBuilder struct {
 	podmanClient *podman.Client
 	workDir      string
 	nixImage     string
+	atticURL     string // Attic binary cache URL
+	atticCache   string // Attic cache name
+	atticToken   string // Attic JWT token
 	logger       *slog.Logger
 }
 
@@ -29,6 +32,9 @@ type NixBuilderConfig struct {
 	WorkDir      string
 	PodmanSocket string
 	NixImage     string // Docker image with Nix installed
+	AtticURL     string // Attic binary cache URL (e.g., "http://localhost:5000")
+	AtticCache   string // Attic cache name (e.g., "narvana")
+	AtticToken   string // Attic JWT token for authentication
 }
 
 // DefaultNixBuilderConfig returns a NixBuilderConfig with sensible defaults.
@@ -37,6 +43,12 @@ func DefaultNixBuilderConfig() *NixBuilderConfig {
 		WorkDir:      "/tmp/narvana-builds",
 		PodmanSocket: "unix:///run/user/1000/podman/podman.sock",
 		NixImage:     "docker.io/nixos/nix:latest",
+		AtticURL:     "http://localhost:5000",
+		AtticCache:   "narvana",
+		// Default dev token - generated with HS256 secret from attic-dev.toml
+		// Permissions: full access to all caches (r, w, cc, cd)
+		// Expiry: 2030
+		AtticToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJuYXJ2YW5hLWJ1aWxkZXIiLCJpYXQiOjE3MDQwNjcyMDAsImV4cCI6MTg5MzQ1NjAwMCwiaHR0cHM6Ly9qd3QuYXR0aWMucnMvdjEiOnsiY2FjaGVzIjp7IioiOnsiciI6MSwidyI6MSwiY2MiOjEsImNkIjoxfX19fQ.ChlWrCl0KDrQsH4ZVQIfB3qD0EAfQHClvB-45MAn3js",
 	}
 }
 
@@ -57,6 +69,9 @@ func NewNixBuilder(cfg *NixBuilderConfig, logger *slog.Logger) (*NixBuilder, err
 		podmanClient: podmanClient,
 		workDir:      cfg.WorkDir,
 		nixImage:     cfg.NixImage,
+		atticURL:     cfg.AtticURL,
+		atticCache:   cfg.AtticCache,
+		atticToken:   cfg.AtticToken,
 		logger:       logger,
 	}, nil
 }
@@ -223,23 +238,63 @@ echo "Building from: $(pwd)"
 rm -rf /homeless-shelter 2>/dev/null || true
 # Build with impure mode and sandbox disabled
 # vendorHash = null allows Go to download dependencies without hash verification
-nix build '.#default' --print-out-paths --no-link --impure --option sandbox false --option filter-syscalls false 2>&1
+BUILD_OUTPUT=$(nix build '.#default' --print-out-paths --no-link --impure --option sandbox false --option filter-syscalls false 2>&1)
+echo "$BUILD_OUTPUT"
+
+# Extract the store path (last line that starts with /nix/store/)
+STORE_PATH=$(echo "$BUILD_OUTPUT" | grep "^/nix/store/" | tail -1)
+
+if [ -z "$STORE_PATH" ]; then
+  echo "ERROR: Could not extract store path from build output"
+  exit 1
+fi
+
+echo ""
+echo "=== Build Output: $STORE_PATH ==="
+echo ""
+
+# Push to Attic binary cache
+echo "=== Pushing to Attic cache ==="
+echo "Attic URL: %s"
+echo "Cache: %s"
+
+# Install attic-client
+nix profile install nixpkgs#attic-client
+
+# Login to Attic with token
+attic login narvana %s --set-default %s
+
+# Create cache if it doesn't exist (ignore error if already exists)
+attic cache create %s 2>/dev/null || true
+
+# Push the closure with all dependencies
+attic push %s "$STORE_PATH"
+
+echo ""
+echo "=== Pushed to Attic successfully ==="
+echo ""
+
+# Print the store path as the final line for parsing
+echo "$STORE_PATH"
 
 echo ""
 echo "=== Build Complete ==="
-`, flakeRef, job.BuildType, cloneScript)
+`, flakeRef, job.BuildType, cloneScript, b.atticURL, b.atticCache, b.atticURL, b.atticToken, b.atticCache, b.atticCache)
 
 	containerName := fmt.Sprintf("narvana-build-%s", job.ID)
 
 	cfg := &podman.ContainerConfig{
 		Name:       containerName,
 		Image:      b.nixImage,
-		Command:    []string{"sh", "-c", buildScript},
+		Entrypoint: []string{"/root/.nix-profile/bin/bash", "-c"},
+		Command:    []string{buildScript},
 		WorkDir:    "/build",
 		User:       "root",  // Run as root
 		Privileged: true,    // Privileged mode for nix builds
 		Mounts: []podman.Mount{
 			{Source: buildDir, Target: "/build", ReadOnly: false},
+			// No need to mount host's nix store - builds happen in container,
+			// then push to Attic binary cache for distribution to nodes.
 		},
 		Limits: &podman.ResourceLimits{
 			CPUQuota:  2.0,  // Allow 2 CPUs for builds
@@ -247,18 +302,15 @@ echo "=== Build Complete ==="
 			PidsLimit: 1000,
 		},
 		Remove:      true,
-		NetworkMode: "host", // Allow network access for fetching dependencies
+		NetworkMode: "host", // Allow network access for fetching dependencies and pushing to Attic
 		Env: map[string]string{
-			// Single-user nix mode with all purity checks disabled
+			// Nix configuration for rootless podman container builds
 			// - sandbox = false: disable sandboxing
-			// - build-users-group = (empty): disable multi-user daemon
-			// - filter-syscalls = false: disable syscall filtering that creates /homeless-shelter
-			// - use-registries = false: don't use flake registries
+			// - build-users-group = (empty): disable multi-user mode (fixes "changing ownership" error)
+			// - filter-syscalls = false: disable syscall filtering
 			"NIX_CONFIG": "experimental-features = nix-command flakes\nsandbox = false\nbuild-users-group =\nfilter-syscalls = false",
 			// Set HOME to /root (matching the container's default)
 			"HOME": "/root",
-			// Disable user namespace remapping which can cause purity issues
-			"NIX_REMOTE": "",
 		},
 	}
 
@@ -301,15 +353,21 @@ echo "=== Build Complete ==="
 // parseStorePath extracts the Nix store path from build output.
 // The store path is printed by --print-out-paths and looks like:
 // /nix/store/abc123-name
+// Note: We skip .drv files as those are derivations, not build outputs.
+// The actual build output is a line that ONLY contains the store path,
+// not embedded in messages like "copying path '...' from".
 func (b *NixBuilder) parseStorePath(output string) string {
 	lines := strings.Split(output, "\n")
+	var lastStorePath string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "/nix/store/") {
-			return line
+		// Only match lines that are purely a store path (the --print-out-paths output)
+		// Skip lines that contain the path embedded in messages
+		if strings.HasPrefix(line, "/nix/store/") && !strings.HasSuffix(line, ".drv") && !strings.Contains(line, " ") {
+			lastStorePath = line
 		}
 	}
-	return ""
+	return lastStorePath
 }
 
 // BuildWithLogCallback executes a build and calls the callback for each log line.

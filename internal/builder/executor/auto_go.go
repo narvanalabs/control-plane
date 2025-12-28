@@ -83,8 +83,14 @@ func (e *AutoGoStrategyExecutor) GenerateFlake(ctx context.Context, detection *m
 	return flakeContent, nil
 }
 
-// Execute runs the build for a Go application.
+// Execute runs the build for a Go application (without external log streaming).
 func (e *AutoGoStrategyExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
+	// Use a no-op callback that just collects logs
+	return e.ExecuteWithLogs(ctx, job, nil)
+}
+
+// ExecuteWithLogs runs the build for a Go application with real-time log streaming.
+func (e *AutoGoStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, externalCallback LogCallback) (*BuildResult, error) {
 	e.logger.Info("executing auto-go strategy",
 		"job_id", job.ID,
 		"build_type", job.BuildType,
@@ -94,6 +100,9 @@ func (e *AutoGoStrategyExecutor) Execute(ctx context.Context, job *models.BuildJ
 	var logs string
 	logCallback := func(line string) {
 		logs += line + "\n"
+		if externalCallback != nil {
+			externalCallback(line)
+		}
 	}
 
 	// If we don't have a generated flake yet, we need to generate one

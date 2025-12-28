@@ -28,10 +28,17 @@ type BuildResult struct {
 	Logs      string `json:"logs"`
 }
 
+// LogCallback is a function that receives log lines during build execution.
+type LogCallback func(line string)
+
 // StrategyExecutor executes a specific build strategy.
 type StrategyExecutor interface {
 	// Execute runs the build strategy.
 	Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error)
+
+	// ExecuteWithLogs runs the build strategy with real-time log streaming.
+	// The logCallback will be invoked for each log line produced during the build.
+	ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error)
 
 	// Supports returns true if this executor handles the given strategy.
 	Supports(strategy models.BuildStrategy) bool

@@ -66,8 +66,13 @@ func (e *FlakeStrategyExecutor) GenerateFlake(ctx context.Context, detection *mo
 	return "", nil
 }
 
-// Execute runs the build using the existing flake.nix from the repository.
+// Execute runs the build using the existing flake.nix from the repository (without external log streaming).
 func (e *FlakeStrategyExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
+	return e.ExecuteWithLogs(ctx, job, nil)
+}
+
+// ExecuteWithLogs runs the build using the existing flake.nix with real-time log streaming.
+func (e *FlakeStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, externalCallback LogCallback) (*BuildResult, error) {
 	e.logger.Info("executing flake strategy",
 		"job_id", job.ID,
 		"build_type", job.BuildType,
@@ -77,6 +82,9 @@ func (e *FlakeStrategyExecutor) Execute(ctx context.Context, job *models.BuildJo
 	var logs string
 	logCallback := func(line string) {
 		logs += line + "\n"
+		if externalCallback != nil {
+			externalCallback(line)
+		}
 	}
 
 	// Execute based on build type
