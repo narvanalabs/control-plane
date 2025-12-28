@@ -153,6 +153,11 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		service.Replicas = 1
 	}
 
+	// Default to port 8080 if no ports specified (common for web services)
+	if len(service.Ports) == 0 {
+		service.Ports = []models.PortMapping{{ContainerPort: 8080, Protocol: "tcp"}}
+	}
+
 	// Apply default build strategy if not specified
 	if service.BuildStrategy == "" {
 		service.BuildStrategy = models.BuildStrategyFlake
