@@ -22,6 +22,25 @@ make dev-all
 
 That's it! The API server runs on `http://localhost:8080` and gRPC on port `9090`.
 
+### DNS Setup (for Wildcard Domains)
+
+To access deployed services via wildcard domains (e.g., `myapp-api.narvana.local:8088`), you need to configure local DNS:
+
+```bash
+# One-time setup (requires sudo)
+sudo ./scripts/setup-dns.sh
+```
+
+This script will:
+- Install dnsmasq (if not already installed)
+- Configure wildcard DNS for `*.narvana.local` → `127.0.0.1`
+- Set up resolver configuration for your OS (Linux/macOS)
+- Start/restart the dnsmasq service
+
+After setup, you can access services at: `http://{app-name}-{service-name}.narvana.local:8088`
+
+**Note:** `/etc/hosts` does NOT support wildcards, so dnsmasq is required for automatic routing.
+
 ### Individual Services
 
 If you prefer running services separately:
