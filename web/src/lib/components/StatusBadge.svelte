@@ -1,6 +1,13 @@
 <script lang="ts">
 	import type { DeploymentStatus } from '$lib/api';
 
+	/**
+	 * StatusBadge Component
+	 * Requirements: 16.4
+	 * 
+	 * Provides StatusBadge for deployment/node statuses with appropriate
+	 * color coding and optional pulse animation for active states.
+	 */
 	interface Props {
 		status: DeploymentStatus | 'healthy' | 'unhealthy' | 'unknown';
 		size?: 'sm' | 'md';
@@ -8,29 +15,112 @@
 
 	let { status, size = 'md' }: Props = $props();
 
-	const statusConfig: Record<string, { color: string; bg: string; label: string; pulse?: boolean }> = {
+	// Status configuration using design system tokens
+	const statusConfig: Record<string, { bg: string; text: string; dot: string; label: string; pulse?: boolean }> = {
 		// Deployment statuses
-		pending: { color: 'text-yellow-400', bg: 'bg-yellow-400/10', label: 'Pending' },
-		building: { color: 'text-blue-400', bg: 'bg-blue-400/10', label: 'Building', pulse: true },
-		built: { color: 'text-cyan-400', bg: 'bg-cyan-400/10', label: 'Built' },
-		scheduled: { color: 'text-purple-400', bg: 'bg-purple-400/10', label: 'Scheduled' },
-		starting: { color: 'text-blue-400', bg: 'bg-blue-400/10', label: 'Starting', pulse: true },
-		running: { color: 'text-green-400', bg: 'bg-green-400/10', label: 'Running' },
-		stopping: { color: 'text-orange-400', bg: 'bg-orange-400/10', label: 'Stopping' },
-		stopped: { color: 'text-gray-400', bg: 'bg-gray-400/10', label: 'Stopped' },
-		failed: { color: 'text-red-400', bg: 'bg-red-400/10', label: 'Failed' },
+		pending: { 
+			bg: 'bg-[var(--color-warning-light)]', 
+			text: 'text-[var(--color-warning-foreground)]', 
+			dot: 'bg-[var(--color-warning)]',
+			label: 'Pending' 
+		},
+		building: { 
+			bg: 'bg-[var(--color-info-light)]', 
+			text: 'text-[var(--color-info-foreground)]', 
+			dot: 'bg-[var(--color-info)]',
+			label: 'Building', 
+			pulse: true 
+		},
+		built: { 
+			bg: 'bg-[var(--color-info-light)]', 
+			text: 'text-[var(--color-info-foreground)]', 
+			dot: 'bg-[var(--color-info)]',
+			label: 'Built' 
+		},
+		scheduled: { 
+			bg: 'bg-[var(--color-info-light)]', 
+			text: 'text-[var(--color-info-foreground)]', 
+			dot: 'bg-[var(--color-info)]',
+			label: 'Scheduled' 
+		},
+		starting: { 
+			bg: 'bg-[var(--color-info-light)]', 
+			text: 'text-[var(--color-info-foreground)]', 
+			dot: 'bg-[var(--color-info)]',
+			label: 'Starting', 
+			pulse: true 
+		},
+		running: { 
+			bg: 'bg-[var(--color-success-light)]', 
+			text: 'text-[var(--color-success-foreground)]', 
+			dot: 'bg-[var(--color-success)]',
+			label: 'Running' 
+		},
+		stopping: { 
+			bg: 'bg-[var(--color-warning-light)]', 
+			text: 'text-[var(--color-warning-foreground)]', 
+			dot: 'bg-[var(--color-warning)]',
+			label: 'Stopping' 
+		},
+		stopped: { 
+			bg: 'bg-[var(--color-secondary)]', 
+			text: 'text-[var(--color-text-secondary)]', 
+			dot: 'bg-[var(--color-text-muted)]',
+			label: 'Stopped' 
+		},
+		failed: { 
+			bg: 'bg-[var(--color-error-light)]', 
+			text: 'text-[var(--color-error-foreground)]', 
+			dot: 'bg-[var(--color-error)]',
+			label: 'Failed' 
+		},
 		// Node statuses
-		healthy: { color: 'text-green-400', bg: 'bg-green-400/10', label: 'Healthy' },
-		unhealthy: { color: 'text-red-400', bg: 'bg-red-400/10', label: 'Unhealthy' },
-		unknown: { color: 'text-gray-400', bg: 'bg-gray-400/10', label: 'Unknown' },
+		healthy: { 
+			bg: 'bg-[var(--color-success-light)]', 
+			text: 'text-[var(--color-success-foreground)]', 
+			dot: 'bg-[var(--color-success)]',
+			label: 'Healthy' 
+		},
+		unhealthy: { 
+			bg: 'bg-[var(--color-error-light)]', 
+			text: 'text-[var(--color-error-foreground)]', 
+			dot: 'bg-[var(--color-error)]',
+			label: 'Unhealthy' 
+		},
+		unknown: { 
+			bg: 'bg-[var(--color-secondary)]', 
+			text: 'text-[var(--color-text-secondary)]', 
+			dot: 'bg-[var(--color-text-muted)]',
+			label: 'Unknown' 
+		},
+	};
+
+	// Size classes
+	const sizeClasses: Record<string, string> = {
+		sm: 'px-[var(--spacing-2)] py-[var(--spacing-0-5)] text-[var(--text-xs)]',
+		md: 'px-[var(--spacing-2-5)] py-[var(--spacing-1)] text-[var(--text-sm)]',
+	};
+
+	// Dot size classes
+	const dotSizeClasses: Record<string, string> = {
+		sm: 'w-1.5 h-1.5',
+		md: 'w-2 h-2',
 	};
 
 	const config = $derived(statusConfig[status] || statusConfig.unknown);
-	const sizeClasses = $derived(size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm');
 </script>
 
-<span class="inline-flex items-center gap-1.5 rounded-full font-medium {config.color} {config.bg} {sizeClasses}">
-	<span class="w-1.5 h-1.5 rounded-full {config.color.replace('text-', 'bg-')} {config.pulse ? 'animate-pulse' : ''}"></span>
+<span 
+	class="inline-flex items-center gap-[var(--spacing-1-5)] rounded-[var(--radius-full)] font-medium {config.bg} {config.text} {sizeClasses[size]}"
+	data-status-badge
+	data-status={status}
+	data-size={size}
+>
+	<span 
+		class="rounded-full {config.dot} {dotSizeClasses[size]} {config.pulse ? 'animate-pulse' : ''}" 
+		aria-hidden="true"
+		data-status-dot
+	></span>
 	{config.label}
 </span>
 
