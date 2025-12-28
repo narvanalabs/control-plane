@@ -37,6 +37,9 @@ func main() {
 	// Initialize queue
 	queue := postgresqueue.NewPostgresQueue(store.DB(), log.Logger)
 
+	// Get default config for AtticToken
+	defaultNixCfg := builder.DefaultNixBuilderConfig()
+
 	// Configure the worker
 	workerCfg := &builder.WorkerConfig{
 		Concurrency: cfg.Worker.MaxConcurrency,
@@ -44,19 +47,25 @@ func main() {
 			WorkDir:      cfg.Worker.WorkDir,
 			PodmanSocket: cfg.Worker.PodmanSocket,
 			NixImage:     "docker.io/nixos/nix:latest",
+			AtticURL:     cfg.AtticEndpoint,
+			AtticCache:   "narvana",
+			AtticToken:   defaultNixCfg.AtticToken, // Use default dev token
 		},
 		OCIConfig: &builder.OCIBuilderConfig{
 			NixBuilderConfig: &builder.NixBuilderConfig{
 				WorkDir:      cfg.Worker.WorkDir,
 				PodmanSocket: cfg.Worker.PodmanSocket,
 				NixImage:     "docker.io/nixos/nix:latest",
+				AtticURL:     cfg.AtticEndpoint,
+				AtticCache:   "narvana",
+				AtticToken:   defaultNixCfg.AtticToken,
 			},
 			Registry:     cfg.RegistryURL,
 			PodmanSocket: cfg.Worker.PodmanSocket,
 		},
 		AtticConfig: &builder.AtticConfig{
 			Endpoint:  cfg.AtticEndpoint,
-			CacheName: "default",
+			CacheName: "narvana",
 			Timeout:   cfg.Worker.BuildTimeout,
 		},
 	}
