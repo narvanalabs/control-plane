@@ -1,0 +1,136 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+/* Narvana Theme - Cyberpunk meets Developer Tools */
+@theme {
+	/* Custom colors - Neon cyber aesthetic */
+	--color-narvana-bg: #0a0a0f;
+	--color-narvana-surface: #12121a;
+	--color-narvana-surface-hover: #1a1a24;
+	--color-narvana-border: #2a2a3a;
+	--color-narvana-border-bright: #3a3a4a;
+	
+	/* Accent colors - Electric cyan/teal primary */
+	--color-narvana-primary: #00d4aa;
+	--color-narvana-primary-dim: #00a888;
+	--color-narvana-primary-glow: rgba(0, 212, 170, 0.2);
+	
+	/* Secondary - Electric purple */
+	--color-narvana-secondary: #a855f7;
+	--color-narvana-secondary-dim: #8b5cf6;
+	
+	/* Status colors */
+	--color-narvana-success: #22c55e;
+	--color-narvana-warning: #f59e0b;
+	--color-narvana-error: #ef4444;
+	--color-narvana-info: #3b82f6;
+	
+	/* Text */
+	--color-narvana-text: #e4e4eb;
+	--color-narvana-text-dim: #9494a4;
+	--color-narvana-text-muted: #5a5a6a;
+	
+	/* Fonts */
+	--font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace, monospace;
+	--font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+}
+
+/* Base styles */
+html {
+	font-family: var(--font-display);
+	background: var(--color-narvana-bg);
+	color: var(--color-narvana-text);
+}
+
+body {
+	min-height: 100vh;
+	background: 
+		radial-gradient(ellipse at top left, rgba(0, 212, 170, 0.05) 0%, transparent 50%),
+		radial-gradient(ellipse at bottom right, rgba(168, 85, 247, 0.05) 0%, transparent 50%),
+		var(--color-narvana-bg);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--color-narvana-surface);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-narvana-border-bright);
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-narvana-primary-dim);
+}
+
+/* Code/mono text */
+code, pre, .mono {
+	font-family: var(--font-mono);
+}
+
+/* Selection */
+::selection {
+	background: var(--color-narvana-primary);
+	color: var(--color-narvana-bg);
+}
+
+/* Focus styles */
+*:focus-visible {
+	outline: 2px solid var(--color-narvana-primary);
+	outline-offset: 2px;
+}
+
+/* Animations */
+@keyframes pulse-glow {
+	0%, 100% { box-shadow: 0 0 20px var(--color-narvana-primary-glow); }
+	50% { box-shadow: 0 0 40px var(--color-narvana-primary-glow); }
+}
+
+@keyframes slide-up {
+	from { opacity: 0; transform: translateY(10px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+.animate-slide-up {
+	animation: slide-up 0.3s ease-out forwards;
+}
+
+.animate-fade-in {
+	animation: fade-in 0.2s ease-out forwards;
+}
+
+/* Stagger animations for lists */
+.stagger-item {
+	opacity: 0;
+	animation: slide-up 0.3s ease-out forwards;
+}
+
+.stagger-item:nth-child(1) { animation-delay: 0ms; }
+.stagger-item:nth-child(2) { animation-delay: 50ms; }
+.stagger-item:nth-child(3) { animation-delay: 100ms; }
+.stagger-item:nth-child(4) { animation-delay: 150ms; }
+.stagger-item:nth-child(5) { animation-delay: 200ms; }
+.stagger-item:nth-child(6) { animation-delay: 250ms; }
+.stagger-item:nth-child(7) { animation-delay: 300ms; }
+.stagger-item:nth-child(8) { animation-delay: 350ms; }
+
+/* Glow effect for active elements */
+.glow {
+	box-shadow: 0 0 20px var(--color-narvana-primary-glow);
+}
+
+.glow-hover:hover {
+	box-shadow: 0 0 30px var(--color-narvana-primary-glow);
+}
