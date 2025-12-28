@@ -1,4 +1,4 @@
-.PHONY: build build-api build-worker test test-unit test-property clean migrate migrate-up migrate-down lint proto dev dev-api dev-worker dev-all stop-db help
+.PHONY: build build-api build-worker build-ui test test-unit test-property clean migrate migrate-up migrate-down lint proto dev dev-api dev-worker dev-web dev-all stop-db help
 
 # Proto generation
 proto:
@@ -10,7 +10,12 @@ proto:
 		api/proto/controlplane.proto
 
 # Build targets
-build: build-api build-worker
+build: build-ui build-api build-worker
+
+build-ui:
+	@echo "Building web UI..."
+	cd web && bun install && bun run build
+	@echo "Web UI built to ui/dist/"
 
 build-api:
 	go build -o bin/api ./cmd/api
@@ -31,6 +36,8 @@ test-property:
 # Clean build artifacts
 clean:
 	rm -rf bin/
+	rm -rf ui/dist/*
+	touch ui/dist/.gitkeep
 	go clean
 
 # Database targets (requires nix develop shell)
@@ -93,6 +100,9 @@ dev-api: db-start
 dev-worker: db-start
 	go run ./cmd/worker
 
+dev-web:
+	cd web && bun run dev
+
 # Stop services
 dev-stop:
 	@overmind quit 2>/dev/null || true
@@ -116,6 +126,7 @@ help:
 	@echo "Individual Services:"
 	@echo "  make dev-api     - Run API server only"
 	@echo "  make dev-worker  - Run build worker only"
+	@echo "  make dev-web     - Run web UI in dev mode (separate from API)"
 	@echo "  make dev-stop    - Stop all services"
 	@echo ""
 	@echo "Database:"
@@ -124,6 +135,7 @@ help:
 	@echo "  make migrate-up  - Run migrations"
 	@echo ""
 	@echo "Build & Test:"
-	@echo "  make build       - Build all binaries"
+	@echo "  make build       - Build all binaries (includes web UI)"
+	@echo "  make build-ui    - Build web UI only"
 	@echo "  make test        - Run all tests"
 	@echo "  make lint        - Run linter"
