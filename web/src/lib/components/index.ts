@@ -10,6 +10,7 @@ export { default as Toggle } from './Toggle.svelte';
 export { default as Tabs } from './Tabs.svelte';
 export { default as DataTable } from './DataTable.svelte';
 export type { Column, SortDirection } from './DataTable.svelte';
+export { default as ResourceBar } from './ResourceBar.svelte';
 
 
 
