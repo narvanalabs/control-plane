@@ -111,6 +111,11 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 		return nil, status.Error(codes.Internal, "failed to update heartbeat")
 	}
 
+	// Update in-memory NodeManager connection status (keeps command stream healthy)
+	if s.nodeManager != nil {
+		s.nodeManager.UpdateHeartbeat(req.NodeId, req.NodeInfo)
+	}
+
 	// Handle draining flag (Requirement 15.5)
 	// When a node sends a draining heartbeat, mark it as draining in the node manager
 	if req.Draining {

@@ -80,6 +80,8 @@ type DeploymentStore interface {
 	List(ctx context.Context, appID string) ([]*models.Deployment, error)
 	// ListByNode retrieves all deployments assigned to a given node.
 	ListByNode(ctx context.Context, nodeID string) ([]*models.Deployment, error)
+	// ListByStatus retrieves all deployments with a given status.
+	ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error)
 	// Update updates an existing deployment.
 	Update(ctx context.Context, deployment *models.Deployment) error
 	// GetLatestSuccessful retrieves the most recent successful deployment for an app.

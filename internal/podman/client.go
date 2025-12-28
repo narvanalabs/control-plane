@@ -25,6 +25,7 @@ type ResourceLimits struct {
 type ContainerConfig struct {
 	Name         string
 	Image        string
+	Entrypoint   []string // Override container entrypoint
 	Command      []string
 	WorkDir      string
 	Env          map[string]string
@@ -237,8 +238,18 @@ func (c *Client) buildRunArgs(cfg *ContainerConfig) []string {
 		}
 	}
 
+	// Entrypoint override
+	if len(cfg.Entrypoint) > 0 {
+		args = append(args, "--entrypoint", cfg.Entrypoint[0])
+	}
+
 	// Image
 	args = append(args, cfg.Image)
+
+	// If entrypoint has additional args, add them before command
+	if len(cfg.Entrypoint) > 1 {
+		args = append(args, cfg.Entrypoint[1:]...)
+	}
 
 	// Command
 	args = append(args, cfg.Command...)

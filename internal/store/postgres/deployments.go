@@ -192,6 +192,25 @@ func (s *DeploymentStore) ListByNode(ctx context.Context, nodeID string) ([]*mod
 	return s.scanDeployments(rows)
 }
 
+// ListByStatus retrieves all deployments with a given status.
+func (s *DeploymentStore) ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error) {
+	query := `
+		SELECT id, app_id, service_name, version, git_ref, git_commit, 
+			build_type, artifact, status, node_id, resource_tier, config, depends_on,
+			created_at, updated_at, started_at, finished_at
+		FROM deployments
+		WHERE status = $1
+		ORDER BY created_at ASC`
+
+	rows, err := s.conn().QueryContext(ctx, query, status)
+	if err != nil {
+		return nil, fmt.Errorf("querying deployments by status: %w", err)
+	}
+	defer rows.Close()
+
+	return s.scanDeployments(rows)
+}
+
 
 // Update updates an existing deployment.
 func (s *DeploymentStore) Update(ctx context.Context, deployment *models.Deployment) error {
