@@ -40,3 +40,4 @@ echo "Cache URL: $ATTIC_URL/$CACHE_NAME"
 echo ""
 echo "Node agents should use: AGENT_ATTIC_URL=$ATTIC_URL/$CACHE_NAME"
 
+
