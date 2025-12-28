@@ -3,3 +3,6 @@
 
 api: go run ./cmd/api
 worker: go run ./cmd/worker
+web: cd web && bun run dev
+caddy: caddy run --config deploy/Caddyfile
+attic: mkdir -p .attic-data/storage && atticd --config deploy/attic-dev.toml
