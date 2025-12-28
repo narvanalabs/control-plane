@@ -10,8 +10,23 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        setup-dns-script = self + "/scripts/setup-dns.nix";
+        setup-dns = import setup-dns-script { 
+          inherit pkgs;
+          scriptPath = self + "/scripts/setup-dns.sh";
+        };
       in
       {
+        packages = {
+          setup-dns = setup-dns;
+          default = setup-dns;
+        };
+        
+        apps = {
+          setup-dns = flake-utils.lib.mkApp { drv = setup-dns; };
+          default = flake-utils.lib.mkApp { drv = setup-dns; };
+        };
+        
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             go
