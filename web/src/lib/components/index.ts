@@ -16,6 +16,16 @@ export { default as ToastContainer } from './ToastContainer.svelte';
 export { default as Dialog } from './Dialog.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
 
+// Layout components
+export { 
+	Sidebar as NewSidebar, 
+	Header, 
+	CommandPalette, 
+	PageHeader,
+	isActive 
+} from './layout';
+
+
 
 
 
