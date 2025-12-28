@@ -93,7 +93,7 @@
 		{ value: 'nixpacks', label: 'Nixpacks', description: 'Use Nixpacks for automatic containerization' },
 	];
 
-	const appId = $derived($page.params.id);
+	const appId = $derived($page.params.id as string);
 
 	// Auto-detect build strategy
 	async function runDetection() {
@@ -493,7 +493,7 @@
 				</Button>
 				<Button 
 					variant="danger" 
-					onclick={() => { deleteTarget = { type: 'app', name: app.name }; showDeleteModal = true; }}
+					onclick={() => { if (app) { deleteTarget = { type: 'app', name: app.name }; showDeleteModal = true; } }}
 				>
 					Delete
 				</Button>
