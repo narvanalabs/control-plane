@@ -1,9 +1,23 @@
 # Narvana Development Caddyfile
 # Wildcard routing for deployed services
 #
-# Setup (one-time):
-#   1. Add to /etc/hosts: 127.0.0.1 *.narvana.local
-#   2. Or use dnsmasq/systemd-resolved for wildcard DNS
+# DNS Setup (one-time, required for wildcard domains):
+#   /etc/hosts does NOT support wildcards, so you must use dnsmasq.
+#
+#   Quick setup (recommended):
+#     sudo ./scripts/setup-dns.sh
+#
+#   This script will:
+#     - Install dnsmasq (if not installed)
+#     - Configure wildcard DNS for *.narvana.local → 127.0.0.1
+#     - Set up resolver configuration for your OS
+#     - Start/restart dnsmasq service
+#
+#   Manual setup (if script doesn't work):
+#     - Install: brew install dnsmasq (macOS) or apt install dnsmasq (Linux)
+#     - Add to /etc/dnsmasq.conf: address=/.narvana.local/127.0.0.1
+#     - Configure resolver (see script for details)
+#     - Restart dnsmasq service
 #
 # URL pattern: {app-name}-{service-name}.narvana.local:8088
 # Example: myapp-api.narvana.local:8088 -> container on port 8081
@@ -18,10 +32,24 @@
 }
 
 # Default fallback - shows routing info (port 8088 for dev, no root needed)
+# Named server for dynamic route management
 :8088 {
-	respond "Narvana Router - No route configured for this host. Access deployments via {app}-{service}.narvana.local:8088" 404
-}
+	# Default response for unmatched hosts
+	@default {
+		not host *.narvana.local
+	}
+	handle @default {
+		respond "Narvana Router - No route configured for this host. Access deployments via {app}-{service}.narvana.local:8088" 404
+	}
 
-# The actual routes are added dynamically via the admin API
-# See: POST http://localhost:2019/config/apps/http/servers/srv0/routes
+	# Wildcard matcher for narvana.local subdomains
+	@narvana {
+		host *.narvana.local
+	}
+	handle @narvana {
+		# Routes will be added dynamically via the admin API
+		# See: POST http://localhost:2019/config/apps/http/servers/srv0/routes
+		respond "Route not yet configured. Routes are added automatically when deployments start." 503
+	}
+}
 
