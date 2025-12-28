@@ -14,7 +14,9 @@ import (
 	"github.com/narvanalabs/control-plane/internal/api"
 	"github.com/narvanalabs/control-plane/internal/auth"
 	grpcserver "github.com/narvanalabs/control-plane/internal/grpc"
+	"github.com/narvanalabs/control-plane/internal/models"
 	pgqueue "github.com/narvanalabs/control-plane/internal/queue/postgres"
+	"github.com/narvanalabs/control-plane/internal/scheduler"
 	pgstore "github.com/narvanalabs/control-plane/internal/store/postgres"
 	"github.com/narvanalabs/control-plane/pkg/config"
 	"github.com/narvanalabs/control-plane/pkg/logger"
@@ -77,6 +79,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create scheduler with gRPC agent client
+	grpcAgentClient := scheduler.NewGRPCAgentClient(grpcServer.NodeManager(), nil)
+	sched := scheduler.NewScheduler(store, grpcAgentClient, &config.SchedulerConfig{
+		HealthThreshold: cfg.Scheduler.HealthThreshold,
+		MaxRetries:      cfg.Scheduler.MaxRetries,
+		RetryBackoff:    cfg.Scheduler.RetryBackoff,
+	}, log.Logger)
+
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -103,6 +113,9 @@ func main() {
 		}
 		close(grpcErrCh)
 	}()
+
+	// Start the scheduler loop in a goroutine
+	go runSchedulerLoop(ctx, store, sched, log)
 
 	// Start the HTTP API server in a goroutine
 	httpErrCh := make(chan error, 1)
@@ -136,4 +149,47 @@ func main() {
 	// Give time for graceful shutdown
 	time.Sleep(100 * time.Millisecond)
 	log.Info("servers stopped")
+}
+
+// runSchedulerLoop periodically checks for built deployments and schedules them.
+func runSchedulerLoop(ctx context.Context, store *pgstore.PostgresStore, sched *scheduler.Scheduler, log *logger.Logger) {
+	log.Info("starting scheduler loop")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("scheduler loop stopped")
+			return
+		case <-ticker.C:
+			// Find deployments that are built but not yet scheduled
+			deployments, err := store.Deployments().ListByStatus(ctx, models.DeploymentStatusBuilt)
+			if err != nil {
+				log.Error("failed to list built deployments", "error", err)
+				continue
+			}
+
+			for _, deployment := range deployments {
+				log.Info("scheduling deployment",
+					"deployment_id", deployment.ID,
+					"service_name", deployment.ServiceName,
+					"app_id", deployment.AppID,
+				)
+
+				if err := sched.ScheduleAndAssign(ctx, deployment); err != nil {
+					log.Error("failed to schedule deployment",
+						"deployment_id", deployment.ID,
+						"error", err,
+					)
+					continue
+				}
+
+				log.Info("deployment scheduled successfully",
+					"deployment_id", deployment.ID,
+					"node_id", deployment.NodeID,
+				)
+			}
+		}
+	}
 }
