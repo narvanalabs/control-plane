@@ -5,7 +5,7 @@
 		apps, services, deployments, secrets, logs, detect, preview,
 		type App, type ServiceConfig, type Deployment, type LogEntry,
 		type BuildStrategy, type DetectResponse, type PreviewResponse,
-		APIError
+		type ResourceTier, APIError
 	} from '$lib/api';
 	import { Card, Button, Input, StatusBadge } from '$lib/components';
 
@@ -15,8 +15,12 @@
 	let secretKeys = $state<string[]>([]);
 	let logEntries = $state<LogEntry[]>([]);
 	let loading = $state(true);
-	let activeTab = $state<'services' | 'deployments' | 'secrets' | 'logs'>('services');
+	let activeTab = $state<'services' | 'domains' | 'deployments' | 'secrets' | 'logs'>('services');
 	let error = $state('');
+
+	// Domain configuration state
+	let domainPorts = $state<Record<string, number>>({});
+	let savingDomain = $state<string | null>(null);
 
 	// Service modal
 	let showServiceModal = $state(false);
@@ -27,11 +31,23 @@
 		build_strategy: 'auto' as BuildStrategy,
 		resource_tier: 'small' as const,
 		replicas: 1,
+		port: 8080,
 	});
 	let creatingService = $state(false);
 	let serviceError = $state('');
 	let detecting = $state(false);
 	let detectResult = $state<DetectResponse | null>(null);
+
+	// Edit service modal
+	let showEditServiceModal = $state(false);
+	let editServiceForm = $state<{
+		name: string;
+		resource_tier: string;
+		replicas: number;
+		port: number;
+	}>({ name: '', resource_tier: 'small', replicas: 1, port: 8080 });
+	let editingService = $state(false);
+	let editServiceError = $state('');
 
 	// Preview modal
 	let showPreviewModal = $state(false);
@@ -280,15 +296,46 @@
 				build_strategy: serviceForm.build_strategy,
 				resource_tier: serviceForm.resource_tier,
 				replicas: serviceForm.replicas,
+				ports: serviceForm.port > 0 ? [{ container_port: serviceForm.port, protocol: 'tcp' }] : [],
 			});
 			showServiceModal = false;
-			serviceForm = { name: '', git_repo: '', git_ref: 'main', build_strategy: 'auto', resource_tier: 'small', replicas: 1 };
+			serviceForm = { name: '', git_repo: '', git_ref: 'main', build_strategy: 'auto', resource_tier: 'small', replicas: 1, port: 8080 };
 			detectResult = null;
 			await loadAppData();
 		} catch (err) {
 			serviceError = err instanceof Error ? err.message : 'Failed to create service';
 		} finally {
 			creatingService = false;
+		}
+	}
+
+	function openEditService(service: ServiceConfig) {
+		editServiceForm = {
+			name: service.name,
+			resource_tier: service.resource_tier,
+			replicas: service.replicas,
+			port: service.ports?.[0]?.container_port ?? 8080,
+		};
+		editServiceError = '';
+		showEditServiceModal = true;
+	}
+
+	async function updateService(e: Event) {
+		e.preventDefault();
+		editServiceError = '';
+		editingService = true;
+		try {
+			await services.update(appId, editServiceForm.name, {
+				resource_tier: editServiceForm.resource_tier as ResourceTier,
+				replicas: editServiceForm.replicas,
+				ports: editServiceForm.port > 0 ? [{ container_port: editServiceForm.port, protocol: 'tcp' }] : [],
+			});
+			showEditServiceModal = false;
+			await loadAppData();
+		} catch (err) {
+			editServiceError = err instanceof Error ? err.message : 'Failed to update service';
+		} finally {
+			editingService = false;
 		}
 	}
 
@@ -367,10 +414,45 @@
 
 	const tabs = $derived([
 		{ id: 'services' as const, label: 'Services', count: app?.services?.length ?? 0 },
+		{ id: 'domains' as const, label: 'Domains', count: app?.services?.length ?? 0 },
 		{ id: 'deployments' as const, label: 'Deployments', count: deploymentList.length },
 		{ id: 'secrets' as const, label: 'Secrets', count: secretKeys.length },
 		{ id: 'logs' as const, label: 'Logs', count: logEntries.length },
 	]);
+
+	// Initialize domain ports from services when app loads
+	$effect(() => {
+		if (app?.services) {
+			const ports: Record<string, number> = {};
+			for (const svc of app.services) {
+				ports[svc.name] = svc.ports?.[0]?.container_port ?? 8080;
+			}
+			domainPorts = ports;
+		}
+	});
+
+	// Save domain/port configuration
+	async function saveDomainConfig(serviceName: string) {
+		savingDomain = serviceName;
+		try {
+			const port = domainPorts[serviceName];
+			await services.update(appId, serviceName, {
+				ports: port > 0 ? [{ container_port: port, protocol: 'tcp' }] : [],
+			});
+			await loadAppData();
+		} catch (err) {
+			console.error('Failed to save domain config:', err);
+		} finally {
+			savingDomain = null;
+		}
+	}
+
+	// Generate wildcard domain for a service
+	function getWildcardDomain(serviceName: string): string {
+		const appName = app?.name?.toLowerCase().replace(/[^a-z0-9-]/g, '-') ?? 'app';
+		const svcName = serviceName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+		return `${appName}-${svcName}.narvana.local:8088`;
+	}
 </script>
 
 <div class="p-8">
@@ -482,6 +564,13 @@
 									</Button>
 									<Button 
 										size="sm" 
+										variant="ghost"
+										onclick={() => openEditService(service)}
+									>
+										✏️ Edit
+									</Button>
+									<Button 
+										size="sm" 
 										variant="secondary"
 										onclick={() => { deployServiceName = service.name; showDeployModal = true; }}
 									>
@@ -528,6 +617,143 @@
 						</Card>
 					{/each}
 				</div>
+			{/if}
+
+		{:else if activeTab === 'domains'}
+			<div class="mb-6">
+				<h2 class="text-lg font-semibold mb-2">Domain Configuration</h2>
+				<p class="text-sm text-[var(--color-narvana-text-muted)]">
+					Configure routing for your services. Each service gets an auto-generated wildcard domain.
+				</p>
+			</div>
+
+			{#if (app?.services?.length ?? 0) === 0}
+				<Card class="p-8 text-center">
+					<p class="text-[var(--color-narvana-text-dim)] mb-4">No services to configure</p>
+					<Button onclick={() => { activeTab = 'services'; showServiceModal = true; }}>Add First Service</Button>
+				</Card>
+			{:else}
+				<div class="space-y-4">
+					{#each app?.services ?? [] as service}
+						<Card class="p-6">
+							<div class="flex items-start justify-between mb-4">
+								<div>
+									<h3 class="font-semibold text-lg">{service.name}</h3>
+									<p class="text-sm text-[var(--color-narvana-text-muted)]">
+										Route traffic to this service
+									</p>
+								</div>
+								<div class="flex items-center gap-2">
+									{#if service.ports && service.ports.length > 0}
+										<span class="px-2 py-1 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
+											✓ Configured
+										</span>
+									{:else}
+										<span class="px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 text-xs font-medium">
+											⚠ No port
+										</span>
+									{/if}
+								</div>
+							</div>
+
+							<!-- Wildcard Domain -->
+							<div class="p-4 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] mb-4">
+								<div class="flex items-center justify-between">
+									<div>
+										<p class="text-xs text-[var(--color-narvana-text-muted)] mb-1">Auto-generated Domain</p>
+										<code class="text-sm font-mono text-[var(--color-narvana-primary)]">
+											http://{getWildcardDomain(service.name)}
+										</code>
+									</div>
+									<button 
+										onclick={() => navigator.clipboard.writeText(`http://${getWildcardDomain(service.name)}`)}
+										class="p-2 rounded hover:bg-[var(--color-narvana-surface-hover)] text-[var(--color-narvana-text-muted)]"
+										title="Copy URL"
+									>
+										📋
+									</button>
+								</div>
+							</div>
+
+							<!-- Port Configuration -->
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+								<div>
+									<label for="port-{service.name}" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
+										Container Port
+									</label>
+									<div class="flex gap-2">
+										<input
+											id="port-{service.name}"
+											type="number"
+											bind:value={domainPorts[service.name]}
+											placeholder="8080"
+											class="flex-1 px-4 py-2.5 rounded-lg bg-[var(--color-narvana-surface)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)] focus:outline-none focus:border-[var(--color-narvana-primary)]"
+										/>
+										<Button 
+											onclick={() => saveDomainConfig(service.name)}
+											loading={savingDomain === service.name}
+											disabled={domainPorts[service.name] === (service.ports?.[0]?.container_port ?? 0)}
+										>
+											Save
+										</Button>
+									</div>
+									<p class="text-xs text-[var(--color-narvana-text-muted)] mt-1">
+										The port your app listens on inside the container
+									</p>
+								</div>
+
+								<div>
+									<p class="text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
+										Routing Status
+									</p>
+									<div class="p-3 rounded-lg bg-[var(--color-narvana-surface)] border border-[var(--color-narvana-border)]">
+										{#if service.ports && service.ports.length > 0}
+											<div class="flex items-center gap-2 text-green-400">
+												<span class="w-2 h-2 rounded-full bg-green-400"></span>
+												<span class="text-sm">Routing enabled on port {service.ports[0].container_port}</span>
+											</div>
+										{:else}
+											<div class="flex items-center gap-2 text-yellow-400">
+												<span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+												<span class="text-sm">Set a port and save to enable routing</span>
+											</div>
+										{/if}
+									</div>
+								</div>
+							</div>
+
+							<!-- Custom Domains (future) -->
+							<div class="mt-4 pt-4 border-t border-[var(--color-narvana-border)]">
+								<div class="flex items-center justify-between">
+									<div>
+										<p class="text-sm font-medium text-[var(--color-narvana-text-dim)]">Custom Domains</p>
+										<p class="text-xs text-[var(--color-narvana-text-muted)]">Add your own domain names</p>
+									</div>
+									<Button size="sm" variant="ghost" disabled>
+										+ Add Domain
+									</Button>
+								</div>
+								<p class="text-xs text-[var(--color-narvana-text-muted)] mt-2 italic">
+									Custom domain support coming soon
+								</p>
+							</div>
+						</Card>
+					{/each}
+				</div>
+
+				<!-- DNS Setup Instructions -->
+				<Card class="mt-6 p-4 bg-[var(--color-narvana-primary-glow)] border-[var(--color-narvana-primary)]/30">
+					<h4 class="font-medium mb-2">🛠 Local Development Setup</h4>
+					<p class="text-sm text-[var(--color-narvana-text-muted)] mb-3">
+						To access your services via wildcard domains, add entries to your <code class="text-[var(--color-narvana-primary)]">/etc/hosts</code>:
+					</p>
+					<pre class="p-3 rounded bg-[var(--color-narvana-bg)] text-sm font-mono overflow-x-auto">{#each app?.services ?? [] as svc}
+127.0.0.1 {app?.name?.toLowerCase().replace(/[^a-z0-9-]/g, '-')}-{svc.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}.narvana.local
+{/each}</pre>
+					<p class="text-xs text-[var(--color-narvana-text-muted)] mt-2">
+						Or use dnsmasq/systemd-resolved for automatic wildcard DNS.
+					</p>
+				</Card>
 			{/if}
 
 		{:else if activeTab === 'deployments'}
@@ -846,7 +1072,7 @@
 					</select>
 				</div>
 
-				<div class="grid grid-cols-2 gap-4">
+				<div class="grid grid-cols-3 gap-4">
 					<div>
 						<label for="resource-tier" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
 							Resource Tier
@@ -863,6 +1089,12 @@
 							<option value="xlarge">XLarge (4GB)</option>
 						</select>
 					</div>
+					<Input 
+						type="number" 
+						label="Port" 
+						placeholder="8080"
+						bind:value={serviceForm.port}
+					/>
 					<Input 
 						type="number" 
 						label="Replicas" 
@@ -970,6 +1202,78 @@
 					Delete
 				</Button>
 			</div>
+		</Card>
+	</div>
+{/if}
+
+<!-- Edit Service Modal -->
+{#if showEditServiceModal}
+	<div 
+		class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+		onclick={(e) => { if (e.target === e.currentTarget) showEditServiceModal = false; }}
+		onkeydown={(e) => { if (e.key === 'Escape') showEditServiceModal = false; }}
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+	>
+		<Card class="w-full max-w-md p-6 animate-slide-up">
+			<h2 class="text-xl font-semibold mb-4">Edit Service: {editServiceForm.name}</h2>
+			
+			<form onsubmit={updateService} class="space-y-4">
+				<div class="grid grid-cols-3 gap-4">
+					<div>
+						<label for="edit-resource-tier" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
+							Resource Tier
+						</label>
+						<select 
+							id="edit-resource-tier"
+							bind:value={editServiceForm.resource_tier}
+							class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)]"
+						>
+							<option value="nano">Nano</option>
+							<option value="small">Small</option>
+							<option value="medium">Medium</option>
+							<option value="large">Large</option>
+							<option value="xlarge">XLarge</option>
+						</select>
+					</div>
+					<div>
+						<label for="edit-port" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
+							Port
+						</label>
+						<input
+							id="edit-port"
+							type="number"
+							bind:value={editServiceForm.port}
+							placeholder="8080"
+							class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)] focus:outline-none focus:border-[var(--color-narvana-primary)]"
+						/>
+					</div>
+					<div>
+						<label for="edit-replicas" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
+							Replicas
+						</label>
+						<input
+							id="edit-replicas"
+							type="number"
+							bind:value={editServiceForm.replicas}
+							min="1"
+							class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)] focus:outline-none focus:border-[var(--color-narvana-primary)]"
+						/>
+					</div>
+				</div>
+
+				{#if editServiceError}
+					<div class="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+						{editServiceError}
+					</div>
+				{/if}
+
+				<div class="flex gap-3 pt-2">
+					<Button variant="ghost" class="flex-1" onclick={() => showEditServiceModal = false}>Cancel</Button>
+					<Button type="submit" class="flex-1" loading={editingService}>Save Changes</Button>
+				</div>
+			</form>
 		</Card>
 	</div>
 {/if}
