@@ -1,0 +1,27 @@
+# Narvana Development Caddyfile
+# Wildcard routing for deployed services
+#
+# Setup (one-time):
+#   1. Add to /etc/hosts: 127.0.0.1 *.narvana.local
+#   2. Or use dnsmasq/systemd-resolved for wildcard DNS
+#
+# URL pattern: {app-name}-{service-name}.narvana.local:8088
+# Example: myapp-api.narvana.local:8088 -> container on port 8081
+
+# Global options
+{
+	# Development mode - no HTTPS
+	auto_https off
+	
+	# Admin API for dynamic config updates
+	admin localhost:2019
+}
+
+# Default fallback - shows routing info (port 8088 for dev, no root needed)
+:8088 {
+	respond "Narvana Router - No route configured for this host. Access deployments via {app}-{service}.narvana.local:8088" 404
+}
+
+# The actual routes are added dynamically via the admin API
+# See: POST http://localhost:2019/config/apps/http/servers/srv0/routes
+

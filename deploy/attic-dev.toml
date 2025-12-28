@@ -1,0 +1,30 @@
+# Attic server configuration for local development
+# See: https://docs.attic.rs/reference/atticd-toml.html
+
+# Listen on port 5000 to avoid conflicts with control plane (8080)
+listen = "[::]:5000"
+
+# Use SQLite for local dev (PostgreSQL for production)
+[database]
+url = "sqlite://.attic-data/server.db?mode=rwc"
+
+# Local storage for NAR files
+[storage]
+type = "local"
+path = ".attic-data/storage"
+
+# Chunk size configuration for deduplication
+[chunking]
+nar-size-threshold = 65536
+min-size = 16384
+avg-size = 65536
+max-size = 262144
+
+# Garbage collection settings
+[garbage-collection]
+default-retention-period = "30 days"
+
+# JWT settings for authentication
+# Using a simple HS256 secret for development
+[jwt.signing]
+token-hs256-secret-base64 = "ZGV2LXNlY3JldC1rZXktZm9yLWF0dGljLXNlcnZlci1taW5pbXVtLTMyLWNoYXJz"
