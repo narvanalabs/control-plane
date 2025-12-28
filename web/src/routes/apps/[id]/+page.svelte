@@ -7,7 +7,10 @@
 		type BuildStrategy, type DetectResponse, type PreviewResponse,
 		type ResourceTier, APIError
 	} from '$lib/api';
-	import { Card, Button, Input, StatusBadge } from '$lib/components';
+	import { Card, Button, Input, StatusBadge, Dialog, Tabs, EmptyState, PageHeader } from '$lib/components';
+	import { ServiceCard } from '$lib/components/domain';
+	import { formatRelativeTime } from '$lib/utils/formatters';
+	import { MoreVertical, Trash2, Settings, Play, Plus, Key, FileText, Server, History, Lock, Cog } from 'lucide-svelte';
 
 	// State
 	let app = $state<App | null>(null);
@@ -15,7 +18,7 @@
 	let secretKeys = $state<string[]>([]);
 	let logEntries = $state<LogEntry[]>([]);
 	let loading = $state(true);
-	let activeTab = $state<'services' | 'domains' | 'deployments' | 'secrets' | 'logs'>('services');
+	let activeTab = $state<string>('environment');
 	let error = $state('');
 
 	// Domain configuration state
@@ -24,12 +27,22 @@
 
 	// Service modal
 	let showServiceModal = $state(false);
+	let editingServiceName = $state<string | null>(null);
 	let serviceForm = $state({
 		name: '',
 		git_repo: '',
 		git_ref: 'main',
 		build_strategy: 'auto' as BuildStrategy,
-		resource_tier: 'small' as const,
+		resource_tier: 'small' as ResourceTier,
+		replicas: 1,
+		port: 8080,
+	});
+	let initialServiceForm = $state({
+		name: '',
+		git_repo: '',
+		git_ref: 'main',
+		build_strategy: 'auto' as BuildStrategy,
+		resource_tier: 'small' as ResourceTier,
 		replicas: 1,
 		port: 8080,
 	});
@@ -37,17 +50,6 @@
 	let serviceError = $state('');
 	let detecting = $state(false);
 	let detectResult = $state<DetectResponse | null>(null);
-
-	// Edit service modal
-	let showEditServiceModal = $state(false);
-	let editServiceForm = $state<{
-		name: string;
-		resource_tier: string;
-		replicas: number;
-		port: number;
-	}>({ name: '', resource_tier: 'small', replicas: 1, port: 8080 });
-	let editingService = $state(false);
-	let editServiceError = $state('');
 
 	// Preview modal
 	let showPreviewModal = $state(false);
@@ -73,6 +75,9 @@
 	let deleteTarget = $state<{ type: 'app' | 'service' | 'secret'; name: string } | null>(null);
 	let deleting = $state(false);
 
+	// Settings dropdown
+	let showSettingsMenu = $state(false);
+
 	// Log filtering & streaming
 	let logSource = $state<'all' | 'build' | 'runtime'>('all');
 	let selectedDeploymentId = $state('');
@@ -93,7 +98,54 @@
 		{ value: 'nixpacks', label: 'Nixpacks', description: 'Use Nixpacks for automatic containerization' },
 	];
 
+	// Resource tier options
+	const resourceTiers: { value: ResourceTier; label: string; description: string }[] = [
+		{ value: 'nano', label: 'Nano', description: '256MB RAM' },
+		{ value: 'small', label: 'Small', description: '512MB RAM' },
+		{ value: 'medium', label: 'Medium', description: '1GB RAM' },
+		{ value: 'large', label: 'Large', description: '2GB RAM' },
+		{ value: 'xlarge', label: 'XLarge', description: '4GB RAM' },
+	];
+
 	const appId = $derived($page.params.id as string);
+
+	// Tab definitions
+	const tabs = $derived([
+		{ value: 'environment', label: 'Environment' },
+		{ value: 'deployments', label: 'Deployments' },
+		{ value: 'logs', label: 'Logs' },
+		{ value: 'secrets', label: 'Secrets' },
+		{ value: 'settings', label: 'Settings' },
+	]);
+
+	// Check if form is dirty (has unsaved changes)
+	const isFormDirty = $derived(() => {
+		if (!editingServiceName) return false;
+		return (
+			serviceForm.name !== initialServiceForm.name ||
+			serviceForm.git_repo !== initialServiceForm.git_repo ||
+			serviceForm.git_ref !== initialServiceForm.git_ref ||
+			serviceForm.build_strategy !== initialServiceForm.build_strategy ||
+			serviceForm.resource_tier !== initialServiceForm.resource_tier ||
+			serviceForm.replicas !== initialServiceForm.replicas ||
+			serviceForm.port !== initialServiceForm.port
+		);
+	});
+
+	// Sync active tab with URL
+	$effect(() => {
+		const urlTab = $page.url.searchParams.get('tab');
+		if (urlTab && tabs.some(t => t.value === urlTab)) {
+			activeTab = urlTab;
+		}
+	});
+
+	function handleTabChange(tabId: string) {
+		activeTab = tabId;
+		const url = new URL($page.url);
+		url.searchParams.set('tab', tabId);
+		goto(url.toString(), { replaceState: true, noScroll: true });
+	}
 
 	// Auto-detect build strategy
 	async function runDetection() {
@@ -107,7 +159,6 @@
 		try {
 			const result = await detect.analyze(serviceForm.git_repo, serviceForm.git_ref);
 			detectResult = result;
-			// Auto-select detected strategy
 			if (result.strategy) {
 				serviceForm.build_strategy = result.strategy;
 			}
@@ -144,17 +195,14 @@
 
 	// Load existing logs and start streaming automatically
 	async function loadAndStreamLogs() {
-		// First load existing logs
 		try {
 			const logsData = await logs.get(appId, {
 				limit: 500,
 				source: logSource === 'all' ? undefined : logSource,
 				deployment_id: selectedDeploymentId || undefined,
 			});
-			// Show oldest first (chronological order)
 			logEntries = (logsData.logs || []).reverse();
 			
-			// Scroll to bottom after loading
 			requestAnimationFrame(() => {
 				if (logContainer) {
 					logContainer.scrollTop = logContainer.scrollHeight;
@@ -164,7 +212,6 @@
 			console.error('Failed to load logs:', err);
 		}
 		
-		// Then start streaming for new logs
 		startLogStream();
 	}
 
@@ -185,7 +232,6 @@
 		logEventSource = new EventSource(url);
 		logStreaming = true;
 		
-		// Track which log IDs we've seen to avoid duplicates
 		const seenLogIds = new Set(logEntries.map(l => l.id));
 		
 		logEventSource.addEventListener('connected', (e) => {
@@ -196,13 +242,11 @@
 		logEventSource.addEventListener('log', (e) => {
 			const log = JSON.parse((e as MessageEvent).data);
 			
-			// Skip duplicates
 			if (seenLogIds.has(log.id)) return;
 			seenLogIds.add(log.id);
 			
 			logEntries = [...logEntries, log];
 			
-			// Auto-scroll to bottom
 			if (autoScroll && logContainer) {
 				requestAnimationFrame(() => {
 					if (logContainer) {
@@ -215,16 +259,13 @@
 		logEventSource.addEventListener('complete', (e) => {
 			const data = JSON.parse((e as MessageEvent).data);
 			console.log('Deployment complete:', data);
-			// Don't stop - keep connection open for next deployment
 		});
 		
 		logEventSource.onerror = (err) => {
 			console.error('Log stream error:', err);
-			// Will automatically reconnect
 		};
 	}
 
-	// Stop log streaming
 	function stopLogStream() {
 		if (logEventSource) {
 			logEventSource.close();
@@ -233,14 +274,12 @@
 		logStreaming = false;
 	}
 
-	// Cleanup on unmount
 	$effect(() => {
 		return () => {
 			stopLogStream();
 		};
 	});
 
-	// Auto-start streaming when logs tab is active
 	$effect(() => {
 		if (activeTab === 'logs' && appId && !logStreaming) {
 			loadAndStreamLogs();
@@ -268,7 +307,6 @@
 			);
 			secretKeys = secretsData.keys;
 
-			// Load logs for most recent deployment
 			if (deploymentsData.length > 0) {
 				const logsData = await logs.get(appId, { limit: 100 }).catch(() => ({ logs: [] }));
 				logEntries = logsData.logs;
@@ -284,58 +322,68 @@
 		}
 	}
 
-	async function createService(e: Event) {
-		e.preventDefault();
+	function openAddServiceModal() {
+		editingServiceName = null;
+		serviceForm = {
+			name: '',
+			git_repo: '',
+			git_ref: 'main',
+			build_strategy: 'auto',
+			resource_tier: 'small',
+			replicas: 1,
+			port: 8080,
+		};
+		initialServiceForm = { ...serviceForm };
+		detectResult = null;
 		serviceError = '';
-		creatingService = true;
-		try {
-			await services.create(appId, {
-				name: serviceForm.name,
-				git_repo: serviceForm.git_repo,
-				git_ref: serviceForm.git_ref,
-				build_strategy: serviceForm.build_strategy,
-				resource_tier: serviceForm.resource_tier,
-				replicas: serviceForm.replicas,
-				ports: serviceForm.port > 0 ? [{ container_port: serviceForm.port, protocol: 'tcp' }] : [],
-			});
-			showServiceModal = false;
-			serviceForm = { name: '', git_repo: '', git_ref: 'main', build_strategy: 'auto', resource_tier: 'small', replicas: 1, port: 8080 };
-			detectResult = null;
-			await loadAppData();
-		} catch (err) {
-			serviceError = err instanceof Error ? err.message : 'Failed to create service';
-		} finally {
-			creatingService = false;
-		}
+		showServiceModal = true;
 	}
 
-	function openEditService(service: ServiceConfig) {
-		editServiceForm = {
+	function openEditServiceModal(service: ServiceConfig) {
+		editingServiceName = service.name;
+		serviceForm = {
 			name: service.name,
+			git_repo: service.git_repo || '',
+			git_ref: service.git_ref || 'main',
+			build_strategy: service.build_strategy || 'auto',
 			resource_tier: service.resource_tier,
 			replicas: service.replicas,
 			port: service.ports?.[0]?.container_port ?? 8080,
 		};
-		editServiceError = '';
-		showEditServiceModal = true;
+		initialServiceForm = { ...serviceForm };
+		detectResult = null;
+		serviceError = '';
+		showServiceModal = true;
 	}
 
-	async function updateService(e: Event) {
+	async function saveService(e: Event) {
 		e.preventDefault();
-		editServiceError = '';
-		editingService = true;
+		serviceError = '';
+		creatingService = true;
 		try {
-			await services.update(appId, editServiceForm.name, {
-				resource_tier: editServiceForm.resource_tier as ResourceTier,
-				replicas: editServiceForm.replicas,
-				ports: editServiceForm.port > 0 ? [{ container_port: editServiceForm.port, protocol: 'tcp' }] : [],
-			});
-			showEditServiceModal = false;
+			if (editingServiceName) {
+				await services.update(appId, editingServiceName, {
+					resource_tier: serviceForm.resource_tier,
+					replicas: serviceForm.replicas,
+					ports: serviceForm.port > 0 ? [{ container_port: serviceForm.port, protocol: 'tcp' }] : [],
+				});
+			} else {
+				await services.create(appId, {
+					name: serviceForm.name,
+					git_repo: serviceForm.git_repo,
+					git_ref: serviceForm.git_ref,
+					build_strategy: serviceForm.build_strategy,
+					resource_tier: serviceForm.resource_tier,
+					replicas: serviceForm.replicas,
+					ports: serviceForm.port > 0 ? [{ container_port: serviceForm.port, protocol: 'tcp' }] : [],
+				});
+			}
+			showServiceModal = false;
 			await loadAppData();
 		} catch (err) {
-			editServiceError = err instanceof Error ? err.message : 'Failed to update service';
+			serviceError = err instanceof Error ? err.message : 'Failed to save service';
 		} finally {
-			editingService = false;
+			creatingService = false;
 		}
 	}
 
@@ -400,25 +448,9 @@
 		});
 	}
 
-	function formatRelativeTime(date: string): string {
-		const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-		if (seconds < 60) return 'just now';
-		if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-		if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-		return `${Math.floor(seconds / 86400)}d ago`;
-	}
-
 	function getServiceStatus(serviceName: string): Deployment | undefined {
 		return deploymentList.find(d => d.service_name === serviceName);
 	}
-
-	const tabs = $derived([
-		{ id: 'services' as const, label: 'Services', count: app?.services?.length ?? 0 },
-		{ id: 'domains' as const, label: 'Domains', count: app?.services?.length ?? 0 },
-		{ id: 'deployments' as const, label: 'Deployments', count: deploymentList.length },
-		{ id: 'secrets' as const, label: 'Secrets', count: secretKeys.length },
-		{ id: 'logs' as const, label: 'Logs', count: logEntries.length },
-	]);
 
 	// Initialize domain ports from services when app loads
 	$effect(() => {
@@ -431,7 +463,6 @@
 		}
 	});
 
-	// Save domain/port configuration
 	async function saveDomainConfig(serviceName: string) {
 		savingDomain = serviceName;
 		try {
@@ -447,7 +478,6 @@
 		}
 	}
 
-	// Generate wildcard domain for a service
 	function getWildcardDomain(serviceName: string): string {
 		const appName = app?.name?.toLowerCase().replace(/[^a-z0-9-]/g, '-') ?? 'app';
 		const svcName = serviceName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -455,543 +485,425 @@
 	}
 </script>
 
-<div class="p-8">
+<svelte:window onclick={() => showSettingsMenu && (showSettingsMenu = false)} />
+
+<div class="min-h-screen bg-[var(--color-background)]">
 	{#if loading}
 		<div class="flex items-center justify-center h-64">
-			<div class="w-8 h-8 border-2 border-[var(--color-narvana-primary)] border-t-transparent rounded-full animate-spin"></div>
+			<div class="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin"></div>
 		</div>
 	{:else if error}
-		<Card class="p-12 text-center">
-			<p class="text-red-400 mb-4">{error}</p>
-			<Button onclick={() => goto('/apps')}>Back to Apps</Button>
-		</Card>
+		<div class="p-8">
+			<Card class="p-12 text-center">
+				<p class="text-[var(--color-error)] mb-4">{error}</p>
+				<Button onclick={() => goto('/apps')}>Back to Apps</Button>
+			</Card>
+		</div>
 	{:else if app}
-		<!-- Header -->
-		<div class="flex items-start justify-between mb-8">
-			<div class="flex items-center gap-4">
-				<a href="/apps" class="p-2 rounded-lg hover:bg-[var(--color-narvana-surface-hover)] text-[var(--color-narvana-text-dim)]">
-					←
-				</a>
-				<div class="w-14 h-14 rounded-xl bg-gradient-to-br from-[var(--color-narvana-primary)]/20 to-[var(--color-narvana-secondary)]/20 flex items-center justify-center">
-					<span class="text-2xl font-bold text-[var(--color-narvana-primary)]">
-						{app.name.charAt(0).toUpperCase()}
-					</span>
-				</div>
-				<div>
-					<h1 class="text-2xl font-bold">{app.name}</h1>
-					{#if app.description}
-						<p class="text-[var(--color-narvana-text-dim)]">{app.description}</p>
-					{/if}
-				</div>
+		<!-- Breadcrumb Navigation -->
+		<div class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+			<div class="px-6 py-3">
+				<nav class="flex items-center gap-2 text-sm" aria-label="Breadcrumb">
+					<a href="/apps" class="text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors">
+						Applications
+					</a>
+					<span class="text-[var(--color-text-muted)]">/</span>
+					<span class="font-medium text-[var(--color-text)]">{app.name}</span>
+				</nav>
 			</div>
-			<div class="flex gap-3">
+		</div>
+
+		<!-- Page Header -->
+		<PageHeader 
+			title={app.name} 
+			description={app.description || 'No description'}
+			tabs={tabs}
+			activeTab={activeTab}
+			onTabChange={handleTabChange}
+		>
+			{#snippet actions()}
 				<Button 
-					variant="secondary" 
+					variant="primary"
 					onclick={() => { showDeployModal = true; }}
 				>
-					▶ Deploy
+					<Play class="w-4 h-4" />
+					Deploy
 				</Button>
-				<Button 
-					variant="danger" 
-					onclick={() => { if (app) { deleteTarget = { type: 'app', name: app.name }; showDeleteModal = true; } }}
-				>
-					Delete
-				</Button>
-			</div>
-		</div>
-
-		<!-- Tabs -->
-		<div class="flex gap-1 mb-6 border-b border-[var(--color-narvana-border)]">
-			{#each tabs as tab}
-				<button
-					class="px-4 py-3 text-sm font-medium border-b-2 transition-colors
-						{activeTab === tab.id 
-							? 'border-[var(--color-narvana-primary)] text-[var(--color-narvana-primary)]' 
-							: 'border-transparent text-[var(--color-narvana-text-dim)] hover:text-[var(--color-narvana-text)]'}"
-					onclick={() => activeTab = tab.id}
-				>
-					{tab.label}
-					{#if tab.count !== undefined && tab.count > 0}
-						<span class="ml-1.5 px-1.5 py-0.5 rounded-full bg-[var(--color-narvana-border)] text-xs">
-							{tab.count}
-						</span>
+				
+				<!-- Settings dropdown -->
+				<div class="relative">
+					<Button 
+						variant="outline"
+						onclick={(e) => { e.stopPropagation(); showSettingsMenu = !showSettingsMenu; }}
+					>
+						<MoreVertical class="w-4 h-4" />
+					</Button>
+					
+					{#if showSettingsMenu}
+						<div 
+							class="absolute right-0 top-full mt-1 w-48 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[var(--radius-lg)] shadow-[var(--shadow-lg)] py-1 z-50"
+							onclick={(e) => e.stopPropagation()}
+						>
+							<button
+								onclick={() => { handleTabChange('settings'); showSettingsMenu = false; }}
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors"
+							>
+								<Settings class="w-4 h-4" />
+								Settings
+							</button>
+							<div class="border-t border-[var(--color-border)] my-1"></div>
+							<button
+								onclick={() => { deleteTarget = { type: 'app', name: app!.name }; showDeleteModal = true; showSettingsMenu = false; }}
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--color-error)] hover:bg-[var(--color-error-light)] transition-colors"
+							>
+								<Trash2 class="w-4 h-4" />
+								Delete Application
+							</button>
+						</div>
 					{/if}
-				</button>
-			{/each}
-		</div>
+				</div>
+			{/snippet}
+		</PageHeader>
 
 		<!-- Tab Content -->
-		{#if activeTab === 'services'}
-			<div class="flex justify-between items-center mb-4">
-				<h2 class="text-lg font-semibold">Services</h2>
-				<Button size="sm" onclick={() => showServiceModal = true}>
-					+ Add Service
-				</Button>
-			</div>
-
-			{#if (app.services?.length ?? 0) === 0}
-				<Card class="p-8 text-center">
-					<p class="text-[var(--color-narvana-text-dim)] mb-4">No services defined</p>
-					<Button onclick={() => showServiceModal = true}>Add First Service</Button>
-				</Card>
-			{:else}
-				<div class="space-y-4">
-					{#each app.services ?? [] as service}
-						{@const deployment = getServiceStatus(service.name)}
-						<Card class="p-6">
-							<div class="flex items-start justify-between">
-								<div class="flex items-center gap-4">
-									<div class="w-10 h-10 rounded-lg bg-[var(--color-narvana-secondary)]/10 flex items-center justify-center text-[var(--color-narvana-secondary)]">
-										◇
-									</div>
-									<div>
-										<h3 class="font-semibold">{service.name}</h3>
-										<p class="text-sm text-[var(--color-narvana-text-muted)] font-mono">
-											{service.git_repo || service.flake_uri || service.image || 'No source'}
-										</p>
-									</div>
-								</div>
-								<div class="flex items-center gap-2">
-									{#if deployment}
-										<StatusBadge status={deployment.status} size="sm" />
-									{/if}
-									<Button 
-										size="sm" 
-										variant="ghost"
-										onclick={() => runPreview(service.name)}
-									>
-										👁 Preview
-									</Button>
-									<Button 
-										size="sm" 
-										variant="ghost"
-										onclick={() => openEditService(service)}
-									>
-										✏️ Edit
-									</Button>
-									<Button 
-										size="sm" 
-										variant="secondary"
-										onclick={() => { deployServiceName = service.name; showDeployModal = true; }}
-									>
-										▶ Deploy
-									</Button>
-									<Button 
-										size="sm" 
-										variant="ghost"
-										onclick={() => { deleteTarget = { type: 'service', name: service.name }; showDeleteModal = true; }}
-									>
-										×
-									</Button>
-								</div>
-							</div>
-
-							<div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Resource Tier</span>
-									<p class="font-medium capitalize">{service.resource_tier}</p>
-								</div>
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Replicas</span>
-									<p class="font-medium">{service.replicas}</p>
-								</div>
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Git Ref</span>
-									<p class="font-medium font-mono">{service.git_ref || 'main'}</p>
-								</div>
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Build Strategy</span>
-									<p class="font-medium">{service.build_strategy || 'flake'}</p>
-								</div>
-							</div>
-
-							{#if service.ports && service.ports.length > 0}
-								<div class="mt-3 flex gap-2">
-									{#each service.ports as port}
-										<span class="px-2 py-1 rounded bg-[var(--color-narvana-bg)] text-xs font-mono">
-											:{port.container_port}/{port.protocol || 'tcp'}
-										</span>
-									{/each}
-								</div>
-							{/if}
-						</Card>
-					{/each}
-				</div>
-			{/if}
-
-		{:else if activeTab === 'domains'}
-			<div class="mb-6">
-				<h2 class="text-lg font-semibold mb-2">Domain Configuration</h2>
-				<p class="text-sm text-[var(--color-narvana-text-muted)]">
-					Configure routing for your services. Each service gets an auto-generated wildcard domain.
-				</p>
-			</div>
-
-			{#if (app?.services?.length ?? 0) === 0}
-				<Card class="p-8 text-center">
-					<p class="text-[var(--color-narvana-text-dim)] mb-4">No services to configure</p>
-					<Button onclick={() => { activeTab = 'services'; showServiceModal = true; }}>Add First Service</Button>
-				</Card>
-			{:else}
-				<div class="space-y-4">
-					{#each app?.services ?? [] as service}
-						<Card class="p-6">
-							<div class="flex items-start justify-between mb-4">
-								<div>
-									<h3 class="font-semibold text-lg">{service.name}</h3>
-									<p class="text-sm text-[var(--color-narvana-text-muted)]">
-										Route traffic to this service
-									</p>
-								</div>
-								<div class="flex items-center gap-2">
-									{#if service.ports && service.ports.length > 0}
-										<span class="px-2 py-1 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
-											✓ Configured
-										</span>
-									{:else}
-										<span class="px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 text-xs font-medium">
-											⚠ No port
-										</span>
-									{/if}
-								</div>
-							</div>
-
-							<!-- Wildcard Domain -->
-							<div class="p-4 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] mb-4">
-								<div class="flex items-center justify-between">
-									<div>
-										<p class="text-xs text-[var(--color-narvana-text-muted)] mb-1">Auto-generated Domain</p>
-										<code class="text-sm font-mono text-[var(--color-narvana-primary)]">
-											http://{getWildcardDomain(service.name)}
-										</code>
-									</div>
-									<button 
-										onclick={() => navigator.clipboard.writeText(`http://${getWildcardDomain(service.name)}`)}
-										class="p-2 rounded hover:bg-[var(--color-narvana-surface-hover)] text-[var(--color-narvana-text-muted)]"
-										title="Copy URL"
-									>
-										📋
-									</button>
-								</div>
-							</div>
-
-							<!-- Port Configuration -->
-							<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-								<div>
-									<label for="port-{service.name}" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
-										Container Port
-									</label>
-									<div class="flex gap-2">
-										<input
-											id="port-{service.name}"
-											type="number"
-											bind:value={domainPorts[service.name]}
-											placeholder="8080"
-											class="flex-1 px-4 py-2.5 rounded-lg bg-[var(--color-narvana-surface)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)] focus:outline-none focus:border-[var(--color-narvana-primary)]"
-										/>
-										<Button 
-											onclick={() => saveDomainConfig(service.name)}
-											loading={savingDomain === service.name}
-											disabled={domainPorts[service.name] === (service.ports?.[0]?.container_port ?? 0)}
-										>
-											Save
-										</Button>
-									</div>
-									<p class="text-xs text-[var(--color-narvana-text-muted)] mt-1">
-										The port your app listens on inside the container
-									</p>
-								</div>
-
-								<div>
-									<p class="text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
-										Routing Status
-									</p>
-									<div class="p-3 rounded-lg bg-[var(--color-narvana-surface)] border border-[var(--color-narvana-border)]">
-										{#if service.ports && service.ports.length > 0}
-											<div class="flex items-center gap-2 text-green-400">
-												<span class="w-2 h-2 rounded-full bg-green-400"></span>
-												<span class="text-sm">Routing enabled on port {service.ports[0].container_port}</span>
-											</div>
-										{:else}
-											<div class="flex items-center gap-2 text-yellow-400">
-												<span class="w-2 h-2 rounded-full bg-yellow-400"></span>
-												<span class="text-sm">Set a port and save to enable routing</span>
-											</div>
-										{/if}
-									</div>
-								</div>
-							</div>
-
-							<!-- Custom Domains (future) -->
-							<div class="mt-4 pt-4 border-t border-[var(--color-narvana-border)]">
-								<div class="flex items-center justify-between">
-									<div>
-										<p class="text-sm font-medium text-[var(--color-narvana-text-dim)]">Custom Domains</p>
-										<p class="text-xs text-[var(--color-narvana-text-muted)]">Add your own domain names</p>
-									</div>
-									<Button size="sm" variant="ghost" disabled>
-										+ Add Domain
-									</Button>
-								</div>
-								<p class="text-xs text-[var(--color-narvana-text-muted)] mt-2 italic">
-									Custom domain support coming soon
-								</p>
-							</div>
-						</Card>
-					{/each}
+		<div class="p-6">
+			{#if activeTab === 'environment'}
+				<!-- Environment Tab - Services -->
+				<div class="flex justify-between items-center mb-6">
+					<div>
+						<h2 class="text-lg font-semibold text-[var(--color-text)]">Services</h2>
+						<p class="text-sm text-[var(--color-text-secondary)]">Manage the services in your application</p>
+					</div>
+					<Button size="sm" onclick={openAddServiceModal}>
+						<Plus class="w-4 h-4" />
+						Add Service
+					</Button>
 				</div>
 
-				<!-- DNS Setup Instructions -->
-				<Card class="mt-6 p-4 bg-[var(--color-narvana-primary-glow)] border-[var(--color-narvana-primary)]/30">
-					<h4 class="font-medium mb-2">🛠 Local Development Setup</h4>
-					<p class="text-sm text-[var(--color-narvana-text-muted)] mb-3">
-						To access your services via wildcard domains, add entries to your <code class="text-[var(--color-narvana-primary)]">/etc/hosts</code>:
-					</p>
-					<pre class="p-3 rounded bg-[var(--color-narvana-bg)] text-sm font-mono overflow-x-auto">{#each app?.services ?? [] as svc}
-127.0.0.1 {app?.name?.toLowerCase().replace(/[^a-z0-9-]/g, '-')}-{svc.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}.narvana.local
-{/each}</pre>
-					<p class="text-xs text-[var(--color-narvana-text-muted)] mt-2">
-						Or use dnsmasq/systemd-resolved for automatic wildcard DNS.
-					</p>
-				</Card>
-			{/if}
-
-		{:else if activeTab === 'deployments'}
-			<h2 class="text-lg font-semibold mb-4">Deployment History</h2>
-			{#if deploymentList.length === 0}
-				<Card class="p-8 text-center">
-					<p class="text-[var(--color-narvana-text-dim)]">No deployments yet</p>
-				</Card>
-			{:else}
-				<div class="space-y-3">
-					{#each deploymentList as deployment}
-						<Card class="p-4">
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-4">
-									<StatusBadge status={deployment.status} />
-									<div>
-										<p class="font-medium">
-											{deployment.service_name}
-											<span class="text-[var(--color-narvana-text-muted)] font-normal">
-												#{deployment.version}
-											</span>
-										</p>
-										<p class="text-sm text-[var(--color-narvana-text-muted)]">
-											{formatDate(deployment.created_at)}
-											{#if deployment.git_ref}
-												• <span class="font-mono">{deployment.git_ref}</span>
-											{/if}
-										</p>
-									</div>
-								</div>
-								<div class="text-sm text-[var(--color-narvana-text-dim)]">
-									{formatRelativeTime(deployment.created_at)}
-								</div>
-							</div>
-						</Card>
-					{/each}
-				</div>
-			{/if}
-
-		{:else if activeTab === 'secrets'}
-			<div class="flex justify-between items-center mb-4">
-				<h2 class="text-lg font-semibold">Environment Secrets</h2>
-				<Button size="sm" onclick={() => showSecretModal = true}>
-					+ Add Secret
-				</Button>
-			</div>
-
-			{#if secretKeys.length === 0}
-				<Card class="p-8 text-center">
-					<p class="text-[var(--color-narvana-text-dim)] mb-4">No secrets defined</p>
-					<Button onclick={() => showSecretModal = true}>Add First Secret</Button>
-				</Card>
-			{:else}
-				<div class="space-y-2">
-					{#each secretKeys as key}
-						<Card class="p-4 flex items-center justify-between">
-							<div class="flex items-center gap-3">
-								<span class="text-[var(--color-narvana-warning)]">🔐</span>
-								<code class="font-mono text-sm">{key}</code>
-							</div>
-							<Button 
-								size="sm" 
-								variant="ghost"
-								onclick={() => { deleteTarget = { type: 'secret', name: key }; showDeleteModal = true; }}
-							>
-								×
+				{#if (app.services?.length ?? 0) === 0}
+					<EmptyState
+						icon={Server}
+						title="No services defined"
+						description="Add your first service to start deploying your application."
+					>
+						{#snippet action()}
+							<Button onclick={openAddServiceModal}>
+								<Plus class="w-4 h-4" />
+								Add First Service
 							</Button>
-						</Card>
-					{/each}
-				</div>
-			{/if}
+						{/snippet}
+					</EmptyState>
+				{:else}
+					<div class="grid gap-4">
+						{#each app.services ?? [] as service}
+							{@const deployment = getServiceStatus(service.name)}
+							<ServiceCard
+								{service}
+								{deployment}
+								onDeploy={() => { deployServiceName = service.name; showDeployModal = true; }}
+								onEdit={() => openEditServiceModal(service)}
+								onPreview={() => runPreview(service.name)}
+								onDelete={() => { deleteTarget = { type: 'service', name: service.name }; showDeleteModal = true; }}
+							/>
+						{/each}
+					</div>
+				{/if}
 
-		{:else if activeTab === 'logs'}
-			<div class="flex items-center justify-between mb-4">
-				<div class="flex items-center gap-3">
-					<h2 class="text-lg font-semibold">Build & Runtime Logs</h2>
-					{#if logStreaming}
-						<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
-							<span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-							Live
-						</span>
-					{/if}
+			{:else if activeTab === 'deployments'}
+				<!-- Deployments Tab -->
+				<div class="mb-6">
+					<h2 class="text-lg font-semibold text-[var(--color-text)]">Deployment History</h2>
+					<p class="text-sm text-[var(--color-text-secondary)]">View and manage your deployment history</p>
 				</div>
-				<div class="flex gap-2 items-center">
-					<!-- Source Filter -->
-					<select
-						bind:value={logSource}
-						onchange={() => loadAndStreamLogs()}
-						class="px-3 py-1.5 text-sm rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)]"
+
+				{#if deploymentList.length === 0}
+					<EmptyState
+						icon={History}
+						title="No deployments yet"
+						description="Deploy your first service to see deployment history here."
 					>
-						<option value="all">All Sources</option>
-						<option value="build">Build Logs</option>
-						<option value="runtime">Runtime Logs</option>
-					</select>
+						{#snippet action()}
+							<Button onclick={() => showDeployModal = true}>
+								<Play class="w-4 h-4" />
+								Deploy Now
+							</Button>
+						{/snippet}
+					</EmptyState>
+				{:else}
+					<div class="space-y-3">
+						{#each deploymentList as deployment}
+							<Card padding="md">
+								<div class="flex items-center justify-between">
+									<div class="flex items-center gap-4">
+										<StatusBadge status={deployment.status} />
+										<div>
+											<p class="font-medium text-[var(--color-text)]">
+												{deployment.service_name}
+												<span class="text-[var(--color-text-muted)] font-normal">
+													#{deployment.version}
+												</span>
+											</p>
+											<p class="text-sm text-[var(--color-text-secondary)]">
+												{formatDate(deployment.created_at)}
+												{#if deployment.git_ref}
+													• <span class="font-mono">{deployment.git_ref}</span>
+												{/if}
+												{#if deployment.git_commit}
+													• <span class="font-mono text-xs">{deployment.git_commit.slice(0, 7)}</span>
+												{/if}
+											</p>
+										</div>
+									</div>
+									<div class="text-sm text-[var(--color-text-muted)]">
+										{formatRelativeTime(deployment.created_at)}
+									</div>
+								</div>
+							</Card>
+						{/each}
+					</div>
+				{/if}
 
-					<!-- Deployment Filter -->
-					{#if deploymentList.length > 0}
-						<select
-							bind:value={selectedDeploymentId}
-							onchange={() => loadAndStreamLogs()}
-							class="px-3 py-1.5 text-sm rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)]"
-						>
-							<option value="">Latest Deployment</option>
-							{#each deploymentList.slice(0, 10) as dep}
-								<option value={dep.id}>
-									{dep.service_name} #{dep.version} ({dep.status})
-								</option>
-							{/each}
-						</select>
-					{/if}
-
-					<!-- Auto-scroll toggle -->
-					<label class="flex items-center gap-1.5 text-sm text-[var(--color-narvana-text-muted)] cursor-pointer">
-						<input 
-							type="checkbox" 
-							bind:checked={autoScroll}
-							class="w-4 h-4 rounded accent-[var(--color-narvana-primary)]"
-						/>
-						Auto-scroll
-					</label>
-				</div>
-			</div>
-
-			{#if logEntries.length === 0}
-				<Card class="p-8 text-center bg-[#0d1117]">
-					{#if logStreaming}
-						<div class="flex items-center justify-center gap-2 text-[var(--color-narvana-text-muted)]">
-							<span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-							Waiting for logs...
+			{:else if activeTab === 'logs'}
+				<!-- Logs Tab -->
+				<div class="flex items-center justify-between mb-6">
+					<div class="flex items-center gap-3">
+						<div>
+							<h2 class="text-lg font-semibold text-[var(--color-text)]">Build & Runtime Logs</h2>
+							<p class="text-sm text-[var(--color-text-secondary)]">View logs from your deployments</p>
 						</div>
-						<p class="text-sm text-[var(--color-narvana-text-muted)] mt-2">
-							Deploy a service to see build output here in real-time.
-						</p>
-					{:else}
-						<p class="text-[var(--color-narvana-text-dim)]">No logs available</p>
-						<p class="text-sm text-[var(--color-narvana-text-muted)] mt-2">
-							Deploy a service to see build and runtime logs here.
-						</p>
-					{/if}
-				</Card>
-			{:else}
-				<Card class="p-0 overflow-hidden bg-[#0d1117]">
-					<!-- Terminal-style log viewer -->
-					<div 
-						bind:this={logContainer}
-						class="h-[600px] overflow-y-auto font-mono text-sm p-4 scroll-smooth"
-					>
-						{#if logEntries.length === 0 && logStreaming}
-							<div class="flex items-center gap-2 text-[var(--color-narvana-text-muted)]">
-								<span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+						{#if logStreaming}
+							<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--color-success-light)] text-[var(--color-success)] text-xs font-medium">
+								<span class="w-2 h-2 rounded-full bg-[var(--color-success)] animate-pulse"></span>
+								Live
+							</span>
+						{/if}
+					</div>
+					<div class="flex gap-2 items-center">
+						<select
+							bind:value={logSource}
+							onchange={() => loadAndStreamLogs()}
+							class="px-3 py-1.5 text-sm rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]"
+						>
+							<option value="all">All Sources</option>
+							<option value="build">Build Logs</option>
+							<option value="runtime">Runtime Logs</option>
+						</select>
+
+						{#if deploymentList.length > 0}
+							<select
+								bind:value={selectedDeploymentId}
+								onchange={() => loadAndStreamLogs()}
+								class="px-3 py-1.5 text-sm rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]"
+							>
+								<option value="">Latest Deployment</option>
+								{#each deploymentList.slice(0, 10) as dep}
+									<option value={dep.id}>
+										{dep.service_name} #{dep.version} ({dep.status})
+									</option>
+								{/each}
+							</select>
+						{/if}
+
+						<label class="flex items-center gap-1.5 text-sm text-[var(--color-text-muted)] cursor-pointer">
+							<input 
+								type="checkbox" 
+								bind:checked={autoScroll}
+								class="w-4 h-4 rounded accent-[var(--color-primary)]"
+							/>
+							Auto-scroll
+						</label>
+					</div>
+				</div>
+
+				{#if logEntries.length === 0}
+					<Card class="p-8 text-center bg-[#0d1117]">
+						{#if logStreaming}
+							<div class="flex items-center justify-center gap-2 text-[var(--color-text-muted)]">
+								<span class="w-2 h-2 rounded-full bg-[var(--color-success)] animate-pulse"></span>
 								Waiting for logs...
 							</div>
+							<p class="text-sm text-[var(--color-text-muted)] mt-2">
+								Deploy a service to see build output here in real-time.
+							</p>
 						{:else}
+							<p class="text-[var(--color-text-muted)]">No logs available</p>
+							<p class="text-sm text-[var(--color-text-muted)] mt-2">
+								Deploy a service to see build and runtime logs here.
+							</p>
+						{/if}
+					</Card>
+				{:else}
+					<Card class="p-0 overflow-hidden bg-[#0d1117]">
+						<div 
+							bind:this={logContainer}
+							class="h-[600px] overflow-y-auto font-mono text-sm p-4 scroll-smooth"
+						>
 							{#each logEntries as log, i}
 								<div 
 									class="flex py-0.5 hover:bg-white/5 group
 										{log.level === 'error' ? 'bg-red-500/10' : ''}"
 								>
-									<!-- Line number -->
-									<span class="w-12 flex-shrink-0 text-right pr-4 text-[var(--color-narvana-text-muted)]/50 select-none">
+									<span class="w-12 flex-shrink-0 text-right pr-4 text-gray-600 select-none">
 										{i + 1}
 									</span>
-									<!-- Timestamp -->
-									<span class="w-24 flex-shrink-0 text-[var(--color-narvana-text-muted)]">
+									<span class="w-24 flex-shrink-0 text-gray-500">
 										{new Date(log.timestamp).toLocaleTimeString('en-US', { hour12: false })}
 									</span>
-									<!-- Level with color -->
 									<span class="w-12 flex-shrink-0 font-semibold
 										{log.level === 'error' ? 'text-red-400' : 
 										 log.level === 'warn' ? 'text-yellow-400' : 
 										 log.level === 'info' ? 'text-cyan-400' : 
 										 log.level === 'debug' ? 'text-purple-400' :
-										 'text-[var(--color-narvana-text-dim)]'}">
+										 'text-gray-400'}">
 										{log.level.toUpperCase().slice(0, 4)}
 									</span>
-									<!-- Source badge -->
 									<span class="w-16 flex-shrink-0">
 										<span class="inline-block px-1.5 py-0.5 rounded text-xs
 											{log.source === 'build' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}">
 											{log.source || 'sys'}
 										</span>
 									</span>
-									<!-- Message -->
-									<span class="flex-1 text-[var(--color-narvana-text)] whitespace-pre-wrap break-all">
+									<span class="flex-1 text-gray-200 whitespace-pre-wrap break-all">
 										{log.message}
 									</span>
 								</div>
 							{/each}
 							{#if logStreaming}
-								<div class="flex items-center gap-2 text-[var(--color-narvana-text-muted)] mt-2 pt-2 border-t border-white/10">
+								<div class="flex items-center gap-2 text-gray-500 mt-2 pt-2 border-t border-white/10">
 									<span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
 									Streaming...
 								</div>
 							{/if}
+						</div>
+					</Card>
+					<div class="flex items-center justify-between mt-2">
+						<p class="text-sm text-[var(--color-text-muted)]">
+							{logEntries.length} log {logEntries.length === 1 ? 'entry' : 'entries'}
+							{#if logStreaming}
+								• Live streaming active
+							{/if}
+						</p>
+						{#if logEntries.length > 0}
+							<button 
+								onclick={() => { if (logContainer) logContainer.scrollTop = logContainer.scrollHeight; }}
+								class="text-sm text-[var(--color-primary)] hover:underline"
+							>
+								↓ Jump to bottom
+							</button>
 						{/if}
 					</div>
-				</Card>
-				<div class="flex items-center justify-between mt-2">
-					<p class="text-sm text-[var(--color-narvana-text-muted)]">
-						{logEntries.length} log {logEntries.length === 1 ? 'entry' : 'entries'}
-						{#if logStreaming}
-							• Live streaming active
-						{/if}
-					</p>
-					{#if logEntries.length > 0}
-						<button 
-							onclick={() => { if (logContainer) logContainer.scrollTop = logContainer.scrollHeight; }}
-							class="text-sm text-[var(--color-narvana-primary)] hover:underline"
-						>
-							↓ Jump to bottom
-						</button>
-					{/if}
+				{/if}
+
+			{:else if activeTab === 'secrets'}
+				<!-- Secrets Tab -->
+				<div class="flex justify-between items-center mb-6">
+					<div>
+						<h2 class="text-lg font-semibold text-[var(--color-text)]">Environment Secrets</h2>
+						<p class="text-sm text-[var(--color-text-secondary)]">Manage environment variables for your services</p>
+					</div>
+					<Button size="sm" onclick={() => showSecretModal = true}>
+						<Plus class="w-4 h-4" />
+						Add Secret
+					</Button>
 				</div>
+
+				{#if secretKeys.length === 0}
+					<EmptyState
+						icon={Lock}
+						title="No secrets defined"
+						description="Add environment secrets to configure your services securely."
+					>
+						{#snippet action()}
+							<Button onclick={() => showSecretModal = true}>
+								<Plus class="w-4 h-4" />
+								Add First Secret
+							</Button>
+						{/snippet}
+					</EmptyState>
+				{:else}
+					<div class="space-y-2">
+						{#each secretKeys as key}
+							<Card padding="md" class="flex items-center justify-between">
+								<div class="flex items-center gap-3">
+									<Key class="w-4 h-4 text-[var(--color-warning)]" />
+									<code class="font-mono text-sm text-[var(--color-text)]">{key}</code>
+								</div>
+								<Button 
+									size="sm" 
+									variant="ghost"
+									onclick={() => { deleteTarget = { type: 'secret', name: key }; showDeleteModal = true; }}
+								>
+									<Trash2 class="w-4 h-4" />
+								</Button>
+							</Card>
+						{/each}
+					</div>
+				{/if}
+
+			{:else if activeTab === 'settings'}
+				<!-- Settings Tab -->
+				<div class="mb-6">
+					<h2 class="text-lg font-semibold text-[var(--color-text)]">Application Settings</h2>
+					<p class="text-sm text-[var(--color-text-secondary)]">Configure your application settings</p>
+				</div>
+
+				<Card padding="lg">
+					<div class="space-y-6">
+						<div>
+							<label class="block text-sm font-medium text-[var(--color-text)] mb-1">Application Name</label>
+							<p class="text-[var(--color-text-secondary)]">{app.name}</p>
+						</div>
+						<div>
+							<label class="block text-sm font-medium text-[var(--color-text)] mb-1">Description</label>
+							<p class="text-[var(--color-text-secondary)]">{app.description || 'No description'}</p>
+						</div>
+						<div>
+							<label class="block text-sm font-medium text-[var(--color-text)] mb-1">Created</label>
+							<p class="text-[var(--color-text-secondary)]">{formatDate(app.created_at)}</p>
+						</div>
+						<div>
+							<label class="block text-sm font-medium text-[var(--color-text)] mb-1">Last Updated</label>
+							<p class="text-[var(--color-text-secondary)]">{formatDate(app.updated_at)}</p>
+						</div>
+					</div>
+				</Card>
+
+				<Card padding="lg" class="mt-6 border-[var(--color-error)]/30">
+					<h3 class="text-lg font-semibold text-[var(--color-error)] mb-2">Danger Zone</h3>
+					<p class="text-sm text-[var(--color-text-secondary)] mb-4">
+						Once you delete an application, there is no going back. Please be certain.
+					</p>
+					<Button 
+						variant="danger"
+						onclick={() => { deleteTarget = { type: 'app', name: app!.name }; showDeleteModal = true; }}
+					>
+						<Trash2 class="w-4 h-4" />
+						Delete Application
+					</Button>
+				</Card>
 			{/if}
-		{/if}
+		</div>
 	{/if}
 </div>
 
-<!-- Service Modal -->
-{#if showServiceModal}
-	<div 
-		class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
-		onclick={(e) => { if (e.target === e.currentTarget) showServiceModal = false; }}
-		onkeydown={(e) => { if (e.key === 'Escape') showServiceModal = false; }}
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-	>
-		<Card class="w-full max-w-xl p-6 animate-slide-up my-8">
-			<h2 class="text-xl font-semibold mb-4">Add Service</h2>
+
+<!-- Add/Edit Service Modal -->
+<Dialog
+	bind:open={showServiceModal}
+	title={editingServiceName ? `Edit Service: ${editingServiceName}` : 'Add Service'}
+	description={editingServiceName ? 'Update service configuration' : 'Configure a new service for your application'}
+>
+	<form id="service-form" onsubmit={saveService} class="space-y-6">
+		<!-- Source Section -->
+		<div class="space-y-4">
+			<h3 class="text-sm font-semibold text-[var(--color-text)] uppercase tracking-wide">Source</h3>
 			
-			<form onsubmit={createService} class="space-y-4">
+			{#if !editingServiceName}
 				<Input label="Service Name" placeholder="api" bind:value={serviceForm.name} required />
 				
-				<!-- Git Repository with Detect button -->
 				<div class="space-y-1.5">
-					<label for="git-repo" class="block text-sm font-medium text-[var(--color-narvana-text-dim)]">
-						Git Repository <span class="text-red-400">*</span>
+					<label for="git-repo" class="block text-sm font-medium text-[var(--color-text-secondary)]">
+						Git Repository <span class="text-[var(--color-error)]">*</span>
 					</label>
 					<div class="flex gap-2">
 						<input
@@ -1000,7 +912,7 @@
 							placeholder="github.com/org/repo"
 							bind:value={serviceForm.git_repo}
 							required
-							class="flex-1 px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)] focus:outline-none focus:border-[var(--color-narvana-primary)]"
+							class="flex-1 px-4 py-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)]"
 						/>
 						<Button 
 							type="button" 
@@ -1009,388 +921,231 @@
 							loading={detecting}
 							disabled={!serviceForm.git_repo}
 						>
-							🔍 Detect
+							Detect
 						</Button>
 					</div>
 				</div>
 
 				<Input label="Git Ref" placeholder="main" bind:value={serviceForm.git_ref} />
+			{/if}
 
-				<!-- Detection Result -->
-				{#if detectResult}
-					<div class="p-4 rounded-lg bg-[var(--color-narvana-primary-glow)] border border-[var(--color-narvana-primary)]/30">
-						<div class="flex items-center gap-2 mb-2">
-							<span class="text-[var(--color-narvana-primary)]">✓</span>
-							<span class="font-medium">Detection Result</span>
-							<span class="text-sm text-[var(--color-narvana-text-muted)]">
-								({Math.round(detectResult.confidence * 100)}% confidence)
-							</span>
-						</div>
-						<div class="grid grid-cols-2 gap-2 text-sm">
-							<div>
-								<span class="text-[var(--color-narvana-text-muted)]">Framework:</span>
-								<span class="ml-1 font-medium">{detectResult.framework || 'Unknown'}</span>
-							</div>
-							<div>
-								<span class="text-[var(--color-narvana-text-muted)]">Strategy:</span>
-								<span class="ml-1 font-medium">{detectResult.strategy}</span>
-							</div>
-							{#if detectResult.version}
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Version:</span>
-									<span class="ml-1 font-mono">{detectResult.version}</span>
-								</div>
-							{/if}
-							{#if detectResult.entry_points?.length}
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Entry:</span>
-									<span class="ml-1 font-mono">{detectResult.entry_points[0]}</span>
-								</div>
-							{/if}
-						</div>
-						{#if detectResult.warnings?.length}
-							<div class="mt-2 text-sm text-yellow-400">
-								⚠ {detectResult.warnings.join(', ')}
-							</div>
-						{/if}
+			{#if detectResult}
+				<div class="p-4 rounded-[var(--radius-lg)] bg-[var(--color-success-light)] border border-[var(--color-success)]/30">
+					<div class="flex items-center gap-2 mb-2">
+						<span class="text-[var(--color-success)]">✓</span>
+						<span class="font-medium text-[var(--color-text)]">Detection Result</span>
+						<span class="text-sm text-[var(--color-text-muted)]">
+							({Math.round(detectResult.confidence * 100)}% confidence)
+						</span>
 					</div>
-				{/if}
+					<div class="grid grid-cols-2 gap-2 text-sm">
+						<div>
+							<span class="text-[var(--color-text-muted)]">Framework:</span>
+							<span class="ml-1 font-medium text-[var(--color-text)]">{detectResult.framework || 'Unknown'}</span>
+						</div>
+						<div>
+							<span class="text-[var(--color-text-muted)]">Strategy:</span>
+							<span class="ml-1 font-medium text-[var(--color-text)]">{detectResult.strategy}</span>
+						</div>
+					</div>
+				</div>
+			{/if}
+		</div>
 
-				<!-- Build Strategy Selection -->
+		<!-- Build Section -->
+		<div class="space-y-4">
+			<h3 class="text-sm font-semibold text-[var(--color-text)] uppercase tracking-wide">Build</h3>
+			
+			{#if !editingServiceName}
 				<div>
-					<label for="build-strategy" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
+					<label for="build-strategy" class="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
 						Build Strategy
 					</label>
 					<select 
 						id="build-strategy"
 						bind:value={serviceForm.build_strategy}
-						class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)]"
+						class="w-full px-4 py-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]"
 					>
 						{#each buildStrategies as strategy}
 							<option value={strategy.value}>{strategy.label} - {strategy.description}</option>
 						{/each}
 					</select>
 				</div>
+			{/if}
+		</div>
 
-				<div class="grid grid-cols-3 gap-4">
-					<div>
-						<label for="resource-tier" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
-							Resource Tier
-						</label>
-						<select 
-							id="resource-tier"
-							bind:value={serviceForm.resource_tier}
-							class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)]"
-						>
-							<option value="nano">Nano (256MB)</option>
-							<option value="small">Small (512MB)</option>
-							<option value="medium">Medium (1GB)</option>
-							<option value="large">Large (2GB)</option>
-							<option value="xlarge">XLarge (4GB)</option>
-						</select>
-					</div>
-					<Input 
-						type="number" 
-						label="Port" 
-						placeholder="8080"
-						bind:value={serviceForm.port}
-					/>
-					<Input 
-						type="number" 
-						label="Replicas" 
-						bind:value={serviceForm.replicas}
-					/>
+		<!-- Resources Section -->
+		<div class="space-y-4">
+			<h3 class="text-sm font-semibold text-[var(--color-text)] uppercase tracking-wide">Resources</h3>
+			
+			<div class="grid grid-cols-2 gap-4">
+				<div>
+					<label for="resource-tier" class="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+						Resource Tier
+					</label>
+					<select 
+						id="resource-tier"
+						bind:value={serviceForm.resource_tier}
+						class="w-full px-4 py-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]"
+					>
+						{#each resourceTiers as tier}
+							<option value={tier.value}>{tier.label} ({tier.description})</option>
+						{/each}
+					</select>
 				</div>
+				<Input 
+					type="number" 
+					label="Replicas" 
+					bind:value={serviceForm.replicas}
+				/>
+			</div>
+		</div>
 
-				{#if serviceError}
-					<div class="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-						{serviceError}
-					</div>
-				{/if}
+		<!-- Networking Section -->
+		<div class="space-y-4">
+			<h3 class="text-sm font-semibold text-[var(--color-text)] uppercase tracking-wide">Networking</h3>
+			
+			<Input 
+				type="number" 
+				label="Port" 
+				placeholder="8080"
+				bind:value={serviceForm.port}
+			/>
+		</div>
 
-				<div class="flex gap-3 pt-2">
-					<Button variant="ghost" class="flex-1" onclick={() => showServiceModal = false}>Cancel</Button>
-					<Button type="submit" class="flex-1" loading={creatingService}>Add Service</Button>
-				</div>
-			</form>
-		</Card>
-	</div>
-{/if}
+		{#if serviceError}
+			<div class="p-3 rounded-[var(--radius-md)] bg-[var(--color-error-light)] border border-[var(--color-error)]/30 text-[var(--color-error)] text-sm">
+				{serviceError}
+			</div>
+		{/if}
+	</form>
+
+	{#snippet footer()}
+		<Button variant="ghost" onclick={() => showServiceModal = false}>Cancel</Button>
+		<Button type="submit" form="service-form" loading={creatingService}>
+			{editingServiceName ? 'Save Changes' : 'Add Service'}
+		</Button>
+	{/snippet}
+</Dialog>
 
 <!-- Secret Modal -->
-{#if showSecretModal}
-	<div 
-		class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-		onclick={(e) => { if (e.target === e.currentTarget) showSecretModal = false; }}
-		onkeydown={(e) => { if (e.key === 'Escape') showSecretModal = false; }}
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-	>
-		<Card class="w-full max-w-md p-6 animate-slide-up">
-			<h2 class="text-xl font-semibold mb-4">Add Secret</h2>
-			
-			<form onsubmit={createSecret} class="space-y-4">
-				<Input label="Key" placeholder="DATABASE_URL" bind:value={secretKey} required />
-				<Input type="password" label="Value" placeholder="••••••••" bind:value={secretValue} required />
+<Dialog
+	bind:open={showSecretModal}
+	title="Add Secret"
+	description="Add an environment secret for your services"
+>
+	<form id="secret-form" onsubmit={createSecret} class="space-y-4">
+		<Input label="Key" placeholder="DATABASE_URL" bind:value={secretKey} required />
+		<Input type="password" label="Value" placeholder="••••••••" bind:value={secretValue} required />
+	</form>
 
-				<div class="flex gap-3 pt-2">
-					<Button variant="ghost" class="flex-1" onclick={() => showSecretModal = false}>Cancel</Button>
-					<Button type="submit" class="flex-1" loading={creatingSecret}>Add Secret</Button>
-				</div>
-			</form>
-		</Card>
-	</div>
-{/if}
+	{#snippet footer()}
+		<Button variant="ghost" onclick={() => showSecretModal = false}>Cancel</Button>
+		<Button type="submit" form="secret-form" loading={creatingSecret}>Add Secret</Button>
+	{/snippet}
+</Dialog>
 
 <!-- Deploy Modal -->
-{#if showDeployModal}
-	<div 
-		class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-		onclick={(e) => { if (e.target === e.currentTarget) showDeployModal = false; }}
-		onkeydown={(e) => { if (e.key === 'Escape') showDeployModal = false; }}
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-	>
-		<Card class="w-full max-w-md p-6 animate-slide-up">
-			<h2 class="text-xl font-semibold mb-4">
-				{deployServiceName ? `Deploy ${deployServiceName}` : 'Deploy All Services'}
-			</h2>
-			
-			<form onsubmit={deployApp} class="space-y-4">
-				<Input 
-					label="Git Ref (optional)" 
-					placeholder="Leave empty to use service default" 
-					bind:value={deployGitRef} 
-				/>
+<Dialog
+	bind:open={showDeployModal}
+	title={deployServiceName ? `Deploy ${deployServiceName}` : 'Deploy All Services'}
+	description="Start a new deployment"
+>
+	<form id="deploy-form" onsubmit={deployApp} class="space-y-4">
+		<Input 
+			label="Git Ref (optional)" 
+			placeholder="Leave empty to use service default" 
+			bind:value={deployGitRef} 
+		/>
+	</form>
 
-				<div class="flex gap-3 pt-2">
-					<Button variant="ghost" class="flex-1" onclick={() => { showDeployModal = false; deployServiceName = ''; }}>
-						Cancel
-					</Button>
-					<Button type="submit" class="flex-1" loading={deploying}>
-						Deploy
-					</Button>
-				</div>
-			</form>
-		</Card>
-	</div>
-{/if}
+	{#snippet footer()}
+		<Button variant="ghost" onclick={() => { showDeployModal = false; deployServiceName = ''; }}>
+			Cancel
+		</Button>
+		<Button type="submit" form="deploy-form" loading={deploying}>
+			<Play class="w-4 h-4" />
+			Deploy
+		</Button>
+	{/snippet}
+</Dialog>
 
 <!-- Delete Confirmation Modal -->
-{#if showDeleteModal && deleteTarget}
-	<div 
-		class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-		onclick={(e) => { if (e.target === e.currentTarget) showDeleteModal = false; }}
-		onkeydown={(e) => { if (e.key === 'Escape') showDeleteModal = false; }}
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-	>
-		<Card class="w-full max-w-md p-6 animate-slide-up">
-			<h2 class="text-xl font-semibold mb-2">Delete {deleteTarget.type}?</h2>
-			<p class="text-[var(--color-narvana-text-dim)] mb-6">
-				Are you sure you want to delete <strong>{deleteTarget.name}</strong>? This action cannot be undone.
-			</p>
+<Dialog
+	bind:open={showDeleteModal}
+	title={deleteTarget ? `Delete ${deleteTarget.type}?` : 'Delete'}
+	description={deleteTarget ? `Are you sure you want to delete "${deleteTarget.name}"? This action cannot be undone.` : ''}
+>
+	<p class="text-[var(--color-text-secondary)]">
+		This will permanently delete the {deleteTarget?.type} and all associated data.
+	</p>
 
-			<div class="flex gap-3">
-				<Button variant="ghost" class="flex-1" onclick={() => { showDeleteModal = false; deleteTarget = null; }}>
-					Cancel
-				</Button>
-				<Button variant="danger" class="flex-1" loading={deleting} onclick={handleDelete}>
-					Delete
-				</Button>
-			</div>
-		</Card>
-	</div>
-{/if}
-
-<!-- Edit Service Modal -->
-{#if showEditServiceModal}
-	<div 
-		class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-		onclick={(e) => { if (e.target === e.currentTarget) showEditServiceModal = false; }}
-		onkeydown={(e) => { if (e.key === 'Escape') showEditServiceModal = false; }}
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-	>
-		<Card class="w-full max-w-md p-6 animate-slide-up">
-			<h2 class="text-xl font-semibold mb-4">Edit Service: {editServiceForm.name}</h2>
-			
-			<form onsubmit={updateService} class="space-y-4">
-				<div class="grid grid-cols-3 gap-4">
-					<div>
-						<label for="edit-resource-tier" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
-							Resource Tier
-						</label>
-						<select 
-							id="edit-resource-tier"
-							bind:value={editServiceForm.resource_tier}
-							class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)]"
-						>
-							<option value="nano">Nano</option>
-							<option value="small">Small</option>
-							<option value="medium">Medium</option>
-							<option value="large">Large</option>
-							<option value="xlarge">XLarge</option>
-						</select>
-					</div>
-					<div>
-						<label for="edit-port" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
-							Port
-						</label>
-						<input
-							id="edit-port"
-							type="number"
-							bind:value={editServiceForm.port}
-							placeholder="8080"
-							class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)] focus:outline-none focus:border-[var(--color-narvana-primary)]"
-						/>
-					</div>
-					<div>
-						<label for="edit-replicas" class="block text-sm font-medium text-[var(--color-narvana-text-dim)] mb-1.5">
-							Replicas
-						</label>
-						<input
-							id="edit-replicas"
-							type="number"
-							bind:value={editServiceForm.replicas}
-							min="1"
-							class="w-full px-4 py-2.5 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] text-[var(--color-narvana-text)] focus:outline-none focus:border-[var(--color-narvana-primary)]"
-						/>
-					</div>
-				</div>
-
-				{#if editServiceError}
-					<div class="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-						{editServiceError}
-					</div>
-				{/if}
-
-				<div class="flex gap-3 pt-2">
-					<Button variant="ghost" class="flex-1" onclick={() => showEditServiceModal = false}>Cancel</Button>
-					<Button type="submit" class="flex-1" loading={editingService}>Save Changes</Button>
-				</div>
-			</form>
-		</Card>
-	</div>
-{/if}
+	{#snippet footer()}
+		<Button variant="ghost" onclick={() => { showDeleteModal = false; deleteTarget = null; }}>
+			Cancel
+		</Button>
+		<Button variant="danger" loading={deleting} onclick={handleDelete}>
+			<Trash2 class="w-4 h-4" />
+			Delete
+		</Button>
+	{/snippet}
+</Dialog>
 
 <!-- Preview Modal -->
-{#if showPreviewModal}
-	<div 
-		class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
-		onclick={(e) => { if (e.target === e.currentTarget) showPreviewModal = false; }}
-		onkeydown={(e) => { if (e.key === 'Escape') showPreviewModal = false; }}
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-	>
-		<Card class="w-full max-w-3xl p-6 animate-slide-up my-8">
-			<div class="flex items-center justify-between mb-4">
-				<h2 class="text-xl font-semibold">Build Preview: {previewServiceName}</h2>
-				<button 
-					onclick={() => showPreviewModal = false}
-					class="text-[var(--color-narvana-text-muted)] hover:text-[var(--color-narvana-text)]"
-				>
-					✕
-				</button>
+<Dialog
+	bind:open={showPreviewModal}
+	title={`Build Preview: ${previewServiceName}`}
+	class="max-w-3xl"
+>
+	{#if previewLoading}
+		<div class="flex items-center justify-center py-12">
+			<div class="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin"></div>
+			<span class="ml-3 text-[var(--color-text-muted)]">Generating preview...</span>
+		</div>
+	{:else if previewError}
+		<div class="p-4 rounded-[var(--radius-lg)] bg-[var(--color-error-light)] border border-[var(--color-error)]/30 text-[var(--color-error)]">
+			{previewError}
+		</div>
+	{:else if previewResult}
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+			<div class="p-3 rounded-[var(--radius-lg)] bg-[var(--color-background-subtle)]">
+				<p class="text-xs text-[var(--color-text-muted)]">Strategy</p>
+				<p class="font-medium text-[var(--color-text)]">{previewResult.strategy}</p>
 			</div>
-
-			{#if previewLoading}
-				<div class="flex items-center justify-center py-12">
-					<div class="w-8 h-8 border-2 border-[var(--color-narvana-primary)] border-t-transparent rounded-full animate-spin"></div>
-					<span class="ml-3 text-[var(--color-narvana-text-dim)]">Generating preview...</span>
-				</div>
-			{:else if previewError}
-				<div class="p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400">
-					{previewError}
-				</div>
-			{:else if previewResult}
-				<!-- Strategy & Build Info -->
-				<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-					<div class="p-3 rounded-lg bg-[var(--color-narvana-bg)]">
-						<p class="text-xs text-[var(--color-narvana-text-muted)]">Strategy</p>
-						<p class="font-medium">{previewResult.strategy}</p>
-					</div>
-					<div class="p-3 rounded-lg bg-[var(--color-narvana-bg)]">
-						<p class="text-xs text-[var(--color-narvana-text-muted)]">Build Type</p>
-						<p class="font-medium">{previewResult.build_type}</p>
-					</div>
-					<div class="p-3 rounded-lg bg-[var(--color-narvana-bg)]">
-						<p class="text-xs text-[var(--color-narvana-text-muted)]">Est. Time</p>
-						<p class="font-medium">{Math.round(previewResult.estimated_build_time / 60)}m</p>
-					</div>
-					<div class="p-3 rounded-lg bg-[var(--color-narvana-bg)]">
-						<p class="text-xs text-[var(--color-narvana-text-muted)]">Memory</p>
-						<p class="font-medium">{previewResult.estimated_resources.memory_mb}MB</p>
-					</div>
-				</div>
-
-				<!-- Detection Info -->
-				{#if previewResult.detection}
-					<div class="mb-4 p-4 rounded-lg bg-[var(--color-narvana-primary-glow)] border border-[var(--color-narvana-primary)]/30">
-						<p class="text-sm font-medium mb-2">🔍 Detected</p>
-						<div class="grid grid-cols-3 gap-4 text-sm">
-							<div>
-								<span class="text-[var(--color-narvana-text-muted)]">Framework:</span>
-								<span class="ml-1">{previewResult.detection.framework}</span>
-							</div>
-							{#if previewResult.detection.version}
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Version:</span>
-									<span class="ml-1 font-mono">{previewResult.detection.version}</span>
-								</div>
-							{/if}
-							{#if previewResult.detection.entry_point}
-								<div>
-									<span class="text-[var(--color-narvana-text-muted)]">Entry:</span>
-									<span class="ml-1 font-mono">{previewResult.detection.entry_point}</span>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/if}
-
-				<!-- Warnings -->
-				{#if previewResult.warnings?.length}
-					<div class="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-						<p class="text-sm text-yellow-400">
-							⚠ {previewResult.warnings.join(' • ')}
-						</p>
-					</div>
-				{/if}
-
-				<!-- Generated Flake -->
-				{#if previewResult.generated_flake}
-					<div>
-						<div class="flex items-center justify-between mb-2">
-							<h3 class="font-medium">Generated flake.nix</h3>
-							{#if previewResult.flake_valid !== undefined}
-								<span class="text-sm {previewResult.flake_valid ? 'text-green-400' : 'text-red-400'}">
-									{previewResult.flake_valid ? '✓ Valid' : '✗ ' + previewResult.validation_error}
-								</span>
-							{/if}
-						</div>
-						<pre class="p-4 rounded-lg bg-[var(--color-narvana-bg)] border border-[var(--color-narvana-border)] overflow-x-auto text-sm font-mono max-h-96 overflow-y-auto"><code>{previewResult.generated_flake}</code></pre>
-					</div>
-				{:else}
-					<div class="p-8 text-center text-[var(--color-narvana-text-dim)]">
-						<p>No flake preview available for this build strategy.</p>
-						<p class="text-sm mt-2">The build will use the existing Dockerfile or repository flake.nix.</p>
-					</div>
-				{/if}
-			{/if}
-
-			<div class="flex justify-end gap-3 mt-6 pt-4 border-t border-[var(--color-narvana-border)]">
-				<Button variant="ghost" onclick={() => showPreviewModal = false}>Close</Button>
-				<Button onclick={() => { showPreviewModal = false; deployServiceName = previewServiceName; showDeployModal = true; }}>
-					▶ Deploy
-				</Button>
+			<div class="p-3 rounded-[var(--radius-lg)] bg-[var(--color-background-subtle)]">
+				<p class="text-xs text-[var(--color-text-muted)]">Build Type</p>
+				<p class="font-medium text-[var(--color-text)]">{previewResult.build_type}</p>
 			</div>
-		</Card>
-	</div>
-{/if}
+			<div class="p-3 rounded-[var(--radius-lg)] bg-[var(--color-background-subtle)]">
+				<p class="text-xs text-[var(--color-text-muted)]">Est. Time</p>
+				<p class="font-medium text-[var(--color-text)]">{Math.round(previewResult.estimated_build_time / 60)}m</p>
+			</div>
+			<div class="p-3 rounded-[var(--radius-lg)] bg-[var(--color-background-subtle)]">
+				<p class="text-xs text-[var(--color-text-muted)]">Memory</p>
+				<p class="font-medium text-[var(--color-text)]">{previewResult.estimated_resources.memory_mb}MB</p>
+			</div>
+		</div>
 
+		{#if previewResult.generated_flake}
+			<div>
+				<div class="flex items-center justify-between mb-2">
+					<h3 class="font-medium text-[var(--color-text)]">Generated flake.nix</h3>
+					{#if previewResult.flake_valid !== undefined}
+						<span class="text-sm {previewResult.flake_valid ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}">
+							{previewResult.flake_valid ? '✓ Valid' : '✗ ' + previewResult.validation_error}
+						</span>
+					{/if}
+				</div>
+				<pre class="p-4 rounded-[var(--radius-lg)] bg-[#0d1117] border border-[var(--color-border)] overflow-x-auto text-sm font-mono max-h-96 overflow-y-auto text-gray-200"><code>{previewResult.generated_flake}</code></pre>
+			</div>
+		{/if}
+	{/if}
+
+	{#snippet footer()}
+		<Button variant="ghost" onclick={() => showPreviewModal = false}>Close</Button>
+		<Button onclick={() => { showPreviewModal = false; deployServiceName = previewServiceName; showDeployModal = true; }}>
+			<Play class="w-4 h-4" />
+			Deploy
+		</Button>
+	{/snippet}
+</Dialog>
