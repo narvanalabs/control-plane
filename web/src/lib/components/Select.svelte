@@ -128,11 +128,13 @@
 							data-select-item
 						>
 							{option.label}
-							<SelectPrimitive.ItemIndicator class="absolute right-[var(--spacing-2)]">
-								<svg class="w-4 h-4 text-[var(--color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-								</svg>
-							</SelectPrimitive.ItemIndicator>
+							{#if value === option.value}
+								<span class="absolute right-[var(--spacing-2)]">
+									<svg class="w-4 h-4 text-[var(--color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+									</svg>
+								</span>
+							{/if}
 						</SelectPrimitive.Item>
 					{/each}
 				</SelectPrimitive.Viewport>

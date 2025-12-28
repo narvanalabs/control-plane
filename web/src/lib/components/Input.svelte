@@ -10,7 +10,7 @@
 	 */
 	interface Props {
 		type?: 'text' | 'email' | 'password' | 'number' | 'search';
-		value?: string;
+		value?: string | number;
 		placeholder?: string;
 		label?: string;
 		error?: string;
@@ -26,7 +26,7 @@
 
 	let { 
 		type = 'text', 
-		value = $bindable(''),
+		value = $bindable<string | number>(''),
 		placeholder = '',
 		label,
 		error,

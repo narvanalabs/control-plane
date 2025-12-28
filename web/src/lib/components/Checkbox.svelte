@@ -55,14 +55,15 @@
 			transition-colors duration-[var(--transition-fast)]
 			focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-offset-2
 			disabled:opacity-50 disabled:cursor-not-allowed
-			data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
+			data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]
+			flex items-center justify-center"
 		data-checkbox
 	>
-		<CheckboxPrimitive.Indicator class="flex items-center justify-center text-[var(--color-primary-foreground)]">
-			<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+		{#if checked}
+			<svg class="w-3.5 h-3.5 text-[var(--color-primary-foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
 			</svg>
-		</CheckboxPrimitive.Indicator>
+		{/if}
 	</CheckboxPrimitive.Root>
 
 	{#if label}

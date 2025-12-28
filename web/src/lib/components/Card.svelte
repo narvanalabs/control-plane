@@ -10,6 +10,7 @@
 	 */
 	interface Props {
 		class?: string;
+		style?: string;
 		hover?: boolean;
 		padding?: 'none' | 'sm' | 'md' | 'lg';
 		children: Snippet;
@@ -19,6 +20,7 @@
 
 	let { 
 		class: className = '', 
+		style = '',
 		hover = false, 
 		padding = 'md',
 		children,
@@ -57,6 +59,7 @@
 	class="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]
 		{hover ? 'hover:border-[var(--color-border-strong)] hover:shadow-[var(--shadow-md)] transition-all duration-[var(--transition-normal)] cursor-pointer' : ''}
 		{className}"
+	{style}
 	data-card
 	data-hover={hover ? 'true' : undefined}
 	data-padding={padding}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet, Component } from 'svelte';
+	import type { Snippet } from 'svelte';
 	import { Package } from 'lucide-svelte';
 
 	/**
@@ -13,8 +13,11 @@
 	 * - Action button slot
 	 * - Consistent styling across all uses
 	 */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	type IconComponent = any;
+
 	interface Props {
-		icon?: Component;
+		icon?: IconComponent;
 		title: string;
 		description: string;
 		action?: Snippet;
