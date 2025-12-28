@@ -7,6 +7,12 @@ import type { App, Node, Deployment, DeploymentStatus, ServiceConfig, ResourceTi
  * Arbitrary generators for API types
  */
 
+// Generate a valid ISO date string using timestamp integers (more reliable than fc.date())
+const MIN_TIMESTAMP = new Date('2020-01-01').getTime();
+const MAX_TIMESTAMP = new Date('2030-12-31').getTime();
+const isoDateStringArb = fc.integer({ min: MIN_TIMESTAMP, max: MAX_TIMESTAMP })
+	.map(ts => new Date(ts).toISOString());
+
 // Generate a valid resource tier
 const resourceTierArb = fc.constantFrom<ResourceTier>('nano', 'small', 'medium', 'large', 'xlarge');
 
@@ -30,8 +36,8 @@ const appArb: fc.Arbitrary<App> = fc.record({
 	name: fc.string({ minLength: 1, maxLength: 50 }),
 	description: fc.option(fc.string({ maxLength: 200 }), { nil: undefined }),
 	services: fc.array(serviceConfigArb, { minLength: 0, maxLength: 10 }),
-	created_at: fc.date().map(d => d.toISOString()),
-	updated_at: fc.date().map(d => d.toISOString()),
+	created_at: isoDateStringArb,
+	updated_at: isoDateStringArb,
 });
 
 // Generate a node
@@ -50,8 +56,8 @@ const nodeArb: fc.Arbitrary<Node> = fc.record({
 		disk_available: fc.integer({ min: 0, max: 1000 * 1024 * 1024 * 1024 }),
 	}), { nil: undefined }),
 	cached_paths: fc.option(fc.array(fc.string()), { nil: undefined }),
-	last_heartbeat: fc.date().map(d => d.toISOString()),
-	registered_at: fc.date().map(d => d.toISOString()),
+	last_heartbeat: isoDateStringArb,
+	registered_at: isoDateStringArb,
 });
 
 // Generate a deployment
@@ -68,10 +74,10 @@ const deploymentArb: fc.Arbitrary<Deployment> = fc.record({
 	node_id: fc.option(fc.uuid(), { nil: undefined }),
 	resource_tier: resourceTierArb,
 	depends_on: fc.option(fc.array(fc.string()), { nil: undefined }),
-	created_at: fc.date().map(d => d.toISOString()),
-	updated_at: fc.date().map(d => d.toISOString()),
-	started_at: fc.option(fc.date().map(d => d.toISOString()), { nil: undefined }),
-	finished_at: fc.option(fc.date().map(d => d.toISOString()), { nil: undefined }),
+	created_at: isoDateStringArb,
+	updated_at: isoDateStringArb,
+	started_at: fc.option(isoDateStringArb, { nil: undefined }),
+	finished_at: fc.option(isoDateStringArb, { nil: undefined }),
 });
 
 describe('calculateDashboardStats', () => {
