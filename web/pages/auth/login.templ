@@ -1,0 +1,89 @@
+package auth
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/alert"
+)
+
+// LoginData holds data for the login page
+type LoginData struct {
+	Error string
+}
+
+// Login renders the login page
+templ Login(data LoginData) {
+	@layouts.Base("Login") {
+		<div class="flex min-h-screen items-center justify-center bg-background">
+			<div class="w-full max-w-md px-4">
+				// Logo/Brand
+				<div class="mb-8 text-center">
+					@icon.LayoutPanelLeft(icon.Props{Class: "size-12 mx-auto mb-4 text-primary"})
+					<h1 class="text-2xl font-bold">Narvana</h1>
+					<p class="text-muted-foreground">Sign in to your account</p>
+				</div>
+				
+				@card.Card() {
+					@card.Content(card.ContentProps{Class: "pt-6"}) {
+						<form method="POST" action="/login" class="space-y-4">
+							if data.Error != "" {
+								@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+									@alert.Title() {
+										Error
+									}
+									@alert.Description() {
+										{ data.Error }
+									}
+								}
+							}
+							
+							@form.Item() {
+								@label.Label(label.Props{For: "email"}) {
+									Email
+								}
+								@input.Input(input.Props{
+									ID:          "email",
+									Name:        "email",
+									Type:        input.TypeEmail,
+									Placeholder: "you@example.com",
+									Attributes:  templ.Attributes{"required": true, "autofocus": true},
+								})
+							}
+							
+							@form.Item() {
+								@label.Label(label.Props{For: "password"}) {
+									Password
+								}
+								@input.Input(input.Props{
+									ID:          "password",
+									Name:        "password",
+									Type:        input.TypePassword,
+									Placeholder: "••••••••",
+									Attributes:  templ.Attributes{"required": true},
+								})
+							}
+							
+							@button.Button(button.Props{
+								Type:  "submit",
+								Class: "w-full",
+							}) {
+								Sign In
+							}
+						</form>
+					}
+					@card.Footer(card.FooterProps{Class: "flex justify-center"}) {
+						<p class="text-sm text-muted-foreground">
+							Don't have an account? 
+							<a href="/register" class="text-primary hover:underline">Sign up</a>
+						</p>
+					}
+				}
+			</div>
+		</div>
+	}
+}

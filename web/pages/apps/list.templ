@@ -74,7 +74,7 @@ templ List(data ListData) {
 									}
 									@table.Cell() {
 										<span class="text-muted-foreground text-sm">
-											{ formatTime(app.CreatedAt) }
+											{ formatListTime(app.CreatedAt) }
 										</span>
 									}
 									@table.Cell(table.CellProps{Class: "text-right"}) {
@@ -98,8 +98,8 @@ templ List(data ListData) {
 	}
 }
 
-// formatTime formats a time for display
-func formatTime(t time.Time) string {
+// formatListTime formats a time for display
+func formatListTime(t time.Time) string {
 	diff := time.Since(t)
 	switch {
 	case diff < time.Minute:

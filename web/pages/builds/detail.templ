@@ -1,0 +1,180 @@
+package builds
+
+import (
+	"fmt"
+	"time"
+	
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
+	"github.com/narvanalabs/control-plane/web/api"
+)
+
+// DetailData holds the data for the build detail page
+type DetailData struct {
+	Build   api.Build
+	AppName string
+}
+
+// Detail renders the build detail page
+templ Detail(data DetailData) {
+	@layouts.PageWithSidebar("Build", "/builds") {
+		<div class="space-y-6">
+			// Breadcrumb
+			@breadcrumb.Breadcrumb() {
+				@breadcrumb.List() {
+					@breadcrumb.Item() {
+						@breadcrumb.Link(breadcrumb.LinkProps{Href: "/builds"}) {
+							Builds
+						}
+					}
+					@breadcrumb.Separator()
+					@breadcrumb.Item() {
+						@breadcrumb.Page() {
+							{ truncateBuildID(data.Build.ID) }
+						}
+					}
+				}
+			}
+			
+			// Header
+			<div class="flex items-center justify-between">
+				<div>
+					<h1 class="text-2xl font-bold flex items-center gap-2">
+						Build for { data.AppName }
+						@BuildStatusBadge(data.Build.Status)
+					</h1>
+					<p class="text-muted-foreground">
+						Strategy: { data.Build.Strategy } • Started { formatBuildTime(data.Build.CreatedAt) }
+					</p>
+				</div>
+				<div class="flex items-center gap-2">
+					if data.Build.Status == "failed" {
+						<form method="POST" action={ templ.SafeURL("/builds/" + data.Build.ID + "/retry") }>
+							@button.Button(button.Props{
+								Type:    "submit",
+								Variant: button.VariantOutline,
+							}) {
+								@icon.RefreshCw(icon.Props{Class: "size-4 mr-2"})
+								Retry Build
+							}
+						</form>
+					}
+				</div>
+			</div>
+			
+			// Info Cards
+			<div class="grid gap-4 md:grid-cols-4">
+				@card.Card() {
+					@card.Header(card.HeaderProps{Class: "pb-2"}) {
+						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
+							Status
+						}
+					}
+					@card.Content() {
+						<div class="text-2xl font-bold capitalize">{ data.Build.Status }</div>
+					}
+				}
+				
+				@card.Card() {
+					@card.Header(card.HeaderProps{Class: "pb-2"}) {
+						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
+							Strategy
+						}
+					}
+					@card.Content() {
+						<div class="font-mono text-sm">{ data.Build.Strategy }</div>
+					}
+				}
+				
+				@card.Card() {
+					@card.Header(card.HeaderProps{Class: "pb-2"}) {
+						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
+							Started
+						}
+					}
+					@card.Content() {
+						<div class="text-sm">{ data.Build.CreatedAt.Format("Jan 2, 15:04") }</div>
+					}
+				}
+				
+				@card.Card() {
+					@card.Header(card.HeaderProps{Class: "pb-2"}) {
+						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
+							Duration
+						}
+					}
+					@card.Content() {
+						<div class="text-2xl font-bold">{ formatBuildDuration(data.Build.CreatedAt, data.Build.UpdatedAt) }</div>
+					}
+				}
+			</div>
+			
+			// Build Logs
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Build Logs
+					}
+					@card.Description() {
+						if data.Build.Status == "running" {
+							<span class="flex items-center gap-1">
+								<span class="animate-pulse">●</span> Live streaming...
+							</span>
+						} else {
+							Build output
+						}
+					}
+				}
+				@card.Content() {
+					if data.Build.Logs == "" {
+						<div class="text-center py-8 text-muted-foreground">
+							<p>No logs available yet</p>
+							if data.Build.Status == "queued" {
+								<p class="text-sm mt-1">Waiting for build worker...</p>
+							}
+						</div>
+					} else {
+						<div class="bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 max-h-[600px] overflow-auto whitespace-pre-wrap">
+							{ data.Build.Logs }
+						</div>
+					}
+				}
+			}
+		</div>
+	}
+}
+
+func truncateBuildID(id string) string {
+	if len(id) > 8 {
+		return id[:8] + "..."
+	}
+	return id
+}
+
+func formatBuildDuration(start, end time.Time) string {
+	d := end.Sub(start)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+func formatBuildTime(t time.Time) string {
+	diff := time.Since(t)
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(diff.Hours()))
+	default:
+		return t.Format("Jan 2, 2006")
+	}
+}

@@ -1,0 +1,127 @@
+package auth
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/alert"
+)
+
+// RegisterData holds data for the register page
+type RegisterData struct {
+	Error   string
+	Success bool
+}
+
+// Register renders the registration page
+templ Register(data RegisterData) {
+	@layouts.Base("Register") {
+		<div class="flex min-h-screen items-center justify-center bg-background">
+			<div class="w-full max-w-md px-4">
+				// Logo/Brand
+				<div class="mb-8 text-center">
+					@icon.LayoutPanelLeft(icon.Props{Class: "size-12 mx-auto mb-4 text-primary"})
+					<h1 class="text-2xl font-bold">Narvana</h1>
+					<p class="text-muted-foreground">Create your account</p>
+				</div>
+				
+				@card.Card() {
+					@card.Content(card.ContentProps{Class: "pt-6"}) {
+						if data.Success {
+							@alert.Alert(alert.Props{Variant: alert.VariantDefault}) {
+								@alert.Title() {
+									Account Created
+								}
+								@alert.Description() {
+									You can now sign in with your credentials.
+								}
+							}
+							<div class="mt-4 text-center">
+								@button.Button(button.Props{
+									Href:  "/login",
+									Class: "w-full",
+								}) {
+									Go to Sign In
+								}
+							</div>
+						} else {
+							<form method="POST" action="/register" class="space-y-4">
+								if data.Error != "" {
+									@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+										@alert.Title() {
+											Error
+										}
+										@alert.Description() {
+											{ data.Error }
+										}
+									}
+								}
+								
+								@form.Item() {
+									@label.Label(label.Props{For: "email"}) {
+										Email
+									}
+									@input.Input(input.Props{
+										ID:          "email",
+										Name:        "email",
+										Type:        input.TypeEmail,
+										Placeholder: "you@example.com",
+										Attributes:  templ.Attributes{"required": true, "autofocus": true},
+									})
+								}
+								
+								@form.Item() {
+									@label.Label(label.Props{For: "password"}) {
+										Password
+									}
+									@input.Input(input.Props{
+										ID:          "password",
+										Name:        "password",
+										Type:        input.TypePassword,
+										Placeholder: "••••••••",
+										Attributes:  templ.Attributes{"required": true, "minlength": "8"},
+									})
+									@form.Description() {
+										At least 8 characters
+									}
+								}
+								
+								@form.Item() {
+									@label.Label(label.Props{For: "confirm_password"}) {
+										Confirm Password
+									}
+									@input.Input(input.Props{
+										ID:          "confirm_password",
+										Name:        "confirm_password",
+										Type:        input.TypePassword,
+										Placeholder: "••••••••",
+										Attributes:  templ.Attributes{"required": true},
+									})
+								}
+								
+								@button.Button(button.Props{
+									Type:  "submit",
+									Class: "w-full",
+								}) {
+									Create Account
+								}
+							</form>
+						}
+					}
+					if !data.Success {
+						@card.Footer(card.FooterProps{Class: "flex justify-center"}) {
+							<p class="text-sm text-muted-foreground">
+								Already have an account? 
+								<a href="/login" class="text-primary hover:underline">Sign in</a>
+							</p>
+						}
+					}
+				}
+			</div>
+		</div>
+	}
+}

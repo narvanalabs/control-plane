@@ -2,7 +2,8 @@ package apps
 
 import (
 	"fmt"
-
+	"time"
+	
 	"github.com/narvanalabs/control-plane/web/layouts"
 	"github.com/narvanalabs/control-plane/web/components/button"
 	"github.com/narvanalabs/control-plane/web/components/icon"
@@ -11,6 +12,8 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/tabs"
 	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
 	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
 	"github.com/narvanalabs/control-plane/web/api"
 )
 
@@ -18,6 +21,8 @@ import (
 type DetailData struct {
 	App         api.App
 	Deployments []api.Deployment
+	Secrets     []api.Secret
+	Logs        []api.Log
 }
 
 // Detail renders the app detail page
@@ -56,12 +61,16 @@ templ Detail(data DetailData) {
 						@icon.Settings(icon.Props{Class: "size-4 mr-2"})
 						Settings
 					}
-					@button.Button(button.Props{
-						Variant: button.VariantDestructive,
-					}) {
-						@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
-						Delete
-					}
+					<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/delete") } 
+							  onsubmit="return confirm('Are you sure you want to delete this app?')">
+						@button.Button(button.Props{
+							Type:    "submit",
+							Variant: button.VariantDestructive,
+						}) {
+							@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
+							Delete
+						}
+					</form>
 				</div>
 			</div>
 			
@@ -143,15 +152,117 @@ templ Detail(data DetailData) {
 				
 				// Secrets Tab
 				@tabs.Content(tabs.ContentProps{Value: "secrets"}) {
-					<div class="pt-4">
-						@EmptyState("No secrets", "Add environment variables and secrets for your services")
+					<div class="pt-4 space-y-4">
+						// Add Secret Form
+						@card.Card() {
+							@card.Header() {
+								@card.Title() {
+									Add Secret
+								}
+								@card.Description() {
+									Environment variables available to your services
+								}
+							}
+							@card.Content() {
+								<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/secrets") } class="flex gap-3">
+									<div class="flex-1">
+										@label.Label(label.Props{For: "key", Class: "sr-only"}) {
+											Key
+										}
+										@input.Input(input.Props{
+											ID:          "key",
+											Name:        "key",
+											Placeholder: "SECRET_KEY",
+											Attributes:  templ.Attributes{"required": true},
+										})
+									</div>
+									<div class="flex-1">
+										@label.Label(label.Props{For: "value", Class: "sr-only"}) {
+											Value
+										}
+										@input.Input(input.Props{
+											ID:          "value",
+											Name:        "value",
+											Type:        input.TypePassword,
+											Placeholder: "secret_value",
+											Attributes:  templ.Attributes{"required": true},
+										})
+									</div>
+									@button.Button(button.Props{Type: "submit"}) {
+										@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+										Add
+									}
+								</form>
+							}
+						}
+						
+						// Secrets List
+						if len(data.Secrets) == 0 {
+							<div class="text-center py-8 text-muted-foreground">
+								<p>No secrets yet</p>
+								<p class="text-sm mt-1">Add environment variables above</p>
+							</div>
+						} else {
+							<div class="rounded-lg border">
+								@table.Table() {
+									@table.Header() {
+										@table.Row() {
+											@table.Head() { Key }
+											@table.Head() { Value }
+											@table.Head() { Created }
+											@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
+										}
+									}
+									@table.Body() {
+										for _, s := range data.Secrets {
+											@table.Row() {
+												@table.Cell() {
+													<span class="font-mono font-medium">{ s.Key }</span>
+												}
+												@table.Cell() {
+													<span class="text-muted-foreground">••••••••</span>
+												}
+												@table.Cell() {
+													<span class="text-muted-foreground text-sm">
+														{ formatTime(s.CreatedAt) }
+													</span>
+												}
+												@table.Cell(table.CellProps{Class: "text-right"}) {
+													<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/secrets/" + s.Key + "/delete") }>
+														@button.Button(button.Props{
+															Type:    "submit",
+															Variant: button.VariantDestructive,
+															Size:    button.SizeSm,
+														}) {
+															@icon.Trash2(icon.Props{Class: "size-4"})
+														}
+													</form>
+												}
+											}
+										}
+									}
+								}
+							</div>
+						}
 					</div>
 				}
 				
 				// Logs Tab
 				@tabs.Content(tabs.ContentProps{Value: "logs"}) {
 					<div class="pt-4">
-						@EmptyState("No logs", "Logs will appear here after deployments")
+						if len(data.Logs) == 0 {
+							@EmptyState("No logs", "Logs will appear here after deployments")
+						} else {
+							<div class="bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 max-h-[500px] overflow-auto">
+								for _, log := range data.Logs {
+									<div class="flex gap-2">
+										<span class="text-zinc-500">{ log.Timestamp.Format("15:04:05") }</span>
+										<span class="text-blue-400">{ log.Level }</span>
+										<span>{ log.Message }</span>
+									</div>
+								}
+							</div>
+						}
 					</div>
 				}
 			}
@@ -177,12 +288,15 @@ templ ServiceCard(svc api.Service, appID string) {
 					}
 				</div>
 			</div>
-			@button.Button(button.Props{
-				Size: button.SizeSm,
-			}) {
-				@icon.Rocket(icon.Props{Class: "size-4 mr-1"})
-				Deploy
-			}
+			<form method="POST" action={ templ.SafeURL("/apps/" + appID + "/services/" + svc.Name + "/deploy") }>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+				}) {
+					@icon.Rocket(icon.Props{Class: "size-4 mr-1"})
+					Deploy
+				}
+			</form>
 		}
 	}
 }
@@ -195,10 +309,6 @@ templ EmptyState(title string, description string) {
 			{ description }
 		</p>
 	</div>
-}
-
-func intToString(i int) string {
-	return fmt.Sprintf("%d", i)
 }
 
 // DeploymentStatusBadge renders a status badge for deployments
@@ -214,5 +324,23 @@ templ DeploymentStatusBadge(status string) {
 			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { failed }
 		default:
 			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { status } }
+	}
+}
+
+func intToString(i int) string {
+	return fmt.Sprintf("%d", i)
+}
+
+func formatTime(t time.Time) string {
+	diff := time.Since(t)
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(diff.Hours()))
+	default:
+		return t.Format("Jan 2, 2006")
 	}
 }
