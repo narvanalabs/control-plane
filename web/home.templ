@@ -1,6 +1,15 @@
 package web
 
-// Home renders the demo home page
+import (
+	"github.com/narvanalabs/control-plane/web/components/avatar"
+	"github.com/narvanalabs/control-plane/web/components/collapsible"
+	"github.com/narvanalabs/control-plane/web/components/dropdown"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/popover"
+	"github.com/narvanalabs/control-plane/web/components/sidebar"
+)
+
+// Home renders the main dashboard with sidebar
 templ Home() {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -9,54 +18,224 @@ templ Home() {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>Narvana Control Plane</title>
 			<link rel="stylesheet" href="/assets/css/output.css"/>
+			@sidebar.Script()
+			@collapsible.Script()
+			@popover.Script()
+			@dropdown.Script()
+			@avatar.Script()
 		</head>
-		<body class="min-h-screen bg-background text-foreground">
-			<div class="flex min-h-screen">
-				<!-- Sidebar placeholder -->
-				<aside class="w-64 border-r border-border bg-sidebar p-4">
-					<div class="mb-6">
-						<h2 class="text-lg font-semibold text-sidebar-foreground">Narvana</h2>
-						<p class="text-sm text-muted-foreground">Control Plane</p>
+		<body class="dark">
+			@sidebar.Layout() {
+				@sidebar.Sidebar(sidebar.Props{
+					Collapsible: sidebar.CollapsibleIcon,
+					Variant:     sidebar.VariantFloating,
+				}) {
+					@sidebar.Header() {
+						@sidebar.Menu() {
+							@sidebar.MenuItem() {
+								@sidebar.MenuButton(sidebar.MenuButtonProps{
+									Href: "/",
+								}) {
+									@icon.LayoutPanelLeft(icon.Props{Class: "size-4"})
+									<span class="font-semibold">Narvana</span>
+								}
+							}
+						}
+					}
+					@sidebar.Content() {
+						@sidebar.Group() {
+							@sidebar.GroupLabel() {
+								Platform
+							}
+							@sidebar.Menu() {
+								@sidebar.MenuItem() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Href:     "/",
+										Tooltip:  "Dashboard",
+										IsActive: true,
+									}) {
+										@icon.House(icon.Props{Class: "size-4"})
+										<span>Dashboard</span>
+									}
+								}
+								@sidebar.MenuItem() {
+									@collapsible.Collapsible(collapsible.Props{
+										Open:  true,
+										Class: "group/collapsible w-full",
+									}) {
+										@collapsible.Trigger() {
+											@sidebar.MenuButton(sidebar.MenuButtonProps{
+												Tooltip: "Apps",
+											}) {
+												@icon.Box(icon.Props{Class: "size-4"})
+												<span>Apps</span>
+												@icon.ChevronRight(icon.Props{
+													Class: "ml-auto size-4 transition-transform group-data-[tui-collapsible-state=open]/collapsible:rotate-90",
+												})
+											}
+										}
+										@collapsible.Content() {
+											@sidebar.MenuSub() {
+												@sidebar.MenuSubItem() {
+													@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+														Href: "/apps",
+													}) {
+														<span>All Apps</span>
+													}
+												}
+												@sidebar.MenuSubItem() {
+													@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+														Href: "/apps/new",
+													}) {
+														<span>Create App</span>
+													}
+												}
+											}
+										}
+									}
+								}
+								@sidebar.MenuItem() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Href:    "/deployments",
+										Tooltip: "Deployments",
+									}) {
+										@icon.Rocket(icon.Props{Class: "size-4"})
+										<span>Deployments</span>
+									}
+								}
+								@sidebar.MenuItem() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Href:    "/builds",
+										Tooltip: "Builds",
+									}) {
+										@icon.Hammer(icon.Props{Class: "size-4"})
+										<span>Builds</span>
+									}
+								}
+							}
+						}
+						@sidebar.Separator()
+						@sidebar.Group() {
+							@sidebar.GroupLabel() {
+								Infrastructure
+							}
+							@sidebar.Menu() {
+								@sidebar.MenuItem() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Href:    "/nodes",
+										Tooltip: "Nodes",
+									}) {
+										@icon.Server(icon.Props{Class: "size-4"})
+										<span>Nodes</span>
+									}
+								}
+								@sidebar.MenuItem() {
+									@collapsible.Collapsible(collapsible.Props{
+										Open:  false,
+										Class: "group/collapsible w-full",
+									}) {
+										@collapsible.Trigger() {
+											@sidebar.MenuButton(sidebar.MenuButtonProps{
+												Tooltip: "Settings",
+											}) {
+												@icon.Settings(icon.Props{Class: "size-4"})
+												<span>Settings</span>
+												@icon.ChevronRight(icon.Props{
+													Class: "ml-auto size-4 transition-transform group-data-[tui-collapsible-state=open]/collapsible:rotate-90",
+												})
+											}
+										}
+										@collapsible.Content() {
+											@sidebar.MenuSub() {
+												@sidebar.MenuSubItem() {
+													@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+														Href: "/settings/general",
+													}) {
+														<span>General</span>
+													}
+												}
+												@sidebar.MenuSubItem() {
+													@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+														Href: "/settings/api-keys",
+													}) {
+														<span>API Keys</span>
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+					@sidebar.Footer() {
+						@sidebar.Menu() {
+							@sidebar.MenuItem() {
+								@dropdown.Dropdown() {
+									@dropdown.Trigger() {
+										@sidebar.MenuButton(sidebar.MenuButtonProps{
+											Size: sidebar.MenuButtonSizeLg,
+										}) {
+											@avatar.Avatar(avatar.Props{Class: "size-8 rounded-lg"}) {
+												@avatar.Fallback(avatar.FallbackProps{}) {
+													AD
+												}
+											}
+											<div class="grid flex-1 text-left text-sm leading-tight">
+												<span class="truncate font-medium">Admin</span>
+												<span class="truncate text-xs text-muted-foreground">admin@narvana.io</span>
+											</div>
+											@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
+										}
+									}
+									@dropdown.Content(dropdown.ContentProps{
+										Class:     "w-56",
+										Placement: dropdown.PlacementTopStart,
+									}) {
+										@dropdown.Label() {
+											Admin
+										}
+										@dropdown.Separator()
+										@dropdown.Item() {
+											<span class="flex items-center">
+												@icon.User(icon.Props{Size: 16, Class: "mr-2"})
+												Profile
+											</span>
+										}
+										@dropdown.Item() {
+											<span class="flex items-center">
+												@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
+												Settings
+											</span>
+										}
+										@dropdown.Separator()
+										@dropdown.Item() {
+											<span class="flex items-center">
+												@icon.LogOut(icon.Props{Size: 16, Class: "mr-2"})
+												Log out
+											</span>
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				@sidebar.Inset() {
+					<div class="flex h-full flex-col">
+						<div class="flex h-14 items-center gap-4 border-b border-border px-6">
+							@sidebar.Trigger()
+							<span class="text-sm text-muted-foreground">Press Ctrl+B to toggle sidebar</span>
+						</div>
+						<div class="flex-1 p-6">
+							<h1 class="text-2xl font-bold">Dashboard</h1>
+							<p class="mt-2 text-muted-foreground">
+								Welcome to the Narvana Control Plane.
+							</p>
+						</div>
 					</div>
-					<nav class="space-y-2">
-						<a href="#" class="flex items-center gap-2 rounded-md bg-sidebar-accent px-3 py-2 text-sm font-medium text-sidebar-accent-foreground">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-							Dashboard
-						</a>
-						<a href="#" class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-							Deployments
-						</a>
-						<a href="#" class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-							Settings
-						</a>
-					</nav>
-				</aside>
-				<!-- Main content -->
-				<main class="flex-1 p-8">
-					<div class="mb-8">
-						<h1 class="text-3xl font-bold">Welcome to Narvana</h1>
-						<p class="mt-2 text-muted-foreground">
-							Your Go templ + templui powered control plane is running!
-						</p>
-					</div>
-					<!-- Demo cards -->
-					<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-						@DemoCard("✅ templ Working", "The Go templating engine is rendering this page server-side.")
-						@DemoCard("🎨 Tailwind CSS", "Styles are compiled with Tailwind CSS v4.")
-						@DemoCard("🔥 Hot Reload", "Edit .templ files and see changes instantly.")
-					</div>
-				</main>
-			</div>
+				}
+			}
 		</body>
 	</html>
-}
-
-// DemoCard renders a simple card component
-templ DemoCard(title string, description string) {
-	<div class="rounded-lg border border-border bg-card p-6 shadow-sm">
-		<h3 class="text-lg font-semibold text-card-foreground">{ title }</h3>
-		<p class="mt-2 text-sm text-muted-foreground">{ description }</p>
-	</div>
 }
