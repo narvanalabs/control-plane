@@ -14,8 +14,10 @@ build: build-ui build-api build-worker
 
 build-ui:
 	@echo "Building web UI..."
-	cd web && bun install && bun run build
-	@echo "Web UI built to ui/dist/"
+	cd web && templ generate
+	cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
+	go build -o bin/web ./cmd/web
+	@echo "Web UI built to bin/web"
 
 build-api:
 	go build -o bin/api ./cmd/api
@@ -101,7 +103,7 @@ dev-worker: db-start
 	go run ./cmd/worker
 
 dev-web:
-	cd web && bun run dev
+	cd web && task dev
 
 # Stop services
 dev-stop:
