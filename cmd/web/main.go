@@ -10,6 +10,9 @@ import (
 	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
+	"github.com/narvanalabs/control-plane/web/pages/builds"
+	"github.com/narvanalabs/control-plane/web/pages/deployments"
+	"github.com/narvanalabs/control-plane/web/pages/nodes"
 )
 
 var apiClient *api.Client
@@ -110,43 +113,52 @@ func handleAppDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Fetch deployments for this app
-	deployments := []api.Deployment{}
-
 	apps.Detail(apps.DetailData{
 		App:         *app,
-		Deployments: deployments,
+		Deployments: []api.Deployment{},
 	}).Render(r.Context(), w)
 }
 
 func handleDeployments(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement deployments list page  
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	// TODO: Add ListDeployments to API client
+	deployments.List(deployments.ListData{
+		Deployments: []api.Deployment{},
+		Apps:        map[string]string{},
+	}).Render(r.Context(), w)
 }
 
 func handleDeploymentDetail(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement deployment detail page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	http.Redirect(w, r, "/deployments", http.StatusFound)
 }
 
 func handleBuilds(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement builds list page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	// TODO: Add ListBuilds to API client
+	builds.List(builds.ListData{
+		Builds: []api.Build{},
+		Apps:   map[string]string{},
+	}).Render(r.Context(), w)
 }
 
 func handleBuildDetail(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement build detail page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	// TODO: Implement build detail page with logs
+	http.Redirect(w, r, "/builds", http.StatusFound)
 }
 
 func handleNodes(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement nodes list page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	client := getAPIClient(r)
+	nodeList, err := client.ListNodes(r.Context())
+	if err != nil {
+		fmt.Printf("Error fetching nodes: %v\n", err)
+		nodeList = []api.Node{}
+	}
+
+	nodes.List(nodes.ListData{Nodes: nodeList}).Render(r.Context(), w)
 }
 
 func handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement node detail page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	http.Redirect(w, r, "/nodes", http.StatusFound)
 }
 
 func handleSettingsGeneral(w http.ResponseWriter, r *http.Request) {
