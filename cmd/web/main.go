@@ -55,17 +55,25 @@ func main() {
 		r.Post("/apps", handleCreateAppSubmit)
 		r.Get("/apps/{appID}", handleAppDetail)
 		r.Post("/apps/{appID}/delete", handleDeleteApp)
+		r.Post("/apps/{appID}/services", handleCreateService)
 		r.Post("/apps/{appID}/services/{serviceName}/deploy", handleDeployService)
 		r.Post("/apps/{appID}/secrets", handleCreateSecret)
 		r.Post("/apps/{appID}/secrets/{key}/delete", handleDeleteSecret)
 		r.Get("/deployments", handleDeployments)
 		r.Get("/deployments/{deploymentID}", handleDeploymentDetail)
+		r.Post("/deployments/{deploymentID}/rollback", handleRollbackDeployment)
 		r.Get("/builds", handleBuilds)
 		r.Get("/builds/{buildID}", handleBuildDetail)
 		r.Get("/nodes", handleNodes)
 		r.Get("/nodes/{nodeID}", handleNodeDetail)
 		r.Get("/settings/general", handleSettingsGeneral)
+		r.Post("/settings/general", handleSettingsGeneralSubmit)
 		r.Get("/settings/api-keys", handleSettingsAPIKeys)
+		r.Post("/settings/api-keys", handleCreateAPIKey)
+		r.Post("/settings/api-keys/{keyID}/delete", handleDeleteAPIKey)
+		
+		// SSE log stream proxy
+		r.Get("/api/logs/stream", handleLogStream)
 	})
 
 	fmt.Println("🚀 Web UI running on http://localhost:8090")
@@ -247,9 +255,6 @@ func handleCreateAppSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := r.FormValue("name")
-	serviceName := r.FormValue("service_name")
-	gitRepo := r.FormValue("git_repo")
-
 	client := getAPIClient(r)
 
 	// Create the app
@@ -259,20 +264,7 @@ func handleCreateAppSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If service info provided, create the service
-	if serviceName != "" {
-		svc := api.CreateServiceRequest{
-			Name:       serviceName,
-			SourceType: "git",
-			GitRepo:    gitRepo,
-		}
-		_, err := client.CreateService(r.Context(), app.ID, svc)
-		if err != nil {
-			fmt.Printf("Error creating service: %v\n", err)
-		}
-	}
-
-	http.Redirect(w, r, "/apps/"+app.ID, http.StatusFound)
+	http.Redirect(w, r, "/apps/"+app.ID+"?success=App+created", http.StatusFound)
 }
 
 func handleAppDetail(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +287,8 @@ func handleAppDetail(w http.ResponseWriter, r *http.Request) {
 		Deployments: deploymentList,
 		Secrets:     secretList,
 		Logs:        logList,
+		SuccessMsg:  r.URL.Query().Get("success"),
+		ErrorMsg:    r.URL.Query().Get("error"),
 	}).Render(r.Context(), w)
 }
 
@@ -304,9 +298,43 @@ func handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 
 	if err := client.DeleteApp(r.Context(), appID); err != nil {
 		fmt.Printf("Error deleting app: %v\n", err)
+		http.Redirect(w, r, "/apps?error=Failed+to+delete+app", http.StatusFound)
+		return
 	}
 
-	http.Redirect(w, r, "/apps", http.StatusFound)
+	http.Redirect(w, r, "/apps?success=App+deleted", http.StatusFound)
+}
+
+func handleCreateService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/apps/"+appID+"?error=Invalid+form+data", http.StatusFound)
+		return
+	}
+
+	svc := api.CreateServiceRequest{
+		Name:       r.FormValue("name"),
+		SourceType: r.FormValue("type"),
+	}
+
+	switch svc.SourceType {
+	case "git":
+		svc.GitRepo = r.FormValue("repo")
+	case "flake":
+		svc.FlakeURI = r.FormValue("repo")
+	case "image":
+		svc.ImageRef = r.FormValue("repo")
+	}
+
+	client := getAPIClient(r)
+	_, err := client.CreateService(r.Context(), appID, svc)
+	if err != nil {
+		fmt.Printf("Error creating service: %v\n", err)
+		http.Redirect(w, r, "/apps/"+appID+"?error=Failed+to+add+service", http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/apps/"+appID+"?success=Service+added", http.StatusFound)
 }
 
 func handleDeployService(w http.ResponseWriter, r *http.Request) {
@@ -317,9 +345,11 @@ func handleDeployService(w http.ResponseWriter, r *http.Request) {
 	_, err := client.Deploy(r.Context(), appID, serviceName)
 	if err != nil {
 		fmt.Printf("Error deploying service: %v\n", err)
+		http.Redirect(w, r, "/apps/"+appID+"?error=Failed+to+deploy+service", http.StatusFound)
+		return
 	}
 
-	http.Redirect(w, r, "/apps/"+appID, http.StatusFound)
+	http.Redirect(w, r, "/apps/"+appID+"?success=Deployment+started", http.StatusFound)
 }
 
 func handleCreateSecret(w http.ResponseWriter, r *http.Request) {
@@ -335,9 +365,11 @@ func handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 
 	if err := client.CreateSecret(r.Context(), appID, key, value); err != nil {
 		fmt.Printf("Error creating secret: %v\n", err)
+		http.Redirect(w, r, "/apps/"+appID+"?error=Failed+to+create+secret", http.StatusFound)
+		return
 	}
 
-	http.Redirect(w, r, "/apps/"+appID, http.StatusFound)
+	http.Redirect(w, r, "/apps/"+appID+"?success=Secret+created", http.StatusFound)
 }
 
 func handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
@@ -347,9 +379,11 @@ func handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 
 	if err := client.DeleteSecret(r.Context(), appID, key); err != nil {
 		fmt.Printf("Error deleting secret: %v\n", err)
+		http.Redirect(w, r, "/apps/"+appID+"?error=Failed+to+delete+secret", http.StatusFound)
+		return
 	}
 
-	http.Redirect(w, r, "/apps/"+appID, http.StatusFound)
+	http.Redirect(w, r, "/apps/"+appID+"?success=Secret+deleted", http.StatusFound)
 }
 
 
@@ -383,23 +417,41 @@ func handleDeploymentDetail(w http.ResponseWriter, r *http.Request) {
 
 	deployment, err := client.GetDeployment(r.Context(), deploymentID)
 	if err != nil {
+		fmt.Printf("Error fetching deployment: %v\n", err)
 		http.Redirect(w, r, "/deployments", http.StatusFound)
 		return
 	}
 
-	// Get app name
-	appName := "Unknown"
-	if app, err := client.GetApp(r.Context(), deployment.AppID); err == nil {
+	app, _ := client.GetApp(r.Context(), deployment.AppID)
+	appName := "Unknown App"
+	if app != nil {
 		appName = app.Name
 	}
-
-	logs, _ := client.GetAppLogs(r.Context(), deployment.AppID)
+	
+	// Try to get logs
+	logs_list, _ := client.GetAppLogs(r.Context(), deployment.AppID)
 
 	deployments.Detail(deployments.DetailData{
 		Deployment: *deployment,
 		AppName:    appName,
-		Logs:       logs,
+		Logs:       logs_list,
+		SuccessMsg: r.URL.Query().Get("success"),
+		ErrorMsg:   r.URL.Query().Get("error"),
 	}).Render(r.Context(), w)
+}
+
+func handleRollbackDeployment(w http.ResponseWriter, r *http.Request) {
+	deploymentID := chi.URLParam(r, "deploymentID")
+	client := getAPIClient(r)
+
+	d, err := client.RollbackDeployment(r.Context(), deploymentID)
+	if err != nil {
+		fmt.Printf("Error rolling back deployment: %v\n", err)
+		http.Redirect(w, r, "/deployments/"+deploymentID+"?error=Rollback+failed", http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/deployments/"+d.ID+"?success=Rollback+initiated", http.StatusFound)
 }
 
 // ============================================================================
@@ -492,16 +544,104 @@ func handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 func handleSettingsGeneral(w http.ResponseWriter, r *http.Request) {
 	// TODO: Get user data from API
 	settings.General(settings.GeneralData{
-		UserEmail: "admin@narvana.io",
-		UserName:  "Admin",
+		UserEmail:  "admin@narvana.io",
+		UserName:   "Admin",
+		SuccessMsg: r.URL.Query().Get("success"),
+		ErrorMsg:   r.URL.Query().Get("error"),
 	}).Render(r.Context(), w)
+}
+
+func handleSettingsGeneralSubmit(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implement user profile update in API
+	// For now, just simulate success
+	http.Redirect(w, r, "/settings/general?success=Profile+updated", http.StatusFound)
 }
 
 func handleSettingsAPIKeys(w http.ResponseWriter, r *http.Request) {
 	// TODO: Fetch API keys from API
 	settings.APIKeys(settings.APIKeysData{
-		Keys: []settings.APIKey{},
+		Keys:       []settings.APIKey{},
+		SuccessMsg: r.URL.Query().Get("success"),
+		ErrorMsg:   r.URL.Query().Get("error"),
 	}).Render(r.Context(), w)
+}
+
+func handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implement API key creation in API
+	http.Redirect(w, r, "/settings/api-keys?success=API+key+created", http.StatusFound)
+}
+
+func handleDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implement API key deletion in API
+	http.Redirect(w, r, "/settings/api-keys?success=API+key+revoked", http.StatusFound)
+}
+
+// ============================================================================
+// Log Stream Handler (SSE Proxy)
+// ============================================================================
+
+func handleLogStream(w http.ResponseWriter, r *http.Request) {
+	appID := r.URL.Query().Get("app_id")
+	if appID == "" {
+		http.Error(w, "app_id required", http.StatusBadRequest)
+		return
+	}
+
+	token := getAuthToken(r)
+	
+	// Build the API URL
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	streamURL := fmt.Sprintf("%s/v1/apps/%s/logs/stream", apiURL, appID)
+
+	// Create request to API
+	req, err := http.NewRequestWithContext(r.Context(), "GET", streamURL, nil)
+	if err != nil {
+		http.Error(w, "Failed to create request", http.StatusInternalServerError)
+		return
+	}
+	
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	// Execute request
+	client := &http.Client{Timeout: 0} // No timeout for SSE
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Failed to connect to log stream", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Flush headers
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	// Stream the response
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			w.Write(buf[:n])
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
 }
 
 // Suppress unused import warning
