@@ -3,6 +3,8 @@
 
 api: go run ./cmd/api
 worker: go run ./cmd/worker
-web: cd web && bun run dev
+templ: templ generate --watch --path=./web
+web: go run ./cmd/web
+tailwind: tailwindcss -i ./web/assets/css/input.css -o ./web/assets/css/output.css --watch
 caddy: caddy run --config deploy/Caddyfile
 attic: mkdir -p .attic-data/storage && atticd --config deploy/attic-dev.toml
