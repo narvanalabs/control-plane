@@ -1,0 +1,50 @@
+package layouts
+
+import (
+	"github.com/narvanalabs/control-plane/web/components/avatar"
+	"github.com/narvanalabs/control-plane/web/components/collapsible"
+	"github.com/narvanalabs/control-plane/web/components/dropdown"
+	"github.com/narvanalabs/control-plane/web/components/popover"
+	"github.com/narvanalabs/control-plane/web/components/sidebar"
+	"github.com/narvanalabs/control-plane/web/components/tabs"
+	"github.com/narvanalabs/control-plane/web/components/toast"
+	"github.com/narvanalabs/control-plane/web/components/progress"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+)
+
+// Base renders the base HTML layout with all scripts and sidebar
+templ Base(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } - Narvana</title>
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+			// Component Scripts
+			@sidebar.Script()
+			@collapsible.Script()
+			@popover.Script()
+			@dropdown.Script()
+			@avatar.Script()
+			@tabs.Script()
+			@toast.Script()
+			@progress.Script()
+			@input.Script()
+			@label.Script()
+		</head>
+		<body class="dark">
+			{ children... }
+		</body>
+	</html>
+}
+
+// PageWithSidebar renders the full page layout with sidebar
+templ PageWithSidebar(title string, activePath string) {
+	@Base(title) {
+		@SidebarLayout(activePath) {
+			{ children... }
+		}
+	}
+}

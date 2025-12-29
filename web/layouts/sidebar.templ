@@ -1,0 +1,233 @@
+package layouts
+
+import (
+	"github.com/narvanalabs/control-plane/web/components/avatar"
+	"github.com/narvanalabs/control-plane/web/components/collapsible"
+	"github.com/narvanalabs/control-plane/web/components/dropdown"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/sidebar"
+)
+
+// isActive returns true if the current path matches the given path
+func isActive(currentPath, path string) bool {
+	return currentPath == path
+}
+
+// SidebarLayout renders the sidebar with main content area
+templ SidebarLayout(activePath string) {
+	@sidebar.Layout() {
+		@sidebar.Sidebar(sidebar.Props{
+			Collapsible: sidebar.CollapsibleIcon,
+			Variant:     sidebar.VariantFloating,
+		}) {
+			@sidebar.Header() {
+				@sidebar.Menu() {
+					@sidebar.MenuItem() {
+						@sidebar.MenuButton(sidebar.MenuButtonProps{
+							Href: "/",
+						}) {
+							@icon.LayoutPanelLeft(icon.Props{Class: "size-4"})
+							<span class="font-semibold">Narvana</span>
+						}
+					}
+				}
+			}
+			@sidebar.Content() {
+				@sidebar.Group() {
+					@sidebar.GroupLabel() {
+						Platform
+					}
+					@sidebar.Menu() {
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/",
+								Tooltip:  "Dashboard",
+								IsActive: isActive(activePath, "/"),
+							}) {
+								@icon.House(icon.Props{Class: "size-4"})
+								<span>Dashboard</span>
+							}
+						}
+						@sidebar.MenuItem() {
+							@collapsible.Collapsible(collapsible.Props{
+								Open:  isActive(activePath, "/apps") || isActive(activePath, "/apps/new"),
+								Class: "group/collapsible w-full",
+							}) {
+								@collapsible.Trigger() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Tooltip: "Apps",
+									}) {
+										@icon.Box(icon.Props{Class: "size-4"})
+										<span>Apps</span>
+										@icon.ChevronRight(icon.Props{
+											Class: "ml-auto size-4 transition-transform group-data-[tui-collapsible-state=open]/collapsible:rotate-90",
+										})
+									}
+								}
+								@collapsible.Content() {
+									@sidebar.MenuSub() {
+										@sidebar.MenuSubItem() {
+											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+												Href:     "/apps",
+												IsActive: isActive(activePath, "/apps"),
+											}) {
+												<span>All Apps</span>
+											}
+										}
+										@sidebar.MenuSubItem() {
+											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+												Href:     "/apps/new",
+												IsActive: isActive(activePath, "/apps/new"),
+											}) {
+												<span>Create App</span>
+											}
+										}
+									}
+								}
+							}
+						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/deployments",
+								Tooltip:  "Deployments",
+								IsActive: isActive(activePath, "/deployments"),
+							}) {
+								@icon.Rocket(icon.Props{Class: "size-4"})
+								<span>Deployments</span>
+							}
+						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/builds",
+								Tooltip:  "Builds",
+								IsActive: isActive(activePath, "/builds"),
+							}) {
+								@icon.Hammer(icon.Props{Class: "size-4"})
+								<span>Builds</span>
+							}
+						}
+					}
+				}
+				@sidebar.Separator()
+				@sidebar.Group() {
+					@sidebar.GroupLabel() {
+						Infrastructure
+					}
+					@sidebar.Menu() {
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/nodes",
+								Tooltip:  "Nodes",
+								IsActive: isActive(activePath, "/nodes"),
+							}) {
+								@icon.Server(icon.Props{Class: "size-4"})
+								<span>Nodes</span>
+							}
+						}
+						@sidebar.MenuItem() {
+							@collapsible.Collapsible(collapsible.Props{
+								Open:  isActive(activePath, "/settings/general") || isActive(activePath, "/settings/api-keys"),
+								Class: "group/collapsible w-full",
+							}) {
+								@collapsible.Trigger() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Tooltip: "Settings",
+									}) {
+										@icon.Settings(icon.Props{Class: "size-4"})
+										<span>Settings</span>
+										@icon.ChevronRight(icon.Props{
+											Class: "ml-auto size-4 transition-transform group-data-[tui-collapsible-state=open]/collapsible:rotate-90",
+										})
+									}
+								}
+								@collapsible.Content() {
+									@sidebar.MenuSub() {
+										@sidebar.MenuSubItem() {
+											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+												Href:     "/settings/general",
+												IsActive: isActive(activePath, "/settings/general"),
+											}) {
+												<span>General</span>
+											}
+										}
+										@sidebar.MenuSubItem() {
+											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+												Href:     "/settings/api-keys",
+												IsActive: isActive(activePath, "/settings/api-keys"),
+											}) {
+												<span>API Keys</span>
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			@sidebar.Footer() {
+				@sidebar.Menu() {
+					@sidebar.MenuItem() {
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								@sidebar.MenuButton(sidebar.MenuButtonProps{
+									Size: sidebar.MenuButtonSizeLg,
+								}) {
+									@avatar.Avatar(avatar.Props{Class: "size-8 rounded-lg"}) {
+										@avatar.Fallback(avatar.FallbackProps{}) {
+											AD
+										}
+									}
+									<div class="grid flex-1 text-left text-sm leading-tight">
+										<span class="truncate font-medium">Admin</span>
+										<span class="truncate text-xs text-muted-foreground">admin@narvana.io</span>
+									</div>
+									@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
+								}
+							}
+							@dropdown.Content(dropdown.ContentProps{
+								Class:     "w-56",
+								Placement: dropdown.PlacementTopStart,
+							}) {
+								@dropdown.Label() {
+									Admin
+								}
+								@dropdown.Separator()
+								@dropdown.Item() {
+									<span class="flex items-center">
+										@icon.User(icon.Props{Size: 16, Class: "mr-2"})
+										Profile
+									</span>
+								}
+								@dropdown.Item() {
+									<span class="flex items-center">
+										@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
+										Settings
+									</span>
+								}
+								@dropdown.Separator()
+								@dropdown.Item() {
+									<span class="flex items-center">
+										@icon.LogOut(icon.Props{Size: 16, Class: "mr-2"})
+										Log out
+									</span>
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		@sidebar.Inset() {
+			<div class="flex h-full flex-col">
+				<div class="flex h-14 items-center gap-4 border-b border-border px-6">
+					@sidebar.Trigger()
+					<span class="text-sm text-muted-foreground">Press Ctrl+B to toggle sidebar</span>
+				</div>
+				<div class="flex-1 overflow-auto p-6">
+					{ children... }
+				</div>
+			</div>
+		}
+	}
+}

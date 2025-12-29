@@ -1,0 +1,197 @@
+package pages
+
+import (
+	"fmt"
+	
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/table"
+)
+
+// DashboardData holds the data for the dashboard page
+type DashboardData struct {
+	TotalApps         int
+	ActiveDeployments int
+	HealthyNodes      int
+	RunningBuilds     int
+}
+
+// Dashboard renders the main dashboard page
+templ Dashboard(data DashboardData) {
+	@layouts.PageWithSidebar("Dashboard", "/") {
+		<div class="space-y-6">
+			<div>
+				<h1 class="text-2xl font-bold">Dashboard</h1>
+				<p class="text-muted-foreground">Overview of your Narvana Control Plane</p>
+			</div>
+			
+			// Stats Cards
+			<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+				@StatCardApps(data.TotalApps)
+				@StatCardDeployments(data.ActiveDeployments)
+				@StatCardNodes(data.HealthyNodes)
+				@StatCardBuilds(data.RunningBuilds)
+			</div>
+			
+			// Recent Activity
+			<div class="grid gap-4 lg:grid-cols-2">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() {
+							Recent Deployments
+						}
+						@card.Description() {
+							Latest deployment activity
+						}
+					}
+					@card.Content() {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { App }
+									@table.Head() { Service }
+									@table.Head() { Status }
+									@table.Head() { Time }
+								}
+							}
+							@table.Body() {
+								@table.Row() {
+									@table.Cell() { my-app }
+									@table.Cell() { web }
+									@table.Cell() { 
+										@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { running }
+									}
+									@table.Cell() { 2m ago }
+								}
+								@table.Row() {
+									@table.Cell() { api-service }
+									@table.Cell() { api }
+									@table.Cell() { 
+										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { building }
+									}
+									@table.Cell() { 5m ago }
+								}
+							}
+						}
+					}
+				}
+				
+				@card.Card() {
+					@card.Header() {
+						@card.Title() {
+							Node Health
+						}
+						@card.Description() {
+							Status of compute nodes
+						}
+					}
+					@card.Content() {
+						<div class="space-y-3">
+							@NodeHealthItem("node-1", "192.168.1.10", true, 45, 62)
+							@NodeHealthItem("node-2", "192.168.1.11", true, 78, 85)
+							@NodeHealthItem("node-3", "192.168.1.12", false, 0, 0)
+						</div>
+					}
+				}
+			</div>
+		</div>
+	}
+}
+
+// StatCardApps renders the apps stats card
+templ StatCardApps(value int) {
+	@card.Card() {
+		@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0 pb-2"}) {
+			@card.Title(card.TitleProps{Class: "text-sm font-medium"}) {
+				Total Apps
+			}
+			@icon.Box(icon.Props{Class: "size-4 text-muted-foreground"})
+		}
+		@card.Content() {
+			<div class="text-2xl font-bold">{ fmt.Sprintf("%d", value) }</div>
+			<a href="/apps" class="text-xs text-muted-foreground hover:underline">
+				View all →
+			</a>
+		}
+	}
+}
+
+// StatCardDeployments renders the deployments stats card
+templ StatCardDeployments(value int) {
+	@card.Card() {
+		@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0 pb-2"}) {
+			@card.Title(card.TitleProps{Class: "text-sm font-medium"}) {
+				Active Deployments
+			}
+			@icon.Rocket(icon.Props{Class: "size-4 text-muted-foreground"})
+		}
+		@card.Content() {
+			<div class="text-2xl font-bold">{ fmt.Sprintf("%d", value) }</div>
+			<a href="/deployments" class="text-xs text-muted-foreground hover:underline">
+				View all →
+			</a>
+		}
+	}
+}
+
+// StatCardNodes renders the nodes stats card
+templ StatCardNodes(value int) {
+	@card.Card() {
+		@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0 pb-2"}) {
+			@card.Title(card.TitleProps{Class: "text-sm font-medium"}) {
+				Healthy Nodes
+			}
+			@icon.Server(icon.Props{Class: "size-4 text-muted-foreground"})
+		}
+		@card.Content() {
+			<div class="text-2xl font-bold">{ fmt.Sprintf("%d", value) }</div>
+			<a href="/nodes" class="text-xs text-muted-foreground hover:underline">
+				View all →
+			</a>
+		}
+	}
+}
+
+// StatCardBuilds renders the builds stats card
+templ StatCardBuilds(value int) {
+	@card.Card() {
+		@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0 pb-2"}) {
+			@card.Title(card.TitleProps{Class: "text-sm font-medium"}) {
+				Running Builds
+			}
+			@icon.Hammer(icon.Props{Class: "size-4 text-muted-foreground"})
+		}
+		@card.Content() {
+			<div class="text-2xl font-bold">{ fmt.Sprintf("%d", value) }</div>
+			<a href="/builds" class="text-xs text-muted-foreground hover:underline">
+				View all →
+			</a>
+		}
+	}
+}
+
+// NodeHealthItem renders a node health status item
+templ NodeHealthItem(name string, address string, healthy bool, cpuPercent int, memPercent int) {
+	<div class="flex items-center justify-between rounded-lg border p-3">
+		<div class="flex items-center gap-3">
+			if healthy {
+				<div class="size-2 rounded-full bg-green-500"></div>
+			} else {
+				<div class="size-2 rounded-full bg-red-500"></div>
+			}
+			<div>
+				<div class="font-medium">{ name }</div>
+				<div class="text-xs text-muted-foreground">{ address }</div>
+			</div>
+		</div>
+		if healthy {
+			<div class="text-xs text-muted-foreground">
+				CPU: { fmt.Sprintf("%d", cpuPercent) }% | Mem: { fmt.Sprintf("%d", memPercent) }%
+			</div>
+		} else {
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { offline }
+		}
+	</div>
+}
