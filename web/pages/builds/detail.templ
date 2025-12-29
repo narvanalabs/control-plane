@@ -65,6 +65,11 @@ templ Detail(data DetailData) {
 				</div>
 			</div>
 			
+			// Auto-refresh for in-progress builds
+			if data.Build.Status == "queued" || data.Build.Status == "running" {
+				<div data-auto-refresh="true" data-status={ data.Build.Status } data-refresh-interval="5000"></div>
+			}
+			
 			// Info Cards
 			<div class="grid gap-4 md:grid-cols-4">
 				@card.Card() {
@@ -115,21 +120,39 @@ templ Detail(data DetailData) {
 			// Build Logs
 			@card.Card() {
 				@card.Header() {
-					@card.Title() {
-						Build Logs
-					}
+					<div class="flex items-center justify-between">
+						@card.Title() {
+							Build Logs
+						}
+						if data.Build.Status == "running" {
+							<span id="stream-status" class="animate-pulse text-green-500 text-sm">● Live</span>
+						}
+					</div>
 					@card.Description() {
 						if data.Build.Status == "running" {
-							<span class="flex items-center gap-1">
-								<span class="animate-pulse">●</span> Live streaming...
-							</span>
+							Streaming live build output
+						} else if data.Build.Status == "queued" {
+							Waiting for build worker...
 						} else {
 							Build output
 						}
 					}
 				}
 				@card.Content() {
-					if data.Build.Logs == "" {
+					if data.Build.Status == "running" {
+						// Live log container for SSE streaming
+						<div 
+							id="live-logs" 
+							class="bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 max-h-[600px] overflow-auto"
+							data-app-id={ data.Build.AppID }
+							data-deployment-id={ data.Build.DeploymentID }
+						>
+							// Initial static logs if any
+							if data.Build.Logs != "" {
+								<pre class="whitespace-pre-wrap">{ data.Build.Logs }</pre>
+							}
+						</div>
+					} else if data.Build.Logs == "" {
 						<div class="text-center py-8 text-muted-foreground">
 							<p>No logs available yet</p>
 							if data.Build.Status == "queued" {
