@@ -52,6 +52,17 @@
           ];
 
           shellHook = ''
+            # Go environment
+            export PATH="$HOME/go/bin:$PATH"
+            export GOPATH="$HOME/go"
+            export GO111MODULE=on
+
+            # Install templui CLI if not already installed
+            if ! command -v templui &> /dev/null; then
+              echo "📥 Installing templui CLI..."
+              go install github.com/templui/templui/cmd/templui@latest
+            fi
+
             export PGDATA="$PWD/.pg-data"
             export PGHOST="$PWD/.pg-socket"
             export PGPORT="5432"
