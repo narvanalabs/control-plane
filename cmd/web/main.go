@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/pages"
+	"github.com/narvanalabs/control-plane/web/pages/apps"
 )
 
 var apiClient *api.Client
@@ -49,22 +50,25 @@ func main() {
 	http.ListenAndServe(":8090", r)
 }
 
-func handleDashboard(w http.ResponseWriter, r *http.Request) {
-	// Get token from cookie (TODO: implement proper session handling)
-	token := ""
+func getAuthToken(r *http.Request) string {
 	if cookie, err := r.Cookie("auth_token"); err == nil {
-		token = cookie.Value
+		return cookie.Value
 	}
+	return ""
+}
 
-	// Fetch dashboard data from API
-	client := apiClient
+func getAPIClient(r *http.Request) *api.Client {
+	token := getAuthToken(r)
 	if token != "" {
-		client = apiClient.WithToken(token)
+		return apiClient.WithToken(token)
 	}
+	return apiClient
+}
 
+func handleDashboard(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
 	stats, recentDeployments, nodeHealth, err := client.GetDashboardData(r.Context())
 	if err != nil {
-		// Log error but continue with empty data
 		fmt.Printf("Error fetching dashboard data: %v\n", err)
 		stats = &api.DashboardStats{}
 	}
@@ -81,22 +85,42 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleApps(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement apps list page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	client := getAPIClient(r)
+	appList, err := client.ListApps(r.Context())
+	if err != nil {
+		fmt.Printf("Error fetching apps: %v\n", err)
+		appList = []api.App{}
+	}
+
+	apps.List(apps.ListData{Apps: appList}).Render(r.Context(), w)
 }
 
 func handleCreateApp(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement create app page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	apps.Create(apps.CreateData{}).Render(r.Context(), w)
 }
 
 func handleAppDetail(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement app detail page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	appID := chi.URLParam(r, "appID")
+	client := getAPIClient(r)
+	
+	app, err := client.GetApp(r.Context(), appID)
+	if err != nil {
+		fmt.Printf("Error fetching app: %v\n", err)
+		http.Redirect(w, r, "/apps", http.StatusFound)
+		return
+	}
+
+	// TODO: Fetch deployments for this app
+	deployments := []api.Deployment{}
+
+	apps.Detail(apps.DetailData{
+		App:         *app,
+		Deployments: deployments,
+	}).Render(r.Context(), w)
 }
 
 func handleDeployments(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement deployments list page
+	// TODO: Implement deployments list page  
 	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
 }
 
