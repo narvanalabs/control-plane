@@ -15,6 +15,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/input"
 	"github.com/narvanalabs/control-plane/web/components/label"
 	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/dropdown"
 	"github.com/narvanalabs/control-plane/web/components/selectbox"
 	"github.com/narvanalabs/control-plane/web/api"
 )
@@ -84,74 +85,123 @@ templ Detail(data DetailData) {
 				// Services Tab
 				@tabs.Content(tabs.ContentProps{Value: "services", IsActive: true}) {
 					<div class="pt-4 space-y-4">
-						<div class="flex items-center justify-between">
-							<h3 class="text-sm font-medium">Configured Services</h3>
-							@button.Button(button.Props{
-								Size: button.SizeSm,
-								Attributes: templ.Attributes{
-									"onclick": "document.getElementById('add-service-form').classList.toggle('hidden')",
-								},
-							}) {
-								@icon.Plus(icon.Props{Class: "size-4 mr-1"})
-								Add Service
+						<div class="flex items-center justify-between mb-4">
+							<h3 class="text-sm font-medium">Services</h3>
+							@dropdown.Dropdown(dropdown.Props{ID: "add-service-dropdown"}) {
+								@dropdown.Trigger() {
+									@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline}) {
+										@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+										Add Service
+									}
+								}
+								@dropdown.Content() {
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-tui-dialog-trigger": "add-service-dialog",
+											"data-set-category": "web-service",
+										},
+									}) {
+										<div class="flex flex-col">
+											<span class="font-medium">Web Service</span>
+											<span class="text-xs text-muted-foreground">Backend, API, or Fullstack app</span>
+										</div>
+									}
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-tui-dialog-trigger": "add-service-dialog",
+											"data-set-category": "static-site",
+										},
+									}) {
+										<div class="flex flex-col">
+											<span class="font-medium">Static Site</span>
+											<span class="text-xs text-muted-foreground">Frontend-only site (React, Vue, etc.)</span>
+										</div>
+									}
+									@dropdown.Separator() {}
+									@dropdown.Item(dropdown.ItemProps{Disabled: true}) {
+										<div class="flex flex-col">
+											<span class="font-medium text-muted-foreground">Database (Coming Soon)</span>
+										</div>
+									}
+									@dropdown.Item(dropdown.ItemProps{Disabled: true}) {
+										<div class="flex flex-col">
+											<span class="font-medium text-muted-foreground">Template (Coming Soon)</span>
+										</div>
+									}
+								}
 							}
 						</div>
 
-						<div id="add-service-form" class="hidden">
-							@card.Card() {
-								@card.Header() {
-									@card.Title() { Add Service }
-									@card.Description() { Add a new service configuration to this app }
+						// Add Service Dialog
+						@dialog.Dialog(dialog.Props{ID: "add-service-dialog"}) {
+							@dialog.Content() {
+								@dialog.Header() {
+									@dialog.Title() { 
+										Add <span id="svc_category_indicator" class="text-primary capitalize">Service</span>
+									}
+									@dialog.Description() { Configure a new service for your application. }
 								}
-								@card.Content() {
-									<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services") } class="space-y-4">
-										<div class="grid gap-4 md:grid-cols-2">
-											<div class="space-y-2">
-												@label.Label(label.Props{For: "svc_name"}) { Name }
-												@input.Input(input.Props{
-													ID:          "svc_name",
-													Name:        "name",
-													Placeholder: "web-api",
-													Attributes:  templ.Attributes{"required": true},
-												})
+								<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services") } class="space-y-4">
+									<input type="hidden" name="category" id="hidden_svc_category" />
+									<div class="space-y-2">
+										@label.Label(label.Props{For: "svc_name"}) { Name }
+										@input.Input(input.Props{
+											ID:          "svc_name",
+											Name:        "name",
+											Placeholder: "web-api",
+											Attributes:  templ.Attributes{"required": true},
+										})
+									</div>
+
+									<div id="github-connection-section" class="space-y-4 border-t pt-4">
+										<div class="flex items-center justify-between">
+											<div class="flex items-center gap-2">
+												@icon.Github(icon.Props{Class: "size-5"})
+												<span class="font-medium">GitHub Repository</span>
 											</div>
-											<div class="space-y-2">
-												@label.Label(label.Props{For: "svc_type"}) { Source Type }
-												@selectbox.SelectBox(selectbox.Props{ID: "svc_type_select"}) {
-													@selectbox.Trigger(selectbox.TriggerProps{Name: "type"}) {
-														@selectbox.Value(selectbox.ValueProps{Placeholder: "Select source type..."})
-													}
-													@selectbox.Content() {
-														@selectbox.Item(selectbox.ItemProps{Value: "git", Selected: true}) { Git Repository }
-														@selectbox.Item(selectbox.ItemProps{Value: "flake"}) { Nix Flake }
-														@selectbox.Item(selectbox.ItemProps{Value: "image"}) { Docker Image }
-													}
-												}
-											</div>
+											<button type="button" id="btn-connect-github" class="text-sm text-primary hover:underline">
+												Connect to GitHub
+											</button>
 										</div>
-										<div class="space-y-2">
-											@label.Label(label.Props{For: "svc_repo"}) { Repository / Flake / Image }
+
+										<!-- Simulated Repo Picker (Hidden by default) -->
+										<div id="github-repo-picker" class="hidden space-y-2">
+											@label.Label(label.Props{For: "github_repo_select"}) { Select Repository }
+											@selectbox.SelectBox(selectbox.Props{ID: "github_repo_select"}) {
+												@selectbox.Trigger(selectbox.TriggerProps{ID: "github_repo_trigger"}) {
+													@selectbox.Value(selectbox.ValueProps{Placeholder: "Search your repositories..."})
+												}
+												@selectbox.Content() {
+													@selectbox.Item(selectbox.ItemProps{Value: "narvanalabs/control-plane"}) { narvanalabs/control-plane }
+													@selectbox.Item(selectbox.ItemProps{Value: "narvanalabs/agent"}) { narvanalabs/agent }
+													@selectbox.Item(selectbox.ItemProps{Value: "narvanalabs/docs"}) { narvanalabs/docs }
+													@selectbox.Item(selectbox.ItemProps{Value: "example/my-cool-app"}) { example/my-cool-app }
+													@selectbox.Item(selectbox.ItemProps{Value: "example/landing-page"}) { example/landing-page }
+												}
+											}
+											<input type="hidden" name="repo" id="selected-github-repo" />
+										</div>
+
+										<!-- Manual Fallback -->
+										<div id="manual-repo-input" class="space-y-2">
+											@label.Label(label.Props{For: "svc_repo"}) { Repository URL (Manual) }
 											@input.Input(input.Props{
 												ID:          "svc_repo",
-												Name:        "repo",
+												Name:        "repo_manual",
 												Placeholder: "https://github.com/user/repo",
-												Attributes:  templ.Attributes{"required": true},
 											})
+											<p class="text-xs text-muted-foreground">Or paste a Git URL, Flake URI, or Docker Image</p>
 										</div>
-										<div class="flex justify-end gap-2">
-											@button.Button(button.Props{
-												Type:    "button",
-												Variant: button.VariantGhost,
-												Attributes: templ.Attributes{
-													"onclick": "document.getElementById('add-service-form').classList.add('hidden')",
-												},
-											}) { Cancel }
-											@button.Button(button.Props{Type: "submit"}) { Add Service }
-										</div>
-									</form>
-								}
+									</div>
+									<div class="flex justify-end gap-2 border-t pt-4">
+										@dialog.Close() {
+											@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+										}
+										@button.Button(button.Props{Type: "submit"}) { Add Service }
+									</div>
+								</form>
 							}
-						</div>
+						}
 
 						if len(data.App.Services) == 0 {
 							@EmptyState("No services", "Add a service to this app to start deploying")
