@@ -168,14 +168,38 @@ type CreateAppRequest struct {
 	Name string `json:"name"`
 }
 
+// BuildStrategy represents the method used to build an application.
+type BuildStrategy string
+
+const (
+	BuildStrategyFlake      BuildStrategy = "flake"       // Use existing flake.nix
+	BuildStrategyAutoGo     BuildStrategy = "auto-go"     // Generate flake for Go
+	BuildStrategyAutoRust   BuildStrategy = "auto-rust"   // Generate flake for Rust
+	BuildStrategyAutoNode   BuildStrategy = "auto-node"   // Generate flake for Node.js
+	BuildStrategyAutoPython BuildStrategy = "auto-python" // Generate flake for Python
+	BuildStrategyDockerfile BuildStrategy = "dockerfile"  // Build from Dockerfile
+	BuildStrategyNixpacks   BuildStrategy = "nixpacks"    // Use Nixpacks
+	BuildStrategyAuto       BuildStrategy = "auto"        // Auto-detect
+)
+
+// BuildConfig contains strategy-specific configuration options.
+type BuildConfig struct {
+	BuildCommand string            `json:"build_command,omitempty"`
+	StartCommand string            `json:"start_command,omitempty"`
+	EntryPoint   string            `json:"entry_point,omitempty"`
+	EnvVars      map[string]string `json:"environment_vars,omitempty"`
+}
+
 // CreateServiceRequest is the request body for creating a service.
 type CreateServiceRequest struct {
-	Name       string `json:"name"`
-	SourceType string `json:"source_type"`
-	GitRepo    string `json:"git_repo,omitempty"`
-	GitRef     string `json:"git_ref,omitempty"`
-	FlakeURI   string `json:"flake_uri,omitempty"`
-	ImageRef   string `json:"image_ref,omitempty"`
+	Name       string         `json:"name"`
+	SourceType string         `json:"source_type"`
+	GitRepo    string         `json:"git_repo,omitempty"`
+	GitRef     string         `json:"git_ref,omitempty"`
+	FlakeURI   string         `json:"flake_uri,omitempty"`
+	ImageRef   string         `json:"image_ref,omitempty"`
+	BuildStrategy BuildStrategy `json:"build_strategy,omitempty"`
+	BuildConfig   *BuildConfig  `json:"build_config,omitempty"`
 }
 
 // CreateSecretRequest is the request body for creating a secret.
