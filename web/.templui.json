@@ -1,0 +1,7 @@
+{
+  "componentsDir": "components",
+  "utilsDir": "utils",
+  "moduleName": "github.com/narvanalabs/control-plane/web",
+  "jsDir": "assets/js",
+  "jsPublicPath": "/assets/js"
+}
