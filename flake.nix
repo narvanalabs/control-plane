@@ -4,12 +4,14 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    templ.url = "github:a-h/templ";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, templ }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        templPkg = templ.packages.${system}.templ;
         setup-dns-script = self + "/scripts/setup-dns.nix";
         setup-dns = import setup-dns-script { 
           inherit pkgs;
@@ -41,6 +43,12 @@
             caddy     # Reverse proxy for routing deployments
             attic-server  # Nix binary cache server
             attic-client  # Client for pushing/pulling from cache
+
+            # templ + templui tooling
+            templPkg           # templ template engine
+            tailwindcss_4      # Tailwind CSS v4
+            go-task            # Task runner
+            air                # Live reload for Go
           ];
 
           shellHook = ''
