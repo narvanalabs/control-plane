@@ -13,6 +13,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/pages/builds"
 	"github.com/narvanalabs/control-plane/web/pages/deployments"
 	"github.com/narvanalabs/control-plane/web/pages/nodes"
+	"github.com/narvanalabs/control-plane/web/pages/settings"
 )
 
 var apiClient *api.Client
@@ -162,11 +163,16 @@ func handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSettingsGeneral(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement settings general page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	// TODO: Get user data from session
+	settings.General(settings.GeneralData{
+		UserEmail: "admin@narvana.io",
+		UserName:  "Admin",
+	}).Render(r.Context(), w)
 }
 
 func handleSettingsAPIKeys(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement settings API keys page
-	pages.Dashboard(pages.DashboardData{}).Render(r.Context(), w)
+	// TODO: Fetch API keys from API
+	settings.APIKeys(settings.APIKeysData{
+		Keys: []settings.APIKey{},
+	}).Render(r.Context(), w)
 }
