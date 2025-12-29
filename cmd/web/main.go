@@ -312,18 +312,31 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	svc := api.CreateServiceRequest{
-		Name:       r.FormValue("name"),
-		SourceType: r.FormValue("type"),
+	category := r.FormValue("category")
+	repo := r.FormValue("repo")
+	if repo == "" {
+		repo = r.FormValue("repo_manual")
 	}
 
-	switch svc.SourceType {
-	case "git":
-		svc.GitRepo = r.FormValue("repo")
-	case "flake":
-		svc.FlakeURI = r.FormValue("repo")
-	case "image":
-		svc.ImageRef = r.FormValue("repo")
+	svc := api.CreateServiceRequest{
+		Name:          r.FormValue("name"),
+		SourceType:    "git",                // Default to git for the new categories
+		BuildStrategy: api.BuildStrategyAuto, // Default to auto-detect
+	}
+
+	// Map categories to underlying types
+	switch category {
+	case "web-service", "static-site":
+		svc.SourceType = "git"
+		svc.GitRepo = repo
+		svc.BuildStrategy = api.BuildStrategyAuto
+	case "database", "template":
+		// These are currently placeholders
+		http.Redirect(w, r, "/apps/"+appID+"?error=Category+not+yet+implemented", http.StatusFound)
+		return
+	default:
+		// Fallback for any legacy/manual inputs if they bypass the selectbox
+		svc.GitRepo = repo
 	}
 
 	client := getAPIClient(r)
