@@ -1,0 +1,126 @@
+package builds
+
+import (
+	"fmt"
+	"time"
+	
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/table"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/api"
+)
+
+// ListData holds the data for the builds list page
+type ListData struct {
+	Builds []api.Build
+	Apps   map[string]string // appID -> appName
+}
+
+// List renders the builds list page
+templ List(data ListData) {
+	@layouts.PageWithSidebar("Builds", "/builds") {
+		<div class="space-y-6">
+			<div>
+				<h1 class="text-2xl font-bold">Builds</h1>
+				<p class="text-muted-foreground">Track and manage build jobs</p>
+			</div>
+			
+			if len(data.Builds) == 0 {
+				<div class="flex flex-col items-center justify-center rounded-lg border border-dashed p-12">
+					@icon.Hammer(icon.Props{Class: "size-12 text-muted-foreground mb-4"})
+					<h3 class="text-lg font-medium">No builds yet</h3>
+					<p class="text-muted-foreground text-center mt-1">
+						Builds are created when you deploy services
+					</p>
+				</div>
+			} else {
+				<div class="rounded-lg border">
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { App }
+								@table.Head() { Strategy }
+								@table.Head() { Status }
+								@table.Head() { Created }
+								@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
+							}
+						}
+						@table.Body() {
+							for _, b := range data.Builds {
+								@table.Row() {
+									@table.Cell() {
+										<a href={ templ.SafeURL("/apps/" + b.AppID) } class="font-medium hover:underline">
+											{ getAppName(data.Apps, b.AppID) }
+										</a>
+									}
+									@table.Cell() {
+										<span class="font-mono text-sm">{ b.Strategy }</span>
+									}
+									@table.Cell() { 
+										@BuildStatusBadge(b.Status)
+									}
+									@table.Cell() {
+										<span class="text-muted-foreground text-sm">
+											{ formatTime(b.CreatedAt) }
+										</span>
+									}
+									@table.Cell(table.CellProps{Class: "text-right"}) {
+										@button.Button(button.Props{
+											Variant: button.VariantOutline,
+											Size:    button.SizeSm,
+											Href:    "/builds/" + b.ID,
+										}) {
+											View Logs
+										}
+									}
+								}
+							}
+						}
+					}
+				</div>
+			}
+		</div>
+	}
+}
+
+// BuildStatusBadge renders a build status badge
+templ BuildStatusBadge(status string) {
+	switch status {
+		case "succeeded":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { succeeded }
+		case "running":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { running }
+		case "queued":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { queued }
+		case "failed":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { failed }
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { status } }
+	}
+}
+
+func getAppName(apps map[string]string, appID string) string {
+	if name, ok := apps[appID]; ok {
+		return name
+	}
+	if len(appID) > 8 {
+		return appID[:8] + "..."
+	}
+	return appID
+}
+
+func formatTime(t time.Time) string {
+	diff := time.Since(t)
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(diff.Hours()))
+	default:
+		return t.Format("Jan 2, 2006")
+	}
+}
