@@ -3,13 +3,24 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/pages"
 )
 
+var apiClient *api.Client
+
 func main() {
+	// Initialize API client
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	apiClient = api.NewClient(apiURL)
+
 	r := chi.NewRouter()
 
 	// Middleware
@@ -39,12 +50,32 @@ func main() {
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request) {
-	// TODO: Fetch real data from API
+	// Get token from cookie (TODO: implement proper session handling)
+	token := ""
+	if cookie, err := r.Cookie("auth_token"); err == nil {
+		token = cookie.Value
+	}
+
+	// Fetch dashboard data from API
+	client := apiClient
+	if token != "" {
+		client = apiClient.WithToken(token)
+	}
+
+	stats, recentDeployments, nodeHealth, err := client.GetDashboardData(r.Context())
+	if err != nil {
+		// Log error but continue with empty data
+		fmt.Printf("Error fetching dashboard data: %v\n", err)
+		stats = &api.DashboardStats{}
+	}
+
 	data := pages.DashboardData{
-		TotalApps:         5,
-		ActiveDeployments: 12,
-		HealthyNodes:      3,
-		RunningBuilds:     2,
+		TotalApps:         stats.TotalApps,
+		ActiveDeployments: stats.ActiveDeployments,
+		HealthyNodes:      stats.HealthyNodes,
+		RunningBuilds:     stats.RunningBuilds,
+		RecentDeployments: recentDeployments,
+		NodeHealth:        nodeHealth,
 	}
 	pages.Dashboard(data).Render(r.Context(), w)
 }
