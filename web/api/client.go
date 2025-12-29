@@ -2,6 +2,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,6 +37,10 @@ func (c *Client) WithToken(token string) *Client {
 	}
 }
 
+// ============================================================================
+// Data Types
+// ============================================================================
+
 // App represents an application from the API.
 type App struct {
 	ID        string    `json:"id"`
@@ -51,6 +56,7 @@ type Service struct {
 	Name       string `json:"name"`
 	SourceType string `json:"source_type"`
 	GitRepo    string `json:"git_repo,omitempty"`
+	GitRef     string `json:"git_ref,omitempty"`
 	FlakeURI   string `json:"flake_uri,omitempty"`
 	ImageRef   string `json:"image_ref,omitempty"`
 }
@@ -92,9 +98,31 @@ type Build struct {
 	DeploymentID string    `json:"deployment_id"`
 	Status       string    `json:"status"`
 	Strategy     string    `json:"build_strategy,omitempty"`
+	Logs         string    `json:"logs,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+// Secret represents a secret/env var for an app.
+type Secret struct {
+	Key       string    `json:"key"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Log represents a log entry.
+type Log struct {
+	ID           string    `json:"id"`
+	DeploymentID string    `json:"deployment_id"`
+	Source       string    `json:"source"`
+	Level        string    `json:"level"`
+	Message      string    `json:"message"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
+// ============================================================================
+// Dashboard Types
+// ============================================================================
 
 // DashboardStats holds aggregated stats for the dashboard.
 type DashboardStats struct {
@@ -120,6 +148,222 @@ type NodeHealth struct {
 	CPUPercent int
 	MemPercent int
 }
+
+// ============================================================================
+// Auth Types
+// ============================================================================
+
+// AuthResponse is returned from login/register.
+type AuthResponse struct {
+	Token  string `json:"token"`
+	UserID string `json:"user_id"`
+}
+
+// ============================================================================
+// Request Types
+// ============================================================================
+
+// CreateAppRequest is the request body for creating an app.
+type CreateAppRequest struct {
+	Name string `json:"name"`
+}
+
+// CreateServiceRequest is the request body for creating a service.
+type CreateServiceRequest struct {
+	Name       string `json:"name"`
+	SourceType string `json:"source_type"`
+	GitRepo    string `json:"git_repo,omitempty"`
+	GitRef     string `json:"git_ref,omitempty"`
+	FlakeURI   string `json:"flake_uri,omitempty"`
+	ImageRef   string `json:"image_ref,omitempty"`
+}
+
+// CreateSecretRequest is the request body for creating a secret.
+type CreateSecretRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// LoginRequest is the request body for login.
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// RegisterRequest is the request body for registration.
+type RegisterRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// ============================================================================
+// Auth Methods
+// ============================================================================
+
+// Login authenticates a user and returns a JWT token.
+func (c *Client) Login(ctx context.Context, email, password string) (*AuthResponse, error) {
+	req := LoginRequest{Email: email, Password: password}
+	var resp AuthResponse
+	err := c.post(ctx, "/auth/login", req, &resp)
+	return &resp, err
+}
+
+// Register creates a new user account.
+func (c *Client) Register(ctx context.Context, email, password string) (*AuthResponse, error) {
+	req := RegisterRequest{Email: email, Password: password}
+	var resp AuthResponse
+	err := c.post(ctx, "/auth/register", req, &resp)
+	return &resp, err
+}
+
+// ============================================================================
+// App Methods
+// ============================================================================
+
+// ListApps fetches all apps for the current user.
+func (c *Client) ListApps(ctx context.Context) ([]App, error) {
+	var apps []App
+	err := c.get(ctx, "/v1/apps", &apps)
+	if apps == nil {
+		apps = []App{}
+	}
+	return apps, err
+}
+
+// GetApp fetches a single app by ID.
+func (c *Client) GetApp(ctx context.Context, id string) (*App, error) {
+	var app App
+	err := c.get(ctx, "/v1/apps/"+id, &app)
+	return &app, err
+}
+
+// CreateApp creates a new application.
+func (c *Client) CreateApp(ctx context.Context, name string) (*App, error) {
+	req := CreateAppRequest{Name: name}
+	var app App
+	err := c.post(ctx, "/v1/apps", req, &app)
+	return &app, err
+}
+
+// DeleteApp deletes an application.
+func (c *Client) DeleteApp(ctx context.Context, id string) error {
+	return c.delete(ctx, "/v1/apps/"+id)
+}
+
+// ============================================================================
+// Service Methods
+// ============================================================================
+
+// CreateService adds a service to an app.
+func (c *Client) CreateService(ctx context.Context, appID string, svc CreateServiceRequest) (*Service, error) {
+	var service Service
+	err := c.post(ctx, "/v1/apps/"+appID+"/services", svc, &service)
+	return &service, err
+}
+
+// UpdateService updates an existing service.
+func (c *Client) UpdateService(ctx context.Context, appID, serviceName string, svc CreateServiceRequest) (*Service, error) {
+	var service Service
+	err := c.patch(ctx, "/v1/apps/"+appID+"/services/"+serviceName, svc, &service)
+	return &service, err
+}
+
+// DeleteService removes a service from an app.
+func (c *Client) DeleteService(ctx context.Context, appID, serviceName string) error {
+	return c.delete(ctx, "/v1/apps/"+appID+"/services/"+serviceName)
+}
+
+// ============================================================================
+// Deployment Methods
+// ============================================================================
+
+// Deploy triggers a deployment for a service.
+func (c *Client) Deploy(ctx context.Context, appID, serviceName string) (*Deployment, error) {
+	var deployment Deployment
+	err := c.post(ctx, "/v1/apps/"+appID+"/services/"+serviceName+"/deploy", nil, &deployment)
+	return &deployment, err
+}
+
+// ListAppDeployments fetches all deployments for an app.
+func (c *Client) ListAppDeployments(ctx context.Context, appID string) ([]Deployment, error) {
+	var deployments []Deployment
+	err := c.get(ctx, "/v1/apps/"+appID+"/deployments", &deployments)
+	if deployments == nil {
+		deployments = []Deployment{}
+	}
+	return deployments, err
+}
+
+// GetDeployment fetches a single deployment by ID.
+func (c *Client) GetDeployment(ctx context.Context, id string) (*Deployment, error) {
+	var deployment Deployment
+	err := c.get(ctx, "/v1/deployments/"+id, &deployment)
+	return &deployment, err
+}
+
+// RollbackDeployment rolls back a deployment.
+func (c *Client) RollbackDeployment(ctx context.Context, id string) (*Deployment, error) {
+	var deployment Deployment
+	err := c.post(ctx, "/v1/deployments/"+id+"/rollback", nil, &deployment)
+	return &deployment, err
+}
+
+// ============================================================================
+// Secret Methods
+// ============================================================================
+
+// ListSecrets fetches all secrets for an app.
+func (c *Client) ListSecrets(ctx context.Context, appID string) ([]Secret, error) {
+	var secrets []Secret
+	err := c.get(ctx, "/v1/apps/"+appID+"/secrets", &secrets)
+	if secrets == nil {
+		secrets = []Secret{}
+	}
+	return secrets, err
+}
+
+// CreateSecret adds a secret to an app.
+func (c *Client) CreateSecret(ctx context.Context, appID, key, value string) error {
+	req := CreateSecretRequest{Key: key, Value: value}
+	return c.post(ctx, "/v1/apps/"+appID+"/secrets", req, nil)
+}
+
+// DeleteSecret removes a secret from an app.
+func (c *Client) DeleteSecret(ctx context.Context, appID, key string) error {
+	return c.delete(ctx, "/v1/apps/"+appID+"/secrets/"+key)
+}
+
+// ============================================================================
+// Log Methods
+// ============================================================================
+
+// GetAppLogs fetches logs for an app.
+func (c *Client) GetAppLogs(ctx context.Context, appID string) ([]Log, error) {
+	var logs []Log
+	err := c.get(ctx, "/v1/apps/"+appID+"/logs", &logs)
+	if logs == nil {
+		logs = []Log{}
+	}
+	return logs, err
+}
+
+// ============================================================================
+// Node Methods
+// ============================================================================
+
+// ListNodes fetches all nodes.
+func (c *Client) ListNodes(ctx context.Context) ([]Node, error) {
+	var nodes []Node
+	err := c.get(ctx, "/v1/nodes", &nodes)
+	if nodes == nil {
+		nodes = []Node{}
+	}
+	return nodes, err
+}
+
+// ============================================================================
+// Dashboard Methods
+// ============================================================================
 
 // GetDashboardData fetches all dashboard data.
 func (c *Client) GetDashboardData(ctx context.Context) (*DashboardStats, []RecentDeployment, []NodeHealth, error) {
@@ -155,31 +399,47 @@ func (c *Client) GetDashboardData(ctx context.Context) (*DashboardStats, []Recen
 		}
 	}
 
-	// TODO: Fetch deployments and builds when we have those endpoints working
+	// Fetch recent deployments from all apps
+	for _, app := range apps {
+		deployments, err := c.ListAppDeployments(ctx, app.ID)
+		if err == nil {
+			for _, d := range deployments {
+				if d.Status == "running" {
+					stats.ActiveDeployments++
+				}
+				// Add to recent (limit to first 5)
+				if len(recentDeployments) < 5 {
+					recentDeployments = append(recentDeployments, RecentDeployment{
+						AppName:     app.Name,
+						ServiceName: d.ServiceName,
+						Status:      d.Status,
+						TimeAgo:     formatTimeAgo(d.CreatedAt),
+					})
+				}
+			}
+		}
+	}
 
 	return stats, recentDeployments, nodeHealth, nil
 }
 
-// ListApps fetches all apps for the current user.
-func (c *Client) ListApps(ctx context.Context) ([]App, error) {
-	var apps []App
-	err := c.get(ctx, "/v1/apps", &apps)
-	return apps, err
+func formatTimeAgo(t time.Time) string {
+	diff := time.Since(t)
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(diff.Hours()))
+	default:
+		return t.Format("Jan 2")
+	}
 }
 
-// GetApp fetches a single app by ID.
-func (c *Client) GetApp(ctx context.Context, id string) (*App, error) {
-	var app App
-	err := c.get(ctx, "/v1/apps/"+id, &app)
-	return &app, err
-}
-
-// ListNodes fetches all nodes.
-func (c *Client) ListNodes(ctx context.Context) ([]Node, error) {
-	var nodes []Node
-	err := c.get(ctx, "/v1/nodes", &nodes)
-	return nodes, err
-}
+// ============================================================================
+// HTTP Helpers
+// ============================================================================
 
 // get performs a GET request and unmarshals the response.
 func (c *Client) get(ctx context.Context, path string, result interface{}) error {
@@ -187,7 +447,56 @@ func (c *Client) get(ctx context.Context, path string, result interface{}) error
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
+	return c.doRequest(req, result)
+}
 
+// post performs a POST request and unmarshals the response.
+func (c *Client) post(ctx context.Context, path string, body interface{}, result interface{}) error {
+	var bodyReader io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshaling request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+path, bodyReader)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return c.doRequest(req, result)
+}
+
+// patch performs a PATCH request and unmarshals the response.
+func (c *Client) patch(ctx context.Context, path string, body interface{}, result interface{}) error {
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshaling request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PATCH", c.baseURL+path, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.doRequest(req, result)
+}
+
+// delete performs a DELETE request.
+func (c *Client) delete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, "DELETE", c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	return c.doRequest(req, nil)
+}
+
+// doRequest executes the HTTP request and handles the response.
+func (c *Client) doRequest(req *http.Request, result interface{}) error {
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
@@ -199,13 +508,15 @@ func (c *Client) get(ctx context.Context, path string, result interface{}) error
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("API error (%d): %s", resp.StatusCode, string(body))
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+	if result != nil && resp.StatusCode != http.StatusNoContent {
+		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+			return fmt.Errorf("decoding response: %w", err)
+		}
 	}
 
 	return nil
