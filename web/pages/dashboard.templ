@@ -8,6 +8,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/badge"
 	"github.com/narvanalabs/control-plane/web/components/table"
+	"github.com/narvanalabs/control-plane/web/api"
 )
 
 // DashboardData holds the data for the dashboard page
@@ -16,6 +17,8 @@ type DashboardData struct {
 	ActiveDeployments int
 	HealthyNodes      int
 	RunningBuilds     int
+	RecentDeployments []api.RecentDeployment
+	NodeHealth        []api.NodeHealth
 }
 
 // Dashboard renders the main dashboard page
@@ -47,31 +50,32 @@ templ Dashboard(data DashboardData) {
 						}
 					}
 					@card.Content() {
-						@table.Table() {
-							@table.Header() {
-								@table.Row() {
-									@table.Head() { App }
-									@table.Head() { Service }
-									@table.Head() { Status }
-									@table.Head() { Time }
-								}
-							}
-							@table.Body() {
-								@table.Row() {
-									@table.Cell() { my-app }
-									@table.Cell() { web }
-									@table.Cell() { 
-										@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { running }
+						if len(data.RecentDeployments) == 0 {
+							<div class="text-center py-8 text-muted-foreground">
+								<p>No deployments yet</p>
+								<p class="text-sm mt-1">Deploy your first app to see activity here</p>
+							</div>
+						} else {
+							@table.Table() {
+								@table.Header() {
+									@table.Row() {
+										@table.Head() { App }
+										@table.Head() { Service }
+										@table.Head() { Status }
+										@table.Head() { Time }
 									}
-									@table.Cell() { 2m ago }
 								}
-								@table.Row() {
-									@table.Cell() { api-service }
-									@table.Cell() { api }
-									@table.Cell() { 
-										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { building }
+								@table.Body() {
+									for _, d := range data.RecentDeployments {
+										@table.Row() {
+											@table.Cell() { { d.AppName } }
+											@table.Cell() { { d.ServiceName } }
+											@table.Cell() { 
+												@DeploymentStatusBadge(d.Status)
+											}
+											@table.Cell() { { d.TimeAgo } }
+										}
 									}
-									@table.Cell() { 5m ago }
 								}
 							}
 						}
@@ -88,15 +92,38 @@ templ Dashboard(data DashboardData) {
 						}
 					}
 					@card.Content() {
-						<div class="space-y-3">
-							@NodeHealthItem("node-1", "192.168.1.10", true, 45, 62)
-							@NodeHealthItem("node-2", "192.168.1.11", true, 78, 85)
-							@NodeHealthItem("node-3", "192.168.1.12", false, 0, 0)
-						</div>
+						if len(data.NodeHealth) == 0 {
+							<div class="text-center py-8 text-muted-foreground">
+								<p>No nodes registered</p>
+								<p class="text-sm mt-1">Register a node to start deploying</p>
+							</div>
+						} else {
+							<div class="space-y-3">
+								for _, n := range data.NodeHealth {
+									@NodeHealthItem(n.Name, n.Address, n.Healthy, n.CPUPercent, n.MemPercent)
+								}
+							</div>
+						}
 					}
 				}
 			</div>
 		</div>
+	}
+}
+
+// DeploymentStatusBadge renders a status badge for deployments
+templ DeploymentStatusBadge(status string) {
+	switch status {
+		case "running":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { running }
+		case "building":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { building }
+		case "pending":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { pending }
+		case "failed":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { failed }
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { status } }
 	}
 }
 
