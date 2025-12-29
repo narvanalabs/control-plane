@@ -1,0 +1,131 @@
+package apps
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
+)
+
+// CreateData holds the data for the create app page
+type CreateData struct {
+	Error string
+}
+
+// Create renders the create app page
+templ Create(data CreateData) {
+	@layouts.PageWithSidebar("Create App", "/apps/new") {
+		<div class="max-w-2xl space-y-6">
+			// Breadcrumb
+			@breadcrumb.Breadcrumb() {
+				@breadcrumb.List() {
+					@breadcrumb.Item() {
+						@breadcrumb.Link(breadcrumb.LinkProps{Href: "/apps"}) {
+							Apps
+						}
+					}
+					@breadcrumb.Separator()
+					@breadcrumb.Item() {
+						@breadcrumb.Page() {
+							Create App
+						}
+					}
+				}
+			}
+			
+			// Header
+			<div>
+				<h1 class="text-2xl font-bold">Create App</h1>
+				<p class="text-muted-foreground">
+					Create a new application with one or more services
+				</p>
+			</div>
+			
+			// Form
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						App Details
+					}
+					@card.Description() {
+						Enter the basic information for your new app
+					}
+				}
+				@card.Content() {
+					<form method="POST" action="/apps" class="space-y-6">
+						if data.Error != "" {
+							<div class="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+								{ data.Error }
+							</div>
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "name"}) {
+								App Name
+							}
+							@input.Input(input.Props{
+								ID:          "name",
+								Name:        "name",
+								Placeholder: "my-app",
+								Attributes:  templ.Attributes{"required": true},
+							})
+							@form.Description() {
+								A unique name for your application (lowercase, hyphens allowed)
+							}
+						}
+						
+						<div class="border-t pt-6">
+							<h3 class="font-medium mb-4">Initial Service</h3>
+							
+							@form.Item() {
+								@label.Label(label.Props{For: "service_name"}) {
+									Service Name
+								}
+								@input.Input(input.Props{
+									ID:          "service_name",
+									Name:        "service_name",
+									Placeholder: "web",
+									Attributes:  templ.Attributes{"required": true},
+								})
+							}
+							
+							@form.Item() {
+								@label.Label(label.Props{For: "git_repo"}) {
+									Git Repository
+								}
+								@input.Input(input.Props{
+									ID:          "git_repo",
+									Name:        "git_repo",
+									Placeholder: "https://github.com/user/repo",
+								})
+								@form.Description() {
+									URL to a Git repository with a flake.nix
+								}
+							}
+						</div>
+						
+						<div class="flex justify-end gap-3 pt-4">
+							@button.Button(button.Props{
+								Type:    "button",
+								Variant: button.VariantOutline,
+								Href:    "/apps",
+							}) {
+								Cancel
+							}
+							@button.Button(button.Props{
+								Type: "submit",
+							}) {
+								@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+								Create App
+							}
+						</div>
+					</form>
+				}
+			}
+		</div>
+	}
+}
