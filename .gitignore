@@ -33,14 +33,9 @@ result-*
 coverage.*
 *.prof
 
-# SvelteKit build cache
-web/.svelte-kit/
-web/.vite/
-
-# Node.js (web frontend)
-web/node_modules/
-web/.pnpm-store/
-web/.bun/
+# templ generated files
+web/*_templ.go
+web/assets/css/output.css
 
 # Tool-specific directories
 .kiro/
