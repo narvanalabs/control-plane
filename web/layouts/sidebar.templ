@@ -1,6 +1,8 @@
 package layouts
 
 import (
+	"strings"
+
 	"github.com/narvanalabs/control-plane/web/components/avatar"
 	"github.com/narvanalabs/control-plane/web/components/collapsible"
 	"github.com/narvanalabs/control-plane/web/components/dropdown"
@@ -8,9 +10,12 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/sidebar"
 )
 
-// isActive returns true if the current path matches the given path
+// isActive returns true if the current path matches the given path or is a subpath
 func isActive(currentPath, path string) bool {
-	return currentPath == path
+	if path == "/" {
+		return currentPath == "/"
+	}
+	return strings.HasPrefix(currentPath, path)
 }
 
 // SidebarLayout renders the sidebar with main content area
@@ -193,21 +198,21 @@ templ SidebarLayout(activePath string) {
 									Admin
 								}
 								@dropdown.Separator()
-								@dropdown.Item() {
+								@dropdown.Item(dropdown.ItemProps{Href: "/settings/general"}) {
 									<span class="flex items-center">
 										@icon.User(icon.Props{Size: 16, Class: "mr-2"})
 										Profile
 									</span>
 								}
-								@dropdown.Item() {
+								@dropdown.Item(dropdown.ItemProps{Href: "/settings/api-keys"}) {
 									<span class="flex items-center">
 										@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
 										Settings
 									</span>
 								}
 								@dropdown.Separator()
-								@dropdown.Item() {
-									<span class="flex items-center">
+								@dropdown.Item(dropdown.ItemProps{Href: "/logout"}) {
+									<span class="flex items-center text-destructive">
 										@icon.LogOut(icon.Props{Size: 16, Class: "mr-2"})
 										Log out
 									</span>

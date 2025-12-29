@@ -1,0 +1,35 @@
+package layouts
+
+import (
+	"github.com/narvanalabs/control-plane/web/components/toast"
+)
+
+// FlashProps holds flash message data
+type FlashProps struct {
+	Success string
+	Error   string
+}
+
+// Flash renders toast notifications for flash messages
+templ Flash(props FlashProps) {
+	if props.Success != "" {
+		@toast.Toast(toast.Props{
+			Title:       "Success",
+			Description: props.Success,
+			Variant:     toast.VariantSuccess,
+			Dismissible: true,
+			Icon:        true,
+			Duration:    5000,
+		})
+	}
+	if props.Error != "" {
+		@toast.Toast(toast.Props{
+			Title:       "Error",
+			Description: props.Error,
+			Variant:     toast.VariantError,
+			Dismissible: true,
+			Icon:        true,
+			Duration:    5000,
+		})
+	}
+}

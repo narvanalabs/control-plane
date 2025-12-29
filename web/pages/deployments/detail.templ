@@ -18,11 +18,14 @@ type DetailData struct {
 	Deployment api.Deployment
 	AppName    string
 	Logs       []api.Log
+	SuccessMsg string
+	ErrorMsg   string
 }
 
 // Detail renders the deployment detail page
 templ Detail(data DetailData) {
 	@layouts.PageWithSidebar("Deployment", "/deployments") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
 		<div class="space-y-6">
 			// Breadcrumb
 			@breadcrumb.Breadcrumb() {

@@ -13,13 +13,16 @@ import (
 
 // GeneralData holds the data for the general settings page
 type GeneralData struct {
-	UserEmail string
-	UserName  string
+	UserEmail  string
+	UserName   string
+	SuccessMsg string
+	ErrorMsg   string
 }
 
 // General renders the general settings page
 templ General(data GeneralData) {
 	@layouts.PageWithSidebar("General Settings", "/settings/general") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
 		<div class="max-w-2xl space-y-6">
 			<div>
 				<h1 class="text-2xl font-bold">Settings</h1>
