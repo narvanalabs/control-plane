@@ -71,42 +71,12 @@ templ Create(data CreateData) {
 								ID:          "name",
 								Name:        "name",
 								Placeholder: "my-app",
-								Attributes:  templ.Attributes{"required": true},
+								Attributes:  templ.Attributes{"required": true, "autofocus": true},
 							})
 							@form.Description() {
 								A unique name for your application (lowercase, hyphens allowed)
 							}
 						}
-						
-						<div class="border-t pt-6">
-							<h3 class="font-medium mb-4">Initial Service</h3>
-							
-							@form.Item() {
-								@label.Label(label.Props{For: "service_name"}) {
-									Service Name
-								}
-								@input.Input(input.Props{
-									ID:          "service_name",
-									Name:        "service_name",
-									Placeholder: "web",
-									Attributes:  templ.Attributes{"required": true},
-								})
-							}
-							
-							@form.Item() {
-								@label.Label(label.Props{For: "git_repo"}) {
-									Git Repository
-								}
-								@input.Input(input.Props{
-									ID:          "git_repo",
-									Name:        "git_repo",
-									Placeholder: "https://github.com/user/repo",
-								})
-								@form.Description() {
-									URL to a Git repository with a flake.nix
-								}
-							}
-						</div>
 						
 						<div class="flex justify-end gap-3 pt-4">
 							@button.Button(button.Props{

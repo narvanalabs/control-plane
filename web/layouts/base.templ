@@ -11,6 +11,8 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/progress"
 	"github.com/narvanalabs/control-plane/web/components/input"
 	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/selectbox"
 )
 
 // Base renders the base HTML layout with all scripts and sidebar
@@ -33,6 +35,8 @@ templ Base(title string) {
 			@progress.Script()
 			@input.Script()
 			@label.Script()
+			@dialog.Script()
+			@selectbox.Script()
 		</head>
 		<body class="dark">
 			{ children... }

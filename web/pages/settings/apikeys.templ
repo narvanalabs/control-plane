@@ -13,6 +13,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/input"
 	"github.com/narvanalabs/control-plane/web/components/label"
 	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
 )
 
 // APIKey represents an API key
@@ -169,18 +170,32 @@ templ APIKeys(data APIKeysData) {
 											}
 										}
 										@table.Cell(table.CellProps{Class: "text-right"}) {
-											<form method="POST" action={ templ.SafeURL("/settings/api-keys/" + key.ID + "/delete") }>
-												@button.Button(button.Props{
-													Type:    "submit",
-													Variant: button.VariantDestructive,
-													Size:    button.SizeSm,
-													Attributes: templ.Attributes{
-														"data-confirm": "Revoke API key " + key.Name + "?",
-													},
-												}) {
-													@icon.Trash2(icon.Props{Class: "size-4"})
+											@dialog.Dialog(dialog.Props{ID: "revoke-key-" + key.ID}) {
+												@dialog.Trigger() {
+													@button.Button(button.Props{
+														Variant: button.VariantDestructive,
+														Size:    button.SizeSm,
+													}) {
+														@icon.Trash2(icon.Props{Class: "size-4"})
+													}
 												}
-											</form>
+												@dialog.Content() {
+													@dialog.Header() {
+														@dialog.Title() { Revoke API Key }
+														@dialog.Description() {
+															Are you sure you want to revoke the API key <strong>{ key.Name }</strong>? Any applications using this key will lose access immediately.
+														}
+													}
+													@dialog.Footer() {
+														@dialog.Close() {
+															@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+														}
+														<form method="POST" action={ templ.SafeURL("/settings/api-keys/" + key.ID + "/delete") }>
+															@button.Button(button.Props{Type: "submit", Variant: button.VariantDestructive}) { Revoke Key }
+														</form>
+													}
+												}
+											}
 										}
 									}
 								}
