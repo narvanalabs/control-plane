@@ -71,6 +71,8 @@ type Deployment struct {
 	AppID       string    `json:"app_id"`
 	ServiceName string    `json:"service_name"`
 	Version     int       `json:"version"`
+	GitRef      string    `json:"git_ref"`
+	GitCommit   string    `json:"git_commit,omitempty"`
 	Status      string    `json:"status"`
 	NodeID      string    `json:"node_id,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -370,6 +372,13 @@ func (c *Client) ListAppDeployments(ctx context.Context, appID string) ([]Deploy
 }
 
 // GetDeployment fetches a single deployment by ID.
+// ListDeployments retrieves all deployments for the user.
+func (c *Client) ListDeployments(ctx context.Context) ([]Deployment, error) {
+	var deployments []Deployment
+	err := c.Get(ctx, "/v1/deployments", &deployments)
+	return deployments, err
+}
+
 func (c *Client) GetDeployment(ctx context.Context, id string) (*Deployment, error) {
 	var deployment Deployment
 	err := c.Get(ctx, "/v1/deployments/"+id, &deployment)
@@ -426,14 +435,41 @@ func (c *Client) GetAppLogs(ctx context.Context, appID string) ([]Log, error) {
 // Node Methods
 // ============================================================================
 
-// ListNodes fetches all nodes.
+// ListNodes retrieves all nodes.
 func (c *Client) ListNodes(ctx context.Context) ([]Node, error) {
 	var nodes []Node
 	err := c.Get(ctx, "/v1/nodes", &nodes)
-	if nodes == nil {
-		nodes = []Node{}
-	}
 	return nodes, err
+}
+
+// GetNode retrieves a specific node by ID.
+func (c *Client) GetNode(ctx context.Context, id string) (*Node, error) {
+	var node Node
+	err := c.Get(ctx, "/v1/nodes/"+id, &node)
+	return &node, err
+}
+
+// ListBuilds retrieves all builds for the user from the API.
+func (c *Client) ListBuilds(ctx context.Context) ([]Build, error) {
+	var builds []Build
+	if err := c.Get(ctx, "/v1/builds", &builds); err != nil {
+		return nil, err
+	}
+	return builds, nil
+}
+
+// GetBuild retrieves a specific build by ID.
+func (c *Client) GetBuild(ctx context.Context, id string) (*Build, error) {
+	var build Build
+	if err := c.Get(ctx, "/v1/builds/"+id, &build); err != nil {
+		return nil, err
+	}
+	return &build, nil
+}
+
+// RetryBuild retries a failed build.
+func (c *Client) RetryBuild(ctx context.Context, id string) error {
+	return c.post(ctx, "/v1/builds/"+id+"/retry", nil, nil)
 }
 
 // ============================================================================
