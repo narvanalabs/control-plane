@@ -340,6 +340,28 @@ func (m *MockBuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, e
 	return pending, nil
 }
 
+func (m *MockBuildStore) List(ctx context.Context, appID string) ([]*models.BuildJob, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.BuildJob
+	for _, build := range m.builds {
+		if build.AppID == appID {
+			result = append(result, build)
+		}
+	}
+	return result, nil
+}
+
+func (m *MockBuildStore) ListByUser(ctx context.Context, userID string) ([]*models.BuildJob, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.BuildJob
+	for _, build := range m.builds {
+		result = append(result, build)
+	}
+	return result, nil
+}
+
 // GetStateTransitions returns all recorded state transitions.
 func (m *MockBuildStore) GetStateTransitions() []StateTransition {
 	m.mu.Lock()
@@ -442,6 +464,16 @@ func (m *MockDeploymentStore) GetLatestSuccessful(ctx context.Context, appID str
 		return nil, errors.New("no successful deployment found")
 	}
 	return latest, nil
+}
+
+func (m *MockDeploymentStore) ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.Deployment
+	for _, d := range m.deployments {
+		result = append(result, d)
+	}
+	return result, nil
 }
 
 // Reset clears all deployments.
