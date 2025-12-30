@@ -73,6 +73,11 @@ func (s *Server) setupRouter() {
 		r.Post("/device/approve", authHandler.DeviceAuthApprove)
 	})
 
+	// GitHub callbacks (public)
+	githubHandler := handlers.NewGitHubHandler(s.store, s.logger)
+	r.Get("/github/callback", githubHandler.ManifestCallback)
+	r.Get("/github/oauth/callback", githubHandler.OAuthCallback)
+
 	// API v1 routes
 	r.Route("/v1", func(r chi.Router) {
 		// Auth middleware for all v1 routes
@@ -160,6 +165,19 @@ func (s *Server) setupRouter() {
 				nodeID := chi.URLParam(req, "nodeID")
 				nodeHandler.HeartbeatByID(w, req, nodeID)
 			})
+		})
+
+		// GitHub routes (authenticated)
+		r.Route("/github", func(r chi.Router) {
+			r.Get("/config", githubHandler.GetConfig)
+			r.Post("/config", githubHandler.SaveConfigManual)
+			r.Get("/setup", githubHandler.ManifestStart)
+			r.Get("/oauth/start", githubHandler.OAuthStart)
+			r.Get("/install", githubHandler.AppInstall)
+			r.Get("/post-install", githubHandler.PostInstallation)
+			r.Get("/repos", githubHandler.ListRepos)
+			r.Get("/installations", githubHandler.ListInstallations)
+			r.Delete("/config", githubHandler.ResetConfig)
 		})
 	})
 
