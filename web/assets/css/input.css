@@ -125,19 +125,12 @@
   mix-blend-mode: normal;
 }
 
-::view-transition-old(root) {
-  z-index: 1;
-}
-
+/* Ensure the new state is on top for the circular reveal clip-path to work */
 ::view-transition-new(root) {
-  z-index: 9999;
+  z-index: 999;
 }
 
-.dark::view-transition-old(root) {
-  z-index: 9999;
-}
-
-.dark::view-transition-new(root) {
+::view-transition-old(root) {
   z-index: 1;
 }
 

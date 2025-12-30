@@ -44,6 +44,10 @@
         const thumb = el.querySelector('span');
         if (thumb) {
             thumb.setAttribute('data-state', stateStr);
+            // Update icons inside the thumb
+            thumb.querySelectorAll('[data-state]').forEach(child => {
+                child.setAttribute('data-state', stateStr);
+            });
         }
 
         if (hiddenInput) {

@@ -35,7 +35,7 @@
         });
     }
 
-    function toggleTheme(isDark) {
+    async function toggleTheme(isDark, event) {
         const theme = isDark ? 'dark' : 'light';
         localStorage.setItem(THEME_KEY, theme);
 
@@ -57,12 +57,37 @@
             });
         };
 
-        // Use View Transitions API if available
-        if (document.startViewTransition) {
-            document.startViewTransition(updateTheme);
-        } else {
+        // If View Transitions API is not available or no event to track coordinates
+        if (!document.startViewTransition || !event) {
             updateTheme();
+            return;
         }
+
+        // Circular Reveal Effect
+        const x = event.clientX ?? window.innerWidth / 2;
+        const y = event.clientY ?? window.innerHeight / 2;
+        const endRadius = Math.hypot(
+            Math.max(x, window.innerWidth - x),
+            Math.max(y, window.innerHeight - y)
+        );
+
+        const transition = document.startViewTransition(updateTheme);
+
+        await transition.ready;
+
+        document.documentElement.animate(
+            {
+                clipPath: [
+                    `circle(0px at ${x}px ${y}px)`,
+                    `circle(${endRadius}px at ${x}px ${y}px)`,
+                ],
+            },
+            {
+                duration: 500,
+                easing: 'ease-in-out',
+                pseudoElement: '::view-transition-new(root)',
+            }
+        );
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -72,7 +97,8 @@
         document.addEventListener('change', function (e) {
             const target = e.target;
             if (target && target.hasAttribute('data-theme-switcher-input')) {
-                toggleTheme(target.checked);
+                // Try to find the original click event if possible or use the change event
+                toggleTheme(target.checked, e);
             }
         });
     });
