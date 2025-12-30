@@ -25,6 +25,8 @@ type PostgresStore struct {
 	secrets     *SecretStore
 	logs        *LogStore
 	users       *UserStore
+	github      *GitHubStore
+	githubAccounts *GitHubAccountStore
 }
 
 // Config holds PostgreSQL connection configuration.
@@ -86,6 +88,8 @@ func NewPostgresStore(cfg *Config, logger *slog.Logger) (*PostgresStore, error) 
 	s.secrets = &SecretStore{db: db, logger: logger}
 	s.logs = &LogStore{db: db, logger: logger}
 	s.users = &UserStore{db: db, logger: logger}
+	s.github = &GitHubStore{db: db, logger: logger}
+	s.githubAccounts = &GitHubAccountStore{db: db, logger: logger}
 
 	logger.Info("connected to PostgreSQL database")
 	return s, nil
@@ -125,6 +129,16 @@ func (s *PostgresStore) Logs() store.LogStore {
 // Users returns the UserStore.
 func (s *PostgresStore) Users() store.UserStore {
 	return s.users
+}
+
+// GitHub returns the GitHubStore.
+func (s *PostgresStore) GitHub() store.GitHubStore {
+	return s.github
+}
+
+// GitHubAccounts returns the GitHubAccountStore.
+func (s *PostgresStore) GitHubAccounts() store.GitHubAccountStore {
+	return s.githubAccounts
 }
 
 // WithTx executes the given function within a database transaction.
@@ -180,6 +194,8 @@ type txStore struct {
 	secrets     *SecretStore
 	logs        *LogStore
 	users       *UserStore
+	github      *GitHubStore
+	githubAccounts *GitHubAccountStore
 }
 
 func (s *txStore) Apps() store.AppStore {
@@ -229,6 +245,20 @@ func (s *txStore) Users() store.UserStore {
 		s.users = &UserStore{tx: s.tx, logger: s.logger}
 	}
 	return s.users
+}
+
+func (s *txStore) GitHub() store.GitHubStore {
+	if s.github == nil {
+		s.github = &GitHubStore{tx: s.tx, logger: s.logger}
+	}
+	return s.github
+}
+
+func (s *txStore) GitHubAccounts() store.GitHubAccountStore {
+	if s.githubAccounts == nil {
+		s.githubAccounts = &GitHubAccountStore{tx: s.tx, logger: s.logger}
+	}
+	return s.githubAccounts
 }
 
 func (s *txStore) WithTx(ctx context.Context, fn func(store.Store) error) error {

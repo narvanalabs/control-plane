@@ -86,6 +86,7 @@ func runDeploymentMigrations(db *sql.DB) error {
 				'nano', 'small', 'medium', 'large', 'xlarge'
 			)),
 			config JSONB,
+			depends_on JSONB NOT NULL DEFAULT '[]',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			started_at TIMESTAMPTZ,
