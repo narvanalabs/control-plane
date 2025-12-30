@@ -185,6 +185,11 @@ func (s *Server) setupRouter() {
 			r.Get("/", settingsHandler.Get)
 			r.Patch("/", settingsHandler.Update)
 		})
+
+		// Server management routes
+		serverLogsHandler := handlers.NewServerLogsHandler(s.logger)
+		r.Get("/server/logs/stream", serverLogsHandler.Stream)
+		r.Get("/server/logs/download", serverLogsHandler.Download)
 	})
 
 	// Redirect root to Web UI
