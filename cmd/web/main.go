@@ -12,11 +12,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/narvanalabs/control-plane/web/api"
+	"github.com/narvanalabs/control-plane/web/layouts"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
 	"github.com/narvanalabs/control-plane/web/pages/auth"
 	"github.com/narvanalabs/control-plane/web/pages/git"
 	"github.com/narvanalabs/control-plane/web/pages/nodes"
+	settings_page "github.com/narvanalabs/control-plane/web/pages/settings"
+	"github.com/narvanalabs/control-plane/web/utils"
 )
 
 // NOTE: Builds and deployments list handlers are currently omitted/stubbed 
@@ -38,6 +41,8 @@ func main() {
 	r.Get("/register", handleRegisterPage)
 	r.Post("/register", handleRegisterSubmit)
 	r.Get("/logout", handleLogout)
+	r.Get("/settings/server", handleSettingsServer)
+	r.Post("/settings/server", handleSettingsServerUpdate)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -544,6 +549,81 @@ func handleGitHubManifestStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	w.Write(html)
+}
+
+// Settings Handlers
+
+func handleSettingsGeneral(w http.ResponseWriter, r *http.Request) {
+	// Mock user data for now
+	data := settings_page.GeneralData{
+		UserEmail: "admin@narvana.io",
+		UserName:  "Admin",
+	}
+	settings_page.General(data).Render(r.Context(), w)
+}
+
+func handleSettingsGeneralUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	name := r.FormValue("name")
+	data := settings_page.GeneralData{
+		UserEmail:  "admin@narvana.io",
+		UserName:   name,
+		SuccessMsg: "Profile updated successfully",
+	}
+	settings_page.General(data).Render(r.Context(), w)
+}
+
+func handleSettingsServer(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
+	settings, err := client.GetSettings(r.Context())
+	if err != nil {
+		// If settings don't exist yet or API fails, show empty
+		settings = make(map[string]string)
+	}
+
+	data := settings_page.ServerData{
+		Domain:   settings["server_domain"],
+		PublicIP: settings["public_ip"],
+	}
+	settings_page.Server(data).Render(r.Context(), w)
+}
+
+func handleSettingsServerUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	domain := r.FormValue("domain")
+	publicIP := r.FormValue("public_ip")
+
+	client := getAPIClient(r)
+	err := client.UpdateSettings(r.Context(), map[string]string{
+		"server_domain": domain,
+		"public_ip":     publicIP,
+	})
+
+	data := settings_page.ServerData{
+		Domain:   domain,
+		PublicIP: publicIP,
+	}
+
+	if err != nil {
+		data.ErrorMsg = "Failed to update settings: " + err.Error()
+	} else {
+		data.SuccessMsg = "Settings updated successfully"
+	}
+
+	settings_page.Server(data).Render(r.Context(), w)
+}
+
+func handleSettingsAPIKeys(w http.ResponseWriter, r *http.Request) {
+	data := settings_page.APIKeysData{}
+	settings_page.APIKeys(data).Render(r.Context(), w)
 }
 
 // Suppress unused import warning
