@@ -23,6 +23,10 @@ type Store interface {
 	Logs() LogStore
 	// Users returns the UserStore for user operations.
 	Users() UserStore
+	// GitHub returns the GitHubStore for GitHub App operations.
+	GitHub() GitHubStore
+	// GitHubAccounts returns the GitHubAccountStore for GitHub OAuth operations.
+	GitHubAccounts() GitHubAccountStore
 
 	// WithTx executes the given function within a database transaction.
 	// If the function returns an error, the transaction is rolled back.
@@ -51,6 +55,39 @@ type UserStore interface {
 	Authenticate(ctx context.Context, email, password string) (*User, error)
 	// List retrieves all users.
 	List(ctx context.Context) ([]*User, error)
+}
+
+// GitHubStore defines operations for GitHub App management.
+type GitHubStore interface {
+	// GetConfig retrieves the GitHub App configuration.
+	GetConfig(ctx context.Context) (*models.GitHubAppConfig, error)
+	// SaveConfig saves the GitHub App configuration.
+	SaveConfig(ctx context.Context, config *models.GitHubAppConfig) error
+	// ResetConfig clears the GitHub App configuration.
+	ResetConfig(ctx context.Context) error
+
+	// CreateInstallation saves a new GitHub App installation.
+	CreateInstallation(ctx context.Context, inst *models.GitHubInstallation) error
+	// GetInstallation retrieves an installation by its ID.
+	GetInstallation(ctx context.Context, id int64) (*models.GitHubInstallation, error)
+	// ListInstallations retrieves all installations for a given user.
+	ListInstallations(ctx context.Context, userID string) ([]*models.GitHubInstallation, error)
+	// DeleteInstallation removes an installation.
+	DeleteInstallation(ctx context.Context, id int64) error
+}
+
+// GitHubAccountStore defines operations for GitHub OAuth account management.
+type GitHubAccountStore interface {
+	// Create saves a new GitHub account.
+	Create(ctx context.Context, account *models.GitHubAccount) error
+	// Get retrieves a GitHub account by its ID.
+	Get(ctx context.Context, id int64) (*models.GitHubAccount, error)
+	// GetByUserID retrieves a GitHub account by its associated user ID.
+	GetByUserID(ctx context.Context, userID string) (*models.GitHubAccount, error)
+	// Update updates an existing GitHub account.
+	Update(ctx context.Context, account *models.GitHubAccount) error
+	// Delete removes a GitHub account.
+	Delete(ctx context.Context, id int64) error
 }
 
 // AppStore defines operations for application management.
