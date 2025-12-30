@@ -187,10 +187,10 @@ func (s *Server) setupRouter() {
 		})
 	})
 
-	// Web UI is now served separately on :8090
-	// Fallback to inline HTML for basic auth UI 
-	r.Get("/", s.serveAuthUI)
-	r.Get("/auth/device", s.serveDeviceAuthUI)
+	// Redirect root to Web UI
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+":8090", http.StatusTemporaryRedirect)
+	})
 
 	s.router = r
 }
@@ -200,18 +200,6 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ok"}`))
-}
-
-// serveAuthUI serves the main auth UI page.
-func (s *Server) serveAuthUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(authUIHTML))
-}
-
-// serveDeviceAuthUI serves the device authorization UI page.
-func (s *Server) serveDeviceAuthUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(deviceAuthUIHTML))
 }
 
 // Start starts the HTTP server.
