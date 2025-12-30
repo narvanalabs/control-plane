@@ -201,14 +201,22 @@ templ Server(data ServerData) {
 											@dialog.Title() { System Console }
 											@dialog.Description() { Interactive shell session }
 										</div>
-										@badge.Badge(badge.Props{ID: "term-status", Variant: badge.VariantOutline}) {
-											<span class="mr-1.5 size-2 rounded-full bg-zinc-500"></span>
-											Connecting...
-										}
 									</div>
 								}
-								<div class="rounded-md bg-zinc-950 p-2 border border-zinc-800">
-									<div id="terminal" class="h-[500px] w-full"></div>
+								<div class="rounded-md bg-zinc-950 border border-zinc-800 overflow-hidden">
+									<div class="flex items-center justify-between px-3 py-1.5 bg-zinc-900/50 border-b border-zinc-800">
+										<div class="flex items-center gap-1.5">
+											<div class="size-2.5 rounded-full bg-red-500/20 border border-red-500/40"></div>
+											<div class="size-2.5 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
+											<div class="size-2.5 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
+											<span class="ml-2 text-[10px] font-medium text-zinc-500 uppercase tracking-wider">sh — narvana</span>
+										</div>
+										@badge.Badge(badge.Props{ID: "term-status", Variant: badge.VariantOutline, Class: "h-5 text-[10px] px-1.5 border-zinc-800"}) {
+											<span class="mr-1 size-1.5 rounded-full bg-zinc-500"></span>
+											Connecting
+										}
+									</div>
+									<div id="terminal" class="h-[500px] w-full p-2"></div>
 								</div>
 								@dialog.Footer() {
 									<div class="flex flex-1 items-center gap-2">
@@ -217,8 +225,30 @@ templ Server(data ServerData) {
 										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-cmd", Attributes: templ.Attributes{"data-cmd": "df -h\n"}}) { disk }
 										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-cmd", Attributes: templ.Attributes{"data-cmd": "free -m\n"}}) { ram }
 									</div>
-									@dialog.Close() {
-										@button.Button(button.Props{Variant: button.VariantOutline}) { Close Terminal }
+									
+									@dialog.Dialog(dialog.Props{ID: "term-close-confirm"}) {
+										@dialog.Trigger() {
+											@button.Button(button.Props{Variant: button.VariantOutline}) { Close Terminal }
+										}
+										@dialog.Content() {
+											@dialog.Header() {
+												@dialog.Title() { Terminate Session? }
+												@dialog.Description() { 
+													Are you sure you want to close the terminal? All running processes in this session will be terminated.
+												}
+											}
+											@dialog.Footer() {
+												@dialog.Close() {
+													@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+												}
+												@button.Button(button.Props{
+													ID:      "confirm-terminate-btn",
+													Variant: button.VariantDestructive,
+												}) { 
+													Terminate & Close 
+												}
+											}
+										}
 									}
 								}
 							}
@@ -228,7 +258,10 @@ templ Server(data ServerData) {
 			}
 		</div>
 
-		// Load xterm.js
+		// Load JetBrains Mono and xterm.js
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
 		<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 		<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
@@ -266,6 +299,40 @@ templ Server(data ServerData) {
 					});
 				}
 
+				// Terminal Termination Logic
+				const confirmTerminateBtn = document.getElementById('confirm-terminate-btn');
+				if (confirmTerminateBtn) {
+					confirmTerminateBtn.addEventListener('click', function() {
+						const closeConfirmDialog = document.querySelector('[data-tui-dialog-close="term-close-confirm"]');
+						const mainTerminalDialog = document.querySelector('[data-tui-dialog-close="terminal-dialog"]');
+						
+						// Close both dialogs
+						if (closeConfirmDialog) closeConfirmDialog.click();
+						if (mainTerminalDialog) mainTerminalDialog.click();
+						
+						// Explicitly kill terminal
+						killTerminal();
+					});
+				}
+
+				function killTerminal() {
+					if (ws) {
+						// Send termination signal if possible, or just close
+						if (ws.readyState === WebSocket.OPEN) {
+							ws.send(JSON.stringify({ type: 'terminate' }));
+							setTimeout(() => ws.close(), 100);
+						} else {
+							ws.close();
+						}
+						ws = null;
+					}
+					if (term) {
+						term.dispose();
+						term = null;
+						document.getElementById('terminal').innerHTML = '';
+					}
+				}
+
 				// Terminal Logic
 				let term = null;
 				let fitAddon = null;
@@ -281,14 +348,34 @@ templ Server(data ServerData) {
 							setTimeout(() => {
 								term = new Terminal({
 									cursorBlink: true,
+									cursorStyle: 'underline',
 									theme: {
 										background: '#09090b',
-										foreground: '#a1a1aa',
-										cursor: '#f4f4f5',
-										selectionBackground: '#27272a'
+										foreground: '#d4d4d8',
+										cursor: '#71717a',
+										selectionBackground: '#27272a',
+										black: '#09090b',
+										red: '#ef4444',
+										green: '#22c55e',
+										yellow: '#f59e0b',
+										blue: '#3b82f6',
+										magenta: '#a855f7',
+										cyan: '#06b6d4',
+										white: '#fafafa',
+										brightBlack: '#71717a',
+										brightRed: '#f87171',
+										brightGreen: '#4ade80',
+										brightYellow: '#fbbf24',
+										brightBlue: '#60a5fa',
+										brightMagenta: '#c084fc',
+										brightCyan: '#22d3ee',
+										brightWhite: '#ffffff'
 									},
-									fontSize: 13,
-									fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, "Courier New", monospace'
+									fontSize: 14,
+									lineHeight: 1.2,
+									fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
+									// Increase buffer for scrollback
+									scrollback: 5000
 								});
 								fitAddon = new FitAddon.FitAddon();
 								term.loadAddon(fitAddon);
