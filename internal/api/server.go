@@ -167,6 +167,15 @@ func (s *Server) setupRouter() {
 			})
 		})
 
+		// GitHub routes
+		r.Route("/github", func(r chi.Router) {
+			r.Get("/setup", githubHandler.ManifestStart)
+			r.Post("/config", githubHandler.SaveConfigManual)
+			r.Get("/config", githubHandler.GetConfig)
+			r.Get("/install", githubHandler.AppInstall)
+			r.Get("/installations", githubHandler.ListInstallations)
+			r.Get("/repos", githubHandler.ListRepos)
+			r.Get("/connect", githubHandler.OAuthStart)
 			r.Delete("/config", githubHandler.ResetConfig)
 		})
 
