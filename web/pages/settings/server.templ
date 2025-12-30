@@ -295,7 +295,7 @@ templ Server(data ServerData) {
 								term.open(document.getElementById('terminal'));
 								fitAddon.fit();
 
-								initWebSocket();
+								ws = initWebSocket(term, fitAddon);
 
 								term.onData(data => {
 									if (ws && ws.readyState === WebSocket.OPEN) {
@@ -303,7 +303,16 @@ templ Server(data ServerData) {
 									}
 								});
 
-								window.addEventListener('resize', () => fitAddon.fit());
+								window.addEventListener('resize', () => {
+									fitAddon.fit();
+									if (ws && ws.readyState === WebSocket.OPEN) {
+										ws.send(JSON.stringify({
+											type: 'resize',
+											rows: term.rows,
+											cols: term.cols
+										}));
+									}
+								});
 
 								document.querySelectorAll('.quick-cmd').forEach(btn => {
 									btn.addEventListener('click', () => {
@@ -318,7 +327,7 @@ templ Server(data ServerData) {
 						} else {
 							// Re-connect or just focus
 							if (!ws || ws.readyState !== WebSocket.OPEN) {
-								initWebSocket();
+								ws = initWebSocket(term, fitAddon);
 							}
 							setTimeout(() => {
 								fitAddon.fit();
@@ -328,25 +337,33 @@ templ Server(data ServerData) {
 					});
 				}
 
-				function initWebSocket() {
+				function initWebSocket(term, fitAddon) {
 					const statusBadge = document.getElementById('term-status');
 					const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-					ws = new WebSocket(`${protocol}//${window.location.host}/api/server/console/ws`);
-					ws.binaryType = 'arraybuffer';
+					const newWs = new WebSocket(`${protocol}//${window.location.host}/api/server/console/ws`);
+					newWs.binaryType = 'arraybuffer';
 
-					ws.onopen = () => {
+					newWs.onopen = () => {
 						if (statusBadge) statusBadge.innerHTML = '<span class="mr-1.5 size-2 rounded-full bg-green-500"></span> Connected';
 						term.focus();
+						// Send initial size
+						newWs.send(JSON.stringify({
+							type: 'resize',
+							rows: term.rows,
+							cols: term.cols
+						}));
 					};
 
-					ws.onmessage = (event) => {
+					newWs.onmessage = (event) => {
 						term.write(new Uint8Array(event.data));
 					};
 
-					ws.onclose = () => {
+					newWs.onclose = () => {
 						if (statusBadge) statusBadge.innerHTML = '<span class="mr-1.5 size-2 rounded-full bg-red-500"></span> Disconnected';
 						term.write('\r\n\x1b[31mTerminal connection closed.\x1b[0m\r\n');
 					};
+
+					return newWs;
 				}
 			});
 		</script>
