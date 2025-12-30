@@ -70,6 +70,12 @@ func main() {
 		
 		// SSE log stream proxy
 		r.Get("/api/logs/stream", handleLogStream)
+		r.Get("/api/server/logs/stream", handleServerLogStream)
+		r.Get("/api/server/logs/download", handleServerLogDownload)
+
+		// Server management pages
+		r.Get("/settings/server/logs", handleSettingsServerLogs)
+		r.Get("/settings/server/stats", handleSettingsServerStats)
 
 		// GitHub proxy routes
 		r.Get("/api/github/config", handleGetGitHubConfig)
@@ -373,6 +379,54 @@ func handleLogStream(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
 	
+	// Rewrite path: /api/logs/stream?app_id=XYZ -> /v1/apps/XYZ/logs/stream
+	appID := r.URL.Query().Get("app_id")
+	if appID != "" {
+		r.URL.Path = fmt.Sprintf("/v1/apps/%s/logs/stream", appID)
+	} else {
+		// Fallback: just strip /api/ and prefix /v1/
+		r.URL.Path = "/v1" + r.URL.Path[4:]
+	}
+	
+	proxy.ServeHTTP(w, r)
+}
+
+func handleServerLogStream(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	// Add auth token if present
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	// Rewrite path: /api/server/logs/stream -> /v1/server/logs/stream
+	r.URL.Path = "/v1/server/logs/stream"
+	
+	proxy.ServeHTTP(w, r)
+}
+func handleServerLogDownload(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	// Add auth token if present
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	// Rewrite path: /api/server/logs/download -> /v1/server/logs/download
+	r.URL.Path = "/v1/server/logs/download"
+	
 	proxy.ServeHTTP(w, r)
 }
 
@@ -650,6 +704,14 @@ func handleSettingsServerUpdate(w http.ResponseWriter, r *http.Request) {
 func handleSettingsAPIKeys(w http.ResponseWriter, r *http.Request) {
 	data := settings_page.APIKeysData{}
 	settings_page.APIKeys(data).Render(r.Context(), w)
+}
+
+func handleSettingsServerLogs(w http.ResponseWriter, r *http.Request) {
+	settings_page.ServerLogs(settings_page.ServerLogsData{}).Render(r.Context(), w)
+}
+
+func handleSettingsServerStats(w http.ResponseWriter, r *http.Request) {
+	settings_page.ServerStats(settings_page.ServerStatsData{}).Render(r.Context(), w)
 }
 
 // Suppress unused import warning
