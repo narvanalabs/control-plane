@@ -241,15 +241,22 @@ func (h *ServerLogsHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if mt == websocket.TextMessage {
-			// Check for control messages (e.g., resize)
+			// Check for control messages (e.g., resize, terminate)
 			var ctrl struct {
 				Type string `json:"type"`
 				Rows uint16 `json:"rows"`
 				Cols uint16 `json:"cols"`
 			}
-			if err := json.Unmarshal(msg, &ctrl); err == nil && ctrl.Type == "resize" {
-				_ = pty.Setsize(f, &pty.Winsize{Rows: ctrl.Rows, Cols: ctrl.Cols})
-				continue
+			if err := json.Unmarshal(msg, &ctrl); err == nil {
+				if ctrl.Type == "resize" {
+					_ = pty.Setsize(f, &pty.Winsize{Rows: ctrl.Rows, Cols: ctrl.Cols})
+					continue
+				}
+				if ctrl.Type == "terminate" {
+					h.logger.Info("terminal termination requested")
+					c.Process.Kill()
+					return
+				}
 			}
 		}
 
