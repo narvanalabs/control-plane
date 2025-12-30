@@ -35,20 +35,31 @@ func NewGitHubHandler(st store.Store, logger *slog.Logger) *GitHubHandler {
 
 // getBaseURLs determines the web and API base URLs from the request and environment.
 func (h *GitHubHandler) getBaseURLs(r *http.Request) (string, string) {
-	// 1. Determine API URL from current request
+	ctx := r.Context()
+
+	// 1. Check database settings first (source of truth)
+	dbDomain, _ := h.store.Settings().Get(ctx, "server_domain")
+
+	// 2. Determine scheme
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
+
+	// 3. Determine API URL
 	host := r.Host
 	if forwardHost := r.Header.Get("X-Forwarded-Host"); forwardHost != "" {
 		host = forwardHost
 	}
 	detectedAPI := fmt.Sprintf("%s://%s", scheme, host)
 
-	// 2. Determine Web URL (can be different from API in dev or split environments)
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = detectedAPI
+	}
+
+	// 4. Determine Web URL
 	detectedWeb := detectedAPI
-	// Check for explicit override from our own web server
 	if webOverride := r.URL.Query().Get("web_url"); webOverride != "" {
 		detectedWeb = webOverride
 	} else if origin := r.Header.Get("Origin"); origin != "" {
@@ -64,9 +75,28 @@ func (h *GitHubHandler) getBaseURLs(r *http.Request) (string, string) {
 		webURL = detectedWeb
 	}
 
-	apiURL := os.Getenv("API_URL")
-	if apiURL == "" {
-		apiURL = detectedAPI
+	// 5. Override if database setting exists and isn't just "localhost"
+	if dbDomain != "" && dbDomain != "localhost" {
+		// If it's an IP, use it directly. If it's a domain, use it directly.
+		// We'll assume the ports are standard or same as detected
+		h.logger.Debug("using server_domain from settings", "domain", dbDomain)
+
+		// We need to be careful with ports. 
+		// For now, if dbDomain doesn't have a port, we'll append standard ports if they exist in detected URLs
+		apiUrlObj, _ := url.Parse(apiURL)
+		webUrlObj, _ := url.Parse(webURL)
+
+		apiHost := dbDomain
+		if apiUrlObj != nil && apiUrlObj.Port() != "" {
+			apiHost = dbDomain + ":" + apiUrlObj.Port()
+		}
+
+		webHost := dbDomain
+		if webUrlObj != nil && webUrlObj.Port() != "" {
+			webHost = dbDomain + ":" + webUrlObj.Port()
+		}
+
+		return fmt.Sprintf("%s://%s", scheme, webHost), fmt.Sprintf("%s://%s", scheme, apiHost)
 	}
 
 	return webURL, apiURL
