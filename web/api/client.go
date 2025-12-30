@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -502,59 +503,90 @@ func (c *Client) UpdateSettings(ctx context.Context, settings map[string]string)
 // Dashboard Methods
 // ============================================================================
 
-// GetDashboardData fetches all dashboard data.
+// GetDashboardData fetches all dashboard data in parallel for better performance.
 func (c *Client) GetDashboardData(ctx context.Context) (*DashboardStats, []RecentDeployment, []NodeHealth, error) {
 	stats := &DashboardStats{}
 	var recentDeployments []RecentDeployment
 	var nodeHealth []NodeHealth
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
-	// Fetch apps
-	apps, err := c.ListApps(ctx)
-	if err == nil {
-		stats.TotalApps = len(apps)
+	// 1. Fetch Apps and Nodes in parallel
+	wg.Add(2)
+	var apps []App
+	var nodes []Node
+	
+	go func() {
+		defer wg.Done()
+		if a, err := c.ListApps(ctx); err == nil {
+			mu.Lock()
+			apps = a
+			stats.TotalApps = len(apps)
+			mu.Unlock()
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if n, err := c.ListNodes(ctx); err == nil {
+			mu.Lock()
+			nodes = n
+			for _, node := range nodes {
+				if node.Healthy {
+					stats.HealthyNodes++
+				}
+				nh := NodeHealth{
+					Name:    node.Hostname,
+					Address: node.Address,
+					Healthy: node.Healthy,
+				}
+				if node.Resources != nil && node.Resources.CPUTotal > 0 {
+					nh.CPUPercent = int(((node.Resources.CPUTotal - node.Resources.CPUAvailable) / node.Resources.CPUTotal) * 100)
+				}
+				if node.Resources != nil && node.Resources.MemoryTotal > 0 {
+					nh.MemPercent = int(((float64(node.Resources.MemoryTotal) - float64(node.Resources.MemoryAvailable)) / float64(node.Resources.MemoryTotal)) * 100)
+				}
+				nodeHealth = append(nodeHealth, nh)
+			}
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
+
+	// 2. Fetch recent deployments from all apps in parallel
+	if len(apps) > 0 {
+		wg.Add(len(apps))
+		for _, app := range apps {
+			go func(a App) {
+				defer wg.Done()
+				deployments, err := c.ListAppDeployments(ctx, a.ID)
+				if err == nil {
+					mu.Lock()
+					defer mu.Unlock()
+					for _, d := range deployments {
+						if d.Status == "running" {
+							stats.ActiveDeployments++
+						}
+						// Add to recent (limit to first 10, then sorted/sliced later if needed)
+						if len(recentDeployments) < 10 {
+							recentDeployments = append(recentDeployments, RecentDeployment{
+								AppName:     a.Name,
+								ServiceName: d.ServiceName,
+								Status:      d.Status,
+								TimeAgo:     formatTimeAgo(d.CreatedAt),
+							})
+						}
+					}
+				}
+			}(app)
+		}
+		wg.Wait()
 	}
 
-	// Fetch nodes
-	nodes, err := c.ListNodes(ctx)
-	if err == nil {
-		for _, node := range nodes {
-			if node.Healthy {
-				stats.HealthyNodes++
-			}
-			nh := NodeHealth{
-				Name:    node.Hostname,
-				Address: node.Address,
-				Healthy: node.Healthy,
-			}
-			if node.Resources != nil && node.Resources.CPUTotal > 0 {
-				nh.CPUPercent = int(((node.Resources.CPUTotal - node.Resources.CPUAvailable) / node.Resources.CPUTotal) * 100)
-			}
-			if node.Resources != nil && node.Resources.MemoryTotal > 0 {
-				nh.MemPercent = int(((float64(node.Resources.MemoryTotal) - float64(node.Resources.MemoryAvailable)) / float64(node.Resources.MemoryTotal)) * 100)
-			}
-			nodeHealth = append(nodeHealth, nh)
-		}
-	}
-
-	// Fetch recent deployments from all apps
-	for _, app := range apps {
-		deployments, err := c.ListAppDeployments(ctx, app.ID)
-		if err == nil {
-			for _, d := range deployments {
-				if d.Status == "running" {
-					stats.ActiveDeployments++
-				}
-				// Add to recent (limit to first 5)
-				if len(recentDeployments) < 5 {
-					recentDeployments = append(recentDeployments, RecentDeployment{
-						AppName:     app.Name,
-						ServiceName: d.ServiceName,
-						Status:      d.Status,
-						TimeAgo:     formatTimeAgo(d.CreatedAt),
-					})
-				}
-			}
-		}
+	// Limit to final 5 recent deployments if needed
+	if len(recentDeployments) > 5 {
+		recentDeployments = recentDeployments[:5]
 	}
 
 	return stats, recentDeployments, nodeHealth, nil
