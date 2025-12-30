@@ -65,7 +65,7 @@ chown -R narvana:narvana /var/log/narvana
 chown -R narvana:narvana /tmp/narvana-builds
 
 # 4. Environment Configuration
-echo -e "\n${BLUE}Step 3: Generating environment configuration...${NC}"
+echo -e "\n${BLUE}Step 3: Generating/Repairing environment configuration...${NC}"
 
 # Detect Public IP with multiple fallbacks
 echo "Detecting public IP..."
@@ -75,11 +75,12 @@ if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "your-ip" ]; then
     PUBLIC_IP="your-server-ip"
 fi
 
-if [ ! -f /etc/narvana/control-plane.env ]; then
+ENV_FILE="/etc/narvana/control-plane.env"
+if [ ! -f "$ENV_FILE" ]; then
     JWT_SECRET=$(openssl rand -hex 32)
     DB_PASSWORD=$(openssl rand -hex 16)
     
-    cat > /etc/narvana/control-plane.env <<EOF
+    cat > "$ENV_FILE" <<EOF
 # Narvana Control Plane Configuration
 DATABASE_URL=postgres://narvana:${DB_PASSWORD}@localhost:5432/narvana?sslmode=disable
 JWT_SECRET=${JWT_SECRET}
@@ -90,33 +91,48 @@ GRPC_PORT=9090
 WEB_PORT=8090
 WORKER_WORKDIR=/tmp/narvana-builds
 EOF
-    echo -e "${GREEN}✓ Generated unique JWT_SECRET and Database password.${NC}"
-    echo -e "${GREEN}✓ Detected Public IP: ${PUBLIC_IP}${NC}"
+    echo -e "${GREEN}✓ Created new environment file.${NC}"
 else
-    echo -e "Environment file already exists at /etc/narvana/control-plane.env"
-fi
-chmod 600 /etc/narvana/control-plane.env
-chown narvana:narvana /etc/narvana/control-plane.env
-
-# 5. Database Setup
-echo -e "\n${BLUE}Step 4: Setting up PostgreSQL...${NC}"
-
-# If env file exists, extract the password to ensure migrations can run on re-runs
-if [ -f /etc/narvana/control-plane.env ]; then
-    # Improved regex to handle password correctly
-    DB_PASSWORD=$(grep DATABASE_URL /etc/narvana/control-plane.env | sed -n 's|.*//[^:]*:\([^@]*\)@.*|\1|p')
+    echo -e "Environment file exists. Checking for health..."
     
-    # Fix corrupted passwords (e.g., "narvana:password") from previous script versions
-    if [[ "$DB_PASSWORD" == "narvana:"* ]]; then
-        DB_PASSWORD="${DB_PASSWORD#narvana:}"
-        # Update the file with the cleaned password
-        sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgres://narvana:${DB_PASSWORD}@localhost:5432/narvana?sslmode=disable|" /etc/narvana/control-plane.env
-        echo "Fixed malformed DATABASE_URL in /etc/narvana/control-plane.env"
+    # 1. Ensure API_URL exists (it was missing in early versions)
+    if ! grep -q "API_URL=" "$ENV_FILE"; then
+        echo "API_URL=http://localhost:8080" >> "$ENV_FILE"
+        echo "Added missing API_URL to $ENV_FILE"
+    fi
+
+    # 2. Fix malformed/unsafe DATABASE_URL (especially if password contains / or :)
+    CURRENT_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | cut -d'=' -f2-)
+    
+    # Check if URL looks broken (e.g. invalid port error from logs suggested colon/slash issues)
+    # We'll extract the password safely and regenerate if it looks like it came from a broken base64 or has colons
+    EXTRACTED_PASS=$(echo "$CURRENT_URL" | sed -n 's|.*//[^:]*:\([^@]*\)@.*|\1|p')
+    
+    if [[ -z "$EXTRACTED_PASS" ]] || [[ "$EXTRACTED_PASS" == *":"* ]] || [[ "$EXTRACTED_PASS" == *"/"* ]]; then
+        echo -e "${RED}Warning: Malformed or unsafe DATABASE_URL detected. Regenerating password...${NC}"
+        NEW_PASS=$(openssl rand -hex 16)
+        sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgres://narvana:${NEW_PASS}@localhost:5432/narvana?sslmode=disable|" "$ENV_FILE"
+        DB_PASSWORD="$NEW_PASS"
+        FORCE_DB_UPDATE=true
+    else
+        DB_PASSWORD="$EXTRACTED_PASS"
     fi
 fi
+chmod 600 "$ENV_FILE"
+chown narvana:narvana "$ENV_FILE"
 
+# 5. Database Setup
+echo -e "\n${BLUE}Step 4: Syncing PostgreSQL...${NC}"
+
+# Ensure user and database exist
 sudo -u postgres psql -c "CREATE USER narvana WITH PASSWORD '${DB_PASSWORD}';" || true
 sudo -u postgres psql -c "CREATE DATABASE narvana OWNER narvana;" || true
+
+# If we regenerated the password, force update it in Postgres
+if [ "$FORCE_DB_UPDATE" = true ]; then
+    echo "Updating PostgreSQL password for 'narvana' user..."
+    sudo -u postgres psql -c "ALTER USER narvana WITH PASSWORD '${DB_PASSWORD}';"
+fi
 
 echo "Running database migrations..."
 for f in migrations/*.sql; do
