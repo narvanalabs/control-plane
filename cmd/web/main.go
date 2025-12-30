@@ -31,6 +31,7 @@ func main() {
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(sidebarStateMiddleware)
 
 	// Static assets
 	fs := http.FileServer(http.Dir("web/assets"))
@@ -153,6 +154,19 @@ func userContextMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), "user", user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+const SidebarStateKey = "sidebar-collapsed"
+
+func sidebarStateMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		collapsed := false
+		if cookie, err := r.Cookie("sidebar-collapsed"); err == nil {
+			collapsed = cookie.Value == "true"
+		}
+		ctx := context.WithValue(r.Context(), SidebarStateKey, collapsed)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
