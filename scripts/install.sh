@@ -76,8 +76,8 @@ if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "your-ip" ]; then
 fi
 
 if [ ! -f /etc/narvana/control-plane.env ]; then
-    JWT_SECRET=$(openssl rand -base64 32)
-    DB_PASSWORD=$(openssl rand -base64 16)
+    JWT_SECRET=$(openssl rand -hex 32)
+    DB_PASSWORD=$(openssl rand -hex 16)
     
     cat > /etc/narvana/control-plane.env <<EOF
 # Narvana Control Plane Configuration
@@ -103,7 +103,16 @@ echo -e "\n${BLUE}Step 4: Setting up PostgreSQL...${NC}"
 
 # If env file exists, extract the password to ensure migrations can run on re-runs
 if [ -f /etc/narvana/control-plane.env ]; then
-    DB_PASSWORD=$(grep DATABASE_URL /etc/narvana/control-plane.env | sed -n 's/.*:\(.*\)@.*/\1/p')
+    # Improved regex to handle password correctly
+    DB_PASSWORD=$(grep DATABASE_URL /etc/narvana/control-plane.env | sed -n 's|.*//[^:]*:\([^@]*\)@.*|\1|p')
+    
+    # Fix corrupted passwords (e.g., "narvana:password") from previous script versions
+    if [[ "$DB_PASSWORD" == "narvana:"* ]]; then
+        DB_PASSWORD="${DB_PASSWORD#narvana:}"
+        # Update the file with the cleaned password
+        sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgres://narvana:${DB_PASSWORD}@localhost:5432/narvana?sslmode=disable|" /etc/narvana/control-plane.env
+        echo "Fixed malformed DATABASE_URL in /etc/narvana/control-plane.env"
+    fi
 fi
 
 sudo -u postgres psql -c "CREATE USER narvana WITH PASSWORD '${DB_PASSWORD}';" || true
