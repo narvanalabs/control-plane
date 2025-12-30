@@ -1,0 +1,298 @@
+package git
+
+import (
+	"fmt"
+	
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/table"
+	"github.com/narvanalabs/control-plane/web/components/checkbox"
+	"github.com/narvanalabs/control-plane/web/api"
+)
+
+// IndexData holds the data for the git settings page
+type IndexData struct {
+	Status        api.GitHubConfigStatus
+	Installations []api.GitHubInstallation
+	SuccessMsg    string
+	ErrorMsg      string
+}
+
+// Index renders the git settings page
+templ Index(data IndexData) {
+	@layouts.PageWithSidebar("Git Settings", "/git") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
+		<div class="space-y-6">
+			<div>
+				<h1 class="text-2xl font-bold">Git Settings</h1>
+				<p class="text-muted-foreground">Manage your Git provider connections</p>
+			</div>
+
+			<div class="space-y-6">
+				<div class="flex items-center gap-3 border-b pb-2">
+					@icon.Github(icon.Props{Class: "size-6"})
+					<h2 class="text-lg font-semibold">GitHub</h2>
+				</div>
+
+			if !data.Status.Configured {
+				@card.Card(card.Props{Class: "border-primary/20 bg-primary/5"}) {
+					@card.Header() {
+						<div class="flex items-center gap-3">
+							<div class="p-2 bg-primary/10 rounded-lg">
+								@icon.Github(icon.Props{Class: "size-8"})
+							</div>
+							<div>
+								@card.Title() { GitHub }
+								@card.Description() { Configure GitHub repositories for deployments. }
+							</div>
+						</div>
+					}
+					@card.Content() {
+						<div id="git-connection-section" class="space-y-6 max-w-lg">
+							<p class="text-sm leading-relaxed text-muted-foreground">
+								Connect your GitHub instance using a refined GitHub App (Recommended) or a standard OAuth App with manual configuration.
+							</p>
+
+							<div class="grid grid-cols-2 p-1 bg-zinc-900/50 border border-zinc-800/50 rounded-xl">
+								<button id="tab-github-app" class="flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg bg-zinc-800 text-white shadow-sm transition-all">
+									@icon.Zap(icon.Props{Class: "size-4"})
+									GitHub App
+								</button>
+								<button id="tab-oauth-app" class="flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:text-white transition-all">
+									@icon.Settings(icon.Props{Class: "size-4"})
+									OAuth App
+								</button>
+							</div>
+
+							<!-- GitHub App Manifest Flow -->
+							<div id="panel-github-app" class="space-y-6 animate-in fade-in duration-300">
+								<div id="git-setup-options" class="space-y-6 p-5 rounded-xl border border-zinc-800/50 bg-zinc-950/50">
+									<div class="space-y-3">
+										@label.Label(label.Props{For: "git-app-name", Class: "text-sm font-semibold"}) { GitHub App Name }
+										@input.Input(input.Props{
+											ID:          "git-app-name",
+											Placeholder: "e.g. Narvana-App",
+											Class:       "h-10",
+										})
+										<p class="text-[11px] text-muted-foreground">
+											Make sure this name is unique across all of GitHub.
+										</p>
+									</div>
+
+									<div class="space-y-4 pt-4 border-t border-zinc-800/50">
+										<p class="text-sm font-semibold">Account Type</p>
+										<div class="grid gap-3">
+											<div class="flex items-center gap-3">
+												@checkbox.Checkbox(checkbox.Props{
+													ID: "git-is-org",
+												})
+												<div class="grid gap-1.5 leading-none">
+													@label.Label(label.Props{For: "git-is-org", Class: "text-sm font-medium cursor-pointer select-none"}) { Organization }
+													<p class="text-[11px] text-muted-foreground">Uncheck for Personal Account (Default)</p>
+												</div>
+											</div>
+										</div>
+									</div>
+									
+									<div id="git-org-input-group" class="hidden space-y-3 pt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+										@label.Label(label.Props{For: "git-org-name", Class: "text-xs font-semibold uppercase tracking-wider text-muted-foreground"}) { Organization Name }
+										@input.Input(input.Props{
+											ID:          "git-org-name",
+											Placeholder: "e.g. narvanalabs",
+											Class:       "h-10",
+										})
+										<p class="text-[11px] text-muted-foreground">
+											The App will be created under this organization.
+										</p>
+									</div>
+								</div>
+
+								@button.Button(button.Props{
+									ID:    "btn-connect-github-manifest",
+									Size:  button.SizeLg,
+									Class: "w-full font-semibold px-8",
+								}) {
+									@icon.Zap(icon.Props{Class: "size-4 mr-2"})
+									Create & Connect GitHub App
+								}
+							</div>
+
+							<!-- OAuth Manual Flow -->
+							<div id="panel-oauth-app" class="hidden space-y-6 animate-in fade-in duration-300">
+								<div class="space-y-6 p-5 rounded-xl border border-zinc-800/50 bg-zinc-950/50">
+									<div class="space-y-3">
+										@label.Label(label.Props{For: "git-oauth-client-id", Class: "text-sm font-semibold"}) { Client ID }
+										@input.Input(input.Props{
+											ID:    "git-oauth-client-id",
+											Class: "h-10",
+										})
+									</div>
+									<div class="space-y-3">
+										@label.Label(label.Props{For: "git-oauth-client-secret", Class: "text-sm font-semibold"}) { Client Secret }
+										@input.Input(input.Props{
+											ID:   "git-oauth-client-secret",
+											Type: "password",
+											Class: "h-10",
+										})
+									</div>
+									<p class="text-[11px] text-muted-foreground">
+										Create a <a href="https://github.com/settings/developers" target="_blank" class="text-primary hover:underline">Standard OAuth App</a> on GitHub and provide the credentials here.
+									</p>
+								</div>
+
+								@button.Button(button.Props{
+									ID:    "btn-save-oauth-config",
+									Size:  button.SizeLg,
+									Class: "w-full font-semibold px-8",
+								}) {
+									@icon.Save(icon.Props{Class: "size-4 mr-2"})
+									Save OAuth Configuration
+								}
+							</div>
+						</div>
+					}
+				}
+			} else {
+				<div class="grid gap-6">
+					@card.Card() {
+						@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0"}) {
+							<div>
+								@card.Title() { GitHub Connection }
+								@card.Description() { 
+									if data.Status.ConfigType == "app" {
+										<span>Linked via GitHub App</span>
+									} else {
+										<span>Linked via OAuth App</span>
+									}
+								}
+							</div>
+							@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { 
+								Connected 
+							}
+						}
+						@card.Content() {
+							<p class="text-sm text-muted-foreground">
+								Narvana is configured to interact with GitHub. You can manage connected repositories below.
+							</p>
+						}
+						@card.Footer() {
+							if data.Status.ConfigType == "app" {
+								@button.Button(button.Props{
+									Variant: button.VariantOutline,
+									Size:    button.SizeSm,
+									Href:    fmt.Sprintf("https://github.com/settings/apps/%s", *data.Status.Slug),
+									Attributes: templ.Attributes{"target": "_blank"},
+								}) {
+									@icon.ExternalLink(icon.Props{Class: "size-4 mr-2"})
+									View on GitHub
+								}
+							}
+							@button.Button(button.Props{
+								Variant: button.VariantOutline,
+								Size:    button.SizeSm,
+								ID:      "btn-reconfigure-github",
+								Class:   "ml-2",
+							}) {
+								@icon.Settings(icon.Props{Class: "size-4 mr-2"})
+								Reconfigure
+							}
+						}
+					}
+
+					@card.Card() {
+						@card.Header(card.HeaderProps{Class: "flex flex-row items-center justify-between space-y-0"}) {
+							<div>
+								@card.Title() { 
+									if data.Status.ConfigType == "app" {
+										<span>Installations</span>
+									} else {
+										<span>Connected Accounts</span>
+									}
+								}
+								@card.Description() { 
+									if data.Status.ConfigType == "app" {
+										<span>Accounts where Narvana is authorized</span>
+									} else {
+										<span>Directly connected GitHub accounts</span>
+									}
+								}
+							</div>
+							@button.Button(button.Props{
+								ID:    "btn-connect-github-instance",
+								Size:  button.SizeSm,
+								Variant: button.VariantDefault,
+							}) {
+								@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+								if data.Status.ConfigType == "app" {
+									<span>Add Installation</span>
+								} else {
+									<span>Connect Account</span>
+								}
+							}
+						}
+						@card.Content() {
+							if len(data.Installations) == 0 {
+								<div class="flex flex-col items-center justify-center py-12 border-2 border-dashed rounded-xl bg-zinc-950/30">
+									<div class="p-4 bg-zinc-900 rounded-full mb-4">
+										@icon.Github(icon.Props{Class: "size-8 text-muted-foreground"})
+									</div>
+									<h3 class="text-lg font-medium">No Installations Yet</h3>
+									<p class="text-sm text-muted-foreground max-w-xs text-center mt-1">
+										Install your GitHub App on specific accounts or organizations to start listing repositories.
+									</p>
+								</div>
+							} else {
+								@table.Table() {
+									@table.Header() {
+										@table.Row() {
+											@table.Head() { Account }
+											@table.Head() { Type }
+											@table.Head() { ID }
+											@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
+										}
+									}
+									@table.Body() {
+										for _, inst := range data.Installations {
+											@table.Row() {
+												@table.Cell() {
+													<div class="flex items-center gap-2">
+														@icon.User(icon.Props{Class: "size-4 text-muted-foreground"})
+														<span class="font-medium text-sm">{ inst.AccountLogin }</span>
+													</div>
+												}
+												@table.Cell() {
+													@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+														{ inst.AccountType }
+													}
+												}
+												@table.Cell() {
+													<span class="font-mono text-xs text-muted-foreground">{ fmt.Sprintf("%d", inst.ID) }</span>
+												}
+												@table.Cell(table.CellProps{Class: "text-right"}) {
+													@button.Button(button.Props{
+														Variant: button.VariantGhost,
+														Size:    button.SizeSm,
+														Href:    fmt.Sprintf("https://github.com/settings/installations/%d", inst.ID),
+														Attributes: templ.Attributes{"target": "_blank"},
+													}) {
+														Configure
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				</div>
+			}
+			</div>
+		</div>
+	}
+}
