@@ -181,7 +181,7 @@ func handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
 	resp, err := client.Register(r.Context(), email, password)
 	if err != nil {
-		auth.Register(auth.RegisterData{Error: "Registration failed"}).Render(r.Context(), w)
+		auth.Register(auth.RegisterData{Error: err.Error()}).Render(r.Context(), w)
 		return
 	}
 
