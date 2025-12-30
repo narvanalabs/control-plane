@@ -99,7 +99,10 @@ func getAuthToken(r *http.Request) string {
 }
 
 func getAPIClient(r *http.Request) *api.Client {
-	apiURL := os.Getenv("API_URL")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
 	if apiURL == "" {
 		apiURL = "http://localhost:8080"
 	}
