@@ -190,6 +190,8 @@ func (s *Server) setupRouter() {
 		serverLogsHandler := handlers.NewServerLogsHandler(s.logger)
 		r.Get("/server/logs/stream", serverLogsHandler.Stream)
 		r.Get("/server/logs/download", serverLogsHandler.Download)
+		r.Post("/server/restart", serverLogsHandler.Restart)
+		r.Get("/server/console/ws", serverLogsHandler.TerminalWS)
 	})
 
 	// Redirect root to Web UI
