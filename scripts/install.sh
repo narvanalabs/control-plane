@@ -220,20 +220,21 @@ systemctl restart narvana-api narvana-web narvana-worker
 echo -e "\n${BLUE}Step 7: Verifying services...${NC}"
 sleep 5 # Give services a moment to start
 
-check_service() {
-    local name=$1
-    local port=$2
-    if curl -s "http://127.0.0.1:${port}/health" > /dev/null || curl -s "http://127.0.0.1:${port}/login" > /dev/null; then
-        echo -e "${GREEN}✓ $name is responding on port $port${NC}"
+check_health() {
+    local url=$1
+    local name=$2
+    if curl -sf --max-time 5 "$url" > /dev/null; then
+        echo -e "${GREEN}✓ $name is healthy${NC}"
     else
-        echo -e "${RED}✗ $name is NOT responding on port $port${NC}"
+        echo -e "${RED}✗ $name is NOT healthy (or returned an error)${NC}"
         echo "Tailing logs for $name:"
-        journalctl -u $name -n 20 --no-pager
+        journalctl -u "$name" -n 20 --no-pager
+        return 1
     fi
 }
 
-check_service "narvana-api" 8080
-check_service "narvana-web" 8090
+check_health "http://127.0.0.1:8080/health" "narvana-api"
+check_health "http://127.0.0.1:8090/login" "narvana-web"
 
 # 9. Success Output
 echo -e "\n${GREEN}${BOLD}─────────────────────────────────────────────────────────────────${NC}"
