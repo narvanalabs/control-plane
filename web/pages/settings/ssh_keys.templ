@@ -1,0 +1,193 @@
+package settings
+
+import (
+	"time"
+	"fmt"
+	
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/table"
+	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/textarea"
+)
+
+// SSHKey represents a public SSH key
+type SSHKey struct {
+	ID          string
+	Name        string
+	Fingerprint string
+	Type        string // e.g., ssh-rsa, ed25519
+	CreatedAt   time.Time
+}
+
+// SSHKeysData holds the data for the SSH keys page
+type SSHKeysData struct {
+	Keys       []SSHKey
+	SuccessMsg string
+	ErrorMsg   string
+}
+
+// SSHKeys renders the SSH keys management page
+templ SSHKeys(data SSHKeysData) {
+	@layouts.PageWithSidebar("SSH Keys", "/settings/ssh-keys") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
+		<div class="max-w-4xl space-y-8">
+			<div>
+				<h1 class="text-2xl font-bold tracking-tight">SSH Keys</h1>
+				<p class="text-muted-foreground mt-1">Manage public keys used for secure Git and server access.</p>
+			</div>
+			
+			// Main Content Area
+			<div class="grid gap-6">
+				// Add Key Section
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Add New SSH Key }
+						@card.Description() { Paste your public key to authorize it for use with Narvana. }
+					}
+					@card.Content() {
+						<form method="POST" action="/settings/ssh-keys" class="space-y-4">
+							<div class="grid gap-4">
+								@form.Item() {
+									@label.Label(label.Props{For: "name"}) { Key Name }
+									@input.Input(input.Props{
+										ID:          "key_name",
+										Name:        "name",
+										Placeholder: "e.g., Work Laptop, Personal MacBook",
+										Attributes:  templ.Attributes{"required": true},
+									})
+								}
+								@form.Item() {
+									@label.Label(label.Props{For: "key"}) { Public Key }
+									@textarea.Textarea(textarea.Props{
+										ID:          "key",
+										Name:        "key",
+										Placeholder: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC...",
+										Rows:        5,
+										Class:       "font-mono",
+										Attributes:  templ.Attributes{"required": true},
+									})
+								}
+							</div>
+							<div class="flex justify-end">
+								@button.Button(button.Props{Type: "submit"}) {
+									@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+									Add SSH Key
+								}
+							</div>
+						</form>
+					}
+				}
+
+				// Key List Section
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Authorized Keys }
+						@card.Description() { These keys are authorized to access your services. }
+					}
+					@card.Content() {
+						if len(data.Keys) == 0 {
+							<div class="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg border-muted">
+								<div class="bg-muted p-3 rounded-full mb-4 text-muted-foreground">
+									@icon.Key(icon.Props{Class: "size-8"})
+								</div>
+								<h3 class="font-semibold text-lg">No SSH keys found</h3>
+								<p class="text-sm text-muted-foreground max-w-[250px] mt-1">
+									You haven't added any SSH keys to your account yet.
+								</p>
+							</div>
+						} else {
+							@table.Table() {
+								@table.Header() {
+									@table.Row() {
+										@table.Head() { Name }
+										@table.Head() { Fingerprint }
+										@table.Head() { Type }
+										@table.Head() { Added }
+										@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
+									}
+								}
+								@table.Body() {
+									for _, key := range data.Keys {
+										@table.Row() {
+											@table.Cell() {
+												<div class="flex items-center gap-2">
+													@icon.ShieldCheck(icon.Props{Class: "size-4 text-primary"})
+													<span class="font-medium">{ key.Name }</span>
+												</div>
+											}
+											@table.Cell() {
+												<code class="rounded bg-muted px-2 py-1 text-[11px] font-mono text-muted-foreground">
+													{ key.Fingerprint }
+												</code>
+											}
+											@table.Cell() {
+												@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "uppercase text-[10px]"}) { 
+													{ key.Type } 
+												}
+											}
+											@table.Cell() {
+												<span class="text-sm text-muted-foreground whitespace-nowrap">
+													{ formatSSHKeyTime(key.CreatedAt) }
+												</span>
+											}
+											@table.Cell(table.CellProps{Class: "text-right"}) {
+												@dialog.Dialog(dialog.Props{ID: "revoke-ssh-" + key.ID}) {
+													@dialog.Trigger() {
+														@button.Button(button.Props{
+															Variant: button.VariantGhost,
+															Size:    button.SizeIcon,
+															Class:   "text-muted-foreground hover:text-destructive",
+														}) {
+															@icon.Trash2(icon.Props{Class: "size-4"})
+														}
+													}
+													@dialog.Content() {
+														@dialog.Header() {
+															@dialog.Title() { Revoke SSH Key }
+															@dialog.Description() {
+																Are you sure you want to revoke the SSH key <strong>{ key.Name }</strong>? Access via this key will be denied immediately.
+															}
+														}
+														@dialog.Footer() {
+															@dialog.Close() {
+																@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+															}
+															<form method="POST" action={ templ.SafeURL("/settings/ssh-keys/" + key.ID + "/delete") }>
+																@button.Button(button.Props{Type: "submit", Variant: button.VariantDestructive}) { Revoke Key }
+															</form>
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			</div>
+		</div>
+	}
+}
+
+func formatSSHKeyTime(t time.Time) string {
+	diff := time.Since(t)
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(diff.Hours()))
+	default:
+		return t.Format("Jan 2, 2006")
+	}
+}

@@ -15,6 +15,10 @@ type Props struct {
 	Value      string
 	Checked    bool
 	Disabled   bool
+	// Icon overrides the default behavior and shows a custom icon inside the thumb
+	Icon templ.Component
+	// ShowThemeIcons is a special flag to keep the original theme behavior
+	ShowThemeIcons bool
 }
 
 templ Switch(props ...Props) {
@@ -54,12 +58,16 @@ templ Switch(props ...Props) {
 				)
 			}
 		>
-			<div class="absolute inset-0 flex items-center justify-center transition-all duration-300 data-[state=unchecked]:opacity-100 data-[state=checked]:opacity-0 data-[state=unchecked]:scale-100 data-[state=checked]:scale-0" data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }>
-				@icon.Sun(icon.Props{Class: "size-2.5 text-orange-500"})
-			</div>
-			<div class="absolute inset-0 flex items-center justify-center transition-all duration-300 data-[state=checked]:opacity-100 data-[state=unchecked]:opacity-0 data-[state=checked]:scale-100 data-[state=unchecked]:scale-0" data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }>
-				@icon.Moon(icon.Props{Class: "size-2.5 text-blue-400"})
-			</div>
+			if p.Icon != nil {
+				@p.Icon
+			} else if p.ShowThemeIcons {
+				<div class="absolute inset-0 flex items-center justify-center transition-all duration-300 data-[state=unchecked]:opacity-100 data-[state=checked]:opacity-0 data-[state=unchecked]:scale-100 data-[state=checked]:scale-0" data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }>
+					@icon.Sun(icon.Props{Class: "size-2.5 text-orange-500"})
+				</div>
+				<div class="absolute inset-0 flex items-center justify-center transition-all duration-300 data-[state=checked]:opacity-100 data-[state=unchecked]:opacity-0 data-[state=checked]:scale-100 data-[state=unchecked]:scale-0" data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }>
+					@icon.Moon(icon.Props{Class: "size-2.5 text-blue-400"})
+				</div>
+			}
 		</span>
 	</button>
 	// Hidden input for form submission

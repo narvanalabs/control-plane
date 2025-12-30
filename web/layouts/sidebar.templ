@@ -142,6 +142,16 @@ templ SidebarLayout(activePath string) {
 								<span>Git</span>
 							}
 						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/settings/notifications",
+								Tooltip:  "Notifications",
+								IsActive: isActive(activePath, "/settings/notifications"),
+							}) {
+								@icon.Bell(icon.Props{Class: "size-4"})
+								<span>Notifications</span>
+							}
+						}
 					}
 				}
 				@sidebar.Separator()
@@ -200,6 +210,14 @@ templ SidebarLayout(activePath string) {
 												IsActive: isActive(activePath, "/settings/api-keys"),
 											}) {
 												<span>API Keys</span>
+											}
+										}
+										@sidebar.MenuSubItem() {
+											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+												Href:     "/settings/ssh-keys",
+												IsActive: isActive(activePath, "/settings/ssh-keys"),
+											}) {
+												<span>SSH Keys</span>
 											}
 										}
 									}

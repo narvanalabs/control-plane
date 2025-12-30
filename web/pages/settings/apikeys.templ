@@ -14,6 +14,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/label"
 	"github.com/narvanalabs/control-plane/web/components/form"
 	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/alert"
 )
 
 // APIKey represents an API key
@@ -62,28 +63,24 @@ templ APIKeys(data APIKeysData) {
 			
 			// New key alert (shown once after creation)
 			if data.NewKey != "" {
-				<div class="rounded-lg border border-green-500/50 bg-green-500/10 p-4">
-					<div class="flex items-start gap-3">
-						@icon.Key(icon.Props{Class: "size-5 text-green-500 mt-0.5"})
-						<div class="flex-1">
-							<p class="font-medium text-green-500">API Key Created</p>
-							<p class="text-sm text-muted-foreground mt-1">
-								Copy this key now. You won't be able to see it again.
-							</p>
-							<div class="mt-2 flex items-center gap-2">
-								<code class="flex-1 rounded bg-muted px-3 py-2 font-mono text-sm">
-									{ data.NewKey }
-								</code>
-								@button.Button(button.Props{
-									Variant: button.VariantOutline,
-									Size:    button.SizeSm,
-								}) {
-									@icon.Copy(icon.Props{Class: "size-4"})
-								}
-							</div>
+				@alert.Alert(alert.Props{Class: "border-green-500/50 bg-green-500/10"}) {
+					@icon.Key(icon.Props{Class: "size-5 text-green-500"})
+					@alert.Title(alert.TitleProps{Class: "text-green-500"}) { API Key Created }
+					@alert.Description() {
+						<p>Copy this key now. You won't be able to see it again.</p>
+						<div class="mt-2 flex items-center gap-2">
+							<code class="flex-1 rounded bg-muted px-3 py-2 font-mono text-sm text-foreground">
+								{ data.NewKey }
+							</code>
+							@button.Button(button.Props{
+								Variant: button.VariantOutline,
+								Size:    button.SizeSm,
+							}) {
+								@icon.Copy(icon.Props{Class: "size-4"})
+							}
 						</div>
-					</div>
-				</div>
+					}
+				}
 			}
 			
 			// Create new key

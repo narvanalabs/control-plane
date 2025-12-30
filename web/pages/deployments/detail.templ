@@ -2,14 +2,12 @@ package deployments
 
 import (
 	"fmt"
-	"time"
 	
 	"github.com/narvanalabs/control-plane/web/layouts"
 	"github.com/narvanalabs/control-plane/web/components/button"
 	"github.com/narvanalabs/control-plane/web/components/card"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
-	"github.com/narvanalabs/control-plane/web/components/separator"
 	"github.com/narvanalabs/control-plane/web/api"
 )
 
@@ -17,15 +15,12 @@ import (
 type DetailData struct {
 	Deployment api.Deployment
 	AppName    string
-	Logs       []api.Log
-	SuccessMsg string
-	ErrorMsg   string
+	Node       *api.Node
 }
 
 // Detail renders the deployment detail page
 templ Detail(data DetailData) {
 	@layouts.PageWithSidebar("Deployment", "/deployments") {
-		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
 		<div class="space-y-6">
 			// Breadcrumb
 			@breadcrumb.Breadcrumb() {
@@ -38,7 +33,7 @@ templ Detail(data DetailData) {
 					@breadcrumb.Separator()
 					@breadcrumb.Item() {
 						@breadcrumb.Page() {
-							{ truncateDeployID(data.Deployment.ID) }
+							{ truncateID(data.Deployment.ID) }
 						}
 					}
 				}
@@ -46,140 +41,155 @@ templ Detail(data DetailData) {
 			
 			// Header
 			<div class="flex items-center justify-between">
-				<div>
-					<h1 class="text-2xl font-bold flex items-center gap-2">
-						{ data.AppName } / { data.Deployment.ServiceName }
-						@StatusBadge(data.Deployment.Status)
-					</h1>
-					<p class="text-muted-foreground">
-						Version { intToDeployString(data.Deployment.Version) } • { formatDeployTimeDetailed(data.Deployment.CreatedAt) }
-					</p>
+				<div class="space-y-1">
+					<div class="flex items-center gap-3">
+						<h1 class="text-3xl font-bold tracking-tight">
+							Deployment { truncateID(data.Deployment.ID) }
+						</h1>
+						@DeploymentStatusBadge(data.Deployment.Status)
+					</div>
+					<div class="flex items-center gap-2 text-muted-foreground font-medium">
+						<a href={ templ.SafeURL("/apps/" + data.Deployment.AppID) } class="hover:underline text-primary/80 font-bold tracking-tight">
+							{ data.AppName }
+						</a>
+						<span>•</span>
+						<span class="flex items-center gap-1">
+							@icon.Clock(icon.Props{Class: "size-3.5"})
+							Created { formatTime(data.Deployment.CreatedAt) }
+						</span>
+					</div>
 				</div>
 				<div class="flex items-center gap-2">
-					if data.Deployment.Status == "running" {
-						<form method="POST" action={ templ.SafeURL("/deployments/" + data.Deployment.ID + "/rollback") }>
-							@button.Button(button.Props{
-								Type:    "submit",
-								Variant: button.VariantOutline,
-							}) {
-								@icon.Undo2(icon.Props{Class: "size-4 mr-2"})
-								Rollback
-							}
-						</form>
-					}
+					<form method="POST" action={ templ.SafeURL("/deployments/" + data.Deployment.ID + "/rollback") }>
+						@button.Button(button.Props{
+							Type:    "submit",
+							Variant: button.VariantOutline,
+							Class:   "hover:bg-amber-500 hover:text-white transition-all duration-200",
+						}) {
+							@icon.History(icon.Props{Class: "size-4 mr-2"})
+							Rollback
+						}
+					</form>
 				</div>
 			</div>
 			
 			// Info Cards
-			<div class="grid gap-4 md:grid-cols-3">
-				@card.Card() {
+			<div class="grid gap-6 md:grid-cols-4">
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
 					@card.Header(card.HeaderProps{Class: "pb-2"}) {
-						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
-							Status
-						}
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Activity(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Status
+							}
+						</div>
 					}
 					@card.Content() {
-						<div class="text-2xl font-bold capitalize">{ data.Deployment.Status }</div>
+						<div class="text-2xl font-bold tracking-tight capitalize">{ data.Deployment.Status }</div>
 					}
 				}
 				
-				@card.Card() {
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
 					@card.Header(card.HeaderProps{Class: "pb-2"}) {
-						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
-							Node
-						}
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Server(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Node
+							}
+						</div>
 					}
 					@card.Content() {
-						if data.Deployment.NodeID != "" {
-							<div class="font-mono text-sm">{ data.Deployment.NodeID }</div>
+						if data.Node != nil {
+							<div class="text-lg font-semibold tracking-tight truncate" title={ data.Node.Hostname }>
+								{ data.Node.Hostname }
+							</div>
+							<div class="text-xs text-muted-foreground font-mono truncate">{ data.Node.Address }</div>
 						} else {
-							<div class="text-muted-foreground">Not assigned</div>
+							<div class="text-lg font-semibold tracking-tight text-muted-foreground">Unassigned</div>
 						}
 					}
 				}
 				
-				@card.Card() {
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
 					@card.Header(card.HeaderProps{Class: "pb-2"}) {
-						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
-							Duration
-						}
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Hash(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Version
+							}
+						</div>
 					}
 					@card.Content() {
-						<div class="text-2xl font-bold">{ formatDeployDuration(data.Deployment.CreatedAt, data.Deployment.UpdatedAt) }</div>
+						<div class="text-2xl font-bold tracking-tight">v{ fmt.Sprint(data.Deployment.Version) }</div>
+					}
+				}
+				
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
+					@card.Header(card.HeaderProps{Class: "pb-2"}) {
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Calendar(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Updated
+							}
+						</div>
+					}
+					@card.Content() {
+						<div class="text-lg font-semibold tracking-tight">{ data.Deployment.UpdatedAt.Format("Jan 2, 15:04") }</div>
 					}
 				}
 			</div>
-			
-			@separator.Separator()
-			
-			// Logs Section
-			@card.Card() {
-				@card.Header() {
-					@card.Title() {
-						Logs
+
+			// Configuration & Metadata
+			<div class="grid gap-6 md:grid-cols-2">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Service Details }
+						@card.Description() { Configuration for this deployment }
 					}
-					@card.Description() {
-						Deployment and application logs
-					}
-				}
-				@card.Content() {
-					if len(data.Logs) == 0 {
-						<div class="text-center py-8 text-muted-foreground">
-							<p>No logs available</p>
-							<p class="text-sm mt-1">Logs will appear here when the deployment runs</p>
-						</div>
-					} else {
-						<div class="bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 max-h-96 overflow-auto">
-							for _, log := range data.Logs {
-								<div class="flex gap-2">
-									<span class="text-zinc-500">{ log.Timestamp.Format("15:04:05") }</span>
-									<span class={ logLevelClass(log.Level) }>{ log.Level }</span>
-									<span>{ log.Message }</span>
+					@card.Content() {
+						<div class="space-y-4">
+							<div class="grid grid-cols-3 py-2 border-b border-border/40">
+								<span class="text-sm text-muted-foreground font-medium">Service Name</span>
+								<span class="col-span-2 text-sm font-bold font-mono tracking-tight uppercase">{ data.Deployment.ServiceName }</span>
+							</div>
+							<div class="grid grid-cols-3 py-2 border-b border-border/40">
+								<span class="text-sm text-muted-foreground font-medium">Git Reference</span>
+								<span class="col-span-2 text-sm font-mono truncate" title={ data.Deployment.GitRef }>
+									{ data.Deployment.GitRef }
+								</span>
+							</div>
+							if data.Deployment.GitCommit != "" {
+								<div class="grid grid-cols-3 py-2">
+									<span class="text-sm text-muted-foreground font-medium">Commit Hash</span>
+									<span class="col-span-2 text-sm font-mono truncate" title={ data.Deployment.GitCommit }>
+										{ data.Deployment.GitCommit }
+									</span>
 								</div>
 							}
 						</div>
 					}
 				}
-			}
+
+				@card.Card() {
+					@card.Header() {
+						@card.Title() { Timeline }
+						@card.Description() { Deployment lifecycle events }
+					}
+					@card.Content() {
+						<div class="space-y-4">
+							<div class="flex items-start gap-3">
+								<div class="mt-1 size-2 rounded-full bg-primary"></div>
+								<div class="space-y-1">
+									<p class="text-sm font-medium leading-none">Created</p>
+									<p class="text-xs text-muted-foreground">{ data.Deployment.CreatedAt.Format("Jan 2, 2006 15:04:05 MST") }</p>
+								</div>
+							</div>
+							// Add more timeline events here if available
+						</div>
+					}
+				}
+			</div>
 		</div>
 	}
 }
 
-func logLevelClass(level string) string {
-	switch level {
-	case "error":
-		return "text-red-400"
-	case "warn":
-		return "text-yellow-400"
-	case "info":
-		return "text-blue-400"
-	default:
-		return "text-zinc-400"
-	}
-}
-
-func truncateDeployID(id string) string {
-	if len(id) > 8 {
-		return id[:8] + "..."
-	}
-	return id
-}
-
-func intToDeployString(i int) string {
-	return fmt.Sprintf("%d", i)
-}
-
-func formatDeployTimeDetailed(t time.Time) string {
-	return t.Format("Jan 2, 2006 at 3:04 PM")
-}
-
-func formatDeployDuration(start, end time.Time) string {
-	d := end.Sub(start)
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
-}

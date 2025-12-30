@@ -9,6 +9,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/card"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
+	"github.com/narvanalabs/control-plane/web/components/badge"
 	"github.com/narvanalabs/control-plane/web/api"
 )
 
@@ -41,14 +42,23 @@ templ Detail(data DetailData) {
 			
 			// Header
 			<div class="flex items-center justify-between">
-				<div>
-					<h1 class="text-2xl font-bold flex items-center gap-2">
-						Build for { data.AppName }
+				<div class="space-y-1">
+					<div class="flex items-center gap-3">
+						<h1 class="text-3xl font-bold tracking-tight">
+							Build for { data.AppName }
+						</h1>
 						@BuildStatusBadge(data.Build.Status)
-					</h1>
-					<p class="text-muted-foreground">
-						Strategy: { data.Build.Strategy } • Started { formatBuildTime(data.Build.CreatedAt) }
-					</p>
+					</div>
+					<div class="flex items-center gap-2 text-muted-foreground font-medium">
+						<div class="flex items-center gap-1 uppercase text-[10px] font-bold tracking-wider px-2 py-0.5 rounded bg-muted w-fit border shadow-sm">
+							{ data.Build.Strategy }
+						</div>
+						<span>•</span>
+						<span class="flex items-center gap-1">
+							@icon.Clock(icon.Props{Class: "size-3.5"})
+							Started { formatBuildTime(data.Build.CreatedAt) }
+						</span>
+					</div>
 				</div>
 				<div class="flex items-center gap-2">
 					if data.Build.Status == "failed" {
@@ -56,6 +66,7 @@ templ Detail(data DetailData) {
 							@button.Button(button.Props{
 								Type:    "submit",
 								Variant: button.VariantOutline,
+								Class:   "hover:bg-primary hover:text-primary-foreground transition-all duration-200",
 							}) {
 								@icon.RefreshCw(icon.Props{Class: "size-4 mr-2"})
 								Retry Build
@@ -71,108 +82,176 @@ templ Detail(data DetailData) {
 			}
 			
 			// Info Cards
-			<div class="grid gap-4 md:grid-cols-4">
-				@card.Card() {
+			<div class="grid gap-6 md:grid-cols-4">
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
 					@card.Header(card.HeaderProps{Class: "pb-2"}) {
-						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
-							Status
-						}
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Activity(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Status
+							}
+						</div>
 					}
 					@card.Content() {
-						<div class="text-2xl font-bold capitalize">{ data.Build.Status }</div>
+						<div class="text-2xl font-bold tracking-tight capitalize">{ data.Build.Status }</div>
 					}
 				}
 				
-				@card.Card() {
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
 					@card.Header(card.HeaderProps{Class: "pb-2"}) {
-						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
-							Strategy
-						}
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Cpu(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Strategy
+							}
+						</div>
 					}
 					@card.Content() {
-						<div class="font-mono text-sm">{ data.Build.Strategy }</div>
+						<div class="font-mono text-sm bg-background/50 px-2 py-1 rounded border w-fit font-bold uppercase tracking-tight">
+							{ data.Build.Strategy }
+						</div>
 					}
 				}
 				
-				@card.Card() {
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
 					@card.Header(card.HeaderProps{Class: "pb-2"}) {
-						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
-							Started
-						}
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Calendar(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Started
+							}
+						</div>
 					}
 					@card.Content() {
-						<div class="text-sm">{ data.Build.CreatedAt.Format("Jan 2, 15:04") }</div>
+						<div class="text-lg font-semibold tracking-tight">{ data.Build.CreatedAt.Format("Jan 2, 15:04") }</div>
 					}
 				}
 				
-				@card.Card() {
+				@card.Card(card.Props{Class: "bg-muted/30 border-none shadow-none"}) {
 					@card.Header(card.HeaderProps{Class: "pb-2"}) {
-						@card.Title(card.TitleProps{Class: "text-sm font-medium text-muted-foreground"}) {
-							Duration
-						}
+						<div class="flex items-center gap-2 text-muted-foreground">
+							@icon.Timer(icon.Props{Class: "size-4"})
+							@card.Title(card.TitleProps{Class: "text-xs font-bold uppercase tracking-wider"}) {
+								Duration
+							}
+						</div>
 					}
 					@card.Content() {
-						<div class="text-2xl font-bold">{ formatBuildDuration(data.Build.CreatedAt, data.Build.UpdatedAt) }</div>
+						<div class="text-2xl font-bold tracking-tight">{ formatBuildDuration(data.Build.CreatedAt, data.Build.UpdatedAt) }</div>
 					}
 				}
 			</div>
 			
 			// Build Logs
-			@card.Card() {
-				@card.Header() {
+			@card.Card(card.Props{Class: "overflow-hidden border-zinc-800 shadow-2xl"}) {
+				@card.Header(card.HeaderProps{Class: "bg-zinc-900 border-b border-zinc-800 py-3"}) {
 					<div class="flex items-center justify-between">
-						@card.Title() {
-							Build Logs
-						}
+						<div class="flex items-center gap-3">
+							<div class="flex gap-1.5">
+								<div class="size-3 rounded-full bg-red-500/50"></div>
+								<div class="size-3 rounded-full bg-amber-500/50"></div>
+								<div class="size-3 rounded-full bg-green-500/50"></div>
+							</div>
+							@card.Title(card.TitleProps{Class: "text-sm font-bold text-zinc-400 font-mono tracking-tight"}) {
+								BUILD_LOGS.txt
+							}
+						</div>
 						if data.Build.Status == "running" {
-							<span id="stream-status" class="animate-pulse text-green-500 text-sm">● Live</span>
+							<div class="flex items-center gap-2 bg-green-500/10 px-2 py-1 rounded text-[10px] font-bold text-green-500 uppercase tracking-widest animate-pulse border border-green-500/20">
+								<span class="size-1.5 rounded-full bg-green-500"></span>
+								Live Stream
+							</div>
 						}
 					</div>
-					@card.Description() {
-						if data.Build.Status == "running" {
-							Streaming live build output
-						} else if data.Build.Status == "queued" {
-							Waiting for build worker...
-						} else {
-							Build output
-						}
-					}
 				}
-				@card.Content() {
-					if data.Build.Status == "running" {
-						// Live log container for SSE streaming
-						<div 
-							id="live-logs" 
-							class="bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 max-h-[600px] overflow-auto"
-							data-app-id={ data.Build.AppID }
-							data-deployment-id={ data.Build.DeploymentID }
-						>
-							// Initial static logs if any
-							if data.Build.Logs != "" {
-								<pre class="whitespace-pre-wrap">{ data.Build.Logs }</pre>
-							}
+				@card.Content(card.ContentProps{Class: "p-0"}) {
+					<div 
+						id="logs-container"
+						class="bg-zinc-950 p-6 font-mono text-[13px] leading-relaxed text-zinc-300 max-h-[700px] overflow-auto scroll-smooth"
+						data-auto-scroll="true"
+					>
+						if data.Build.Status == "running" {
+							// Live log container for SSE streaming
+							<div 
+								id="live-logs" 
+								data-app-id={ data.Build.AppID }
+								data-deployment-id={ data.Build.DeploymentID }
+							>
+								// Initial static logs if any
+								if data.Build.Logs != "" {
+									<pre class="whitespace-pre-wrap">{ data.Build.Logs }</pre>
+								}
+							</div>
+						} else if data.Build.Logs == "" {
+							<div class="flex flex-col items-center justify-center py-20 text-zinc-500">
+								@icon.Terminal(icon.Props{Class: "size-10 mb-4 opacity-20"})
+								<p class="font-medium">No logs available for this build</p>
+								if data.Build.Status == "queued" {
+									<p class="text-xs mt-2 text-zinc-600">Waiting for a build worker to pick up the job...</p>
+								}
+							</div>
+						} else {
+							<pre class="whitespace-pre-wrap">{ data.Build.Logs }</pre>
+						}
+					</div>
+				}
+				if data.Build.Status == "running" {
+					<div class="bg-zinc-900 border-t border-zinc-800 px-4 py-2 flex items-center justify-between">
+						<div class="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+							Streaming logs from build agent...
 						</div>
-					} else if data.Build.Logs == "" {
-						<div class="text-center py-8 text-muted-foreground">
-							<p>No logs available yet</p>
-							if data.Build.Status == "queued" {
-								<p class="text-sm mt-1">Waiting for build worker...</p>
-							}
+						<div class="flex items-center gap-4">
+							<button 
+								onclick="document.getElementById('logs-container').scrollTo({top: 0, behavior: 'smooth'})"
+								class="text-[10px] text-zinc-400 hover:text-white font-bold uppercase tracking-widest transition-colors"
+							>
+								Jump to Top
+							</button>
+							<button 
+								onclick="const c = document.getElementById('logs-container'); c.scrollTo({top: c.scrollHeight, behavior: 'smooth'})"
+								class="text-[10px] text-zinc-400 hover:text-white font-bold uppercase tracking-widest transition-colors"
+							>
+								Jump to Bottom
+							</button>
 						</div>
-					} else {
-						<div class="bg-zinc-950 rounded-lg p-4 font-mono text-xs text-zinc-300 max-h-[600px] overflow-auto whitespace-pre-wrap">
-							{ data.Build.Logs }
-						</div>
-					}
+					</div>
 				}
 			}
 		</div>
 	}
 }
 
+// BuildStatusBadge renders a build status badge
+templ BuildStatusBadge(status string) {
+	switch status {
+		case "succeeded":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault, Class: "bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500/20 shadow-sm"}) {
+				@icon.Check(icon.Props{Class: "size-3 mr-1"})
+				succeeded
+			}
+		case "running":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-blue-500/10 text-blue-500 border-blue-500/20 animate-pulse"}) {
+				@icon.Loader(icon.Props{Class: "size-3 mr-1 animate-spin"})
+				running
+			}
+		case "queued":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				@icon.Clock(icon.Props{Class: "size-3 mr-1"})
+				queued
+			}
+		case "failed":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) {
+				@icon.X(icon.Props{Class: "size-3 mr-1"})
+				failed
+			}
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { status } }
+	}
+}
+
 func truncateBuildID(id string) string {
 	if len(id) > 8 {
-		return id[:8] + "..."
+		return id[:8]
 	}
 	return id
 }

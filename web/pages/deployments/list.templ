@@ -2,12 +2,12 @@ package deployments
 
 import (
 	"fmt"
-	"time"
 	
 	"github.com/narvanalabs/control-plane/web/layouts"
-	"github.com/narvanalabs/control-plane/web/components/badge"
 	"github.com/narvanalabs/control-plane/web/components/table"
 	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
 	"github.com/narvanalabs/control-plane/web/api"
 )
 
@@ -23,111 +23,82 @@ templ List(data ListData) {
 		<div class="space-y-6">
 			<div>
 				<h1 class="text-2xl font-bold">Deployments</h1>
-				<p class="text-muted-foreground">View and manage all deployments</p>
+				<p class="text-muted-foreground">Monitor and manage your application deployments</p>
 			</div>
 			
 			if len(data.Deployments) == 0 {
-				<div class="flex flex-col items-center justify-center rounded-lg border border-dashed p-12">
-					@icon.Rocket(icon.Props{Class: "size-12 text-muted-foreground mb-4"})
-					<h3 class="text-lg font-medium">No deployments yet</h3>
-					<p class="text-muted-foreground text-center mt-1">
-						Deploy a service from an app to see deployments here
-					</p>
-				</div>
+				@card.Card() {
+					@card.Content() {
+						<div class="flex flex-col items-center justify-center py-12">
+							<div class="rounded-full bg-muted p-4 mb-4">
+								@icon.Rocket(icon.Props{Class: "size-8 text-muted-foreground"})
+							</div>
+							<h3 class="text-xl font-semibold">No deployments found</h3>
+							<p class="text-muted-foreground text-center mt-2 max-w-sm">
+								You haven't deployed any applications yet. Start by creating an app and a service.
+							</p>
+						</div>
+					}
+				}
 			} else {
-				<div class="rounded-lg border">
+				@card.Card() {
 					@table.Table() {
 						@table.Header() {
 							@table.Row() {
-								@table.Head() { App }
+								@table.Head() { ID }
+								@table.Head() { Application }
 								@table.Head() { Service }
 								@table.Head() { Version }
 								@table.Head() { Status }
-								@table.Head() { Node }
-								@table.Head() { Created }
+								@table.Head() { Deployed }
+								@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
 							}
 						}
 						@table.Body() {
 							for _, d := range data.Deployments {
 								@table.Row() {
 									@table.Cell() {
-										<a href={ templ.SafeURL("/apps/" + d.AppID) } class="font-medium hover:underline">
+										<span class="font-mono text-xs text-muted-foreground">{ truncateID(d.ID) }</span>
+									}
+									@table.Cell() {
+										<a href={ templ.SafeURL("/apps/" + d.AppID) } class="font-medium hover:underline flex items-center gap-2">
+											@icon.LayoutDashboard(icon.Props{Class: "size-4 text-muted-foreground"})
 											{ getAppName(data.Apps, d.AppID) }
 										</a>
 									}
-									@table.Cell() { { d.ServiceName } }
-									@table.Cell() { v{ intToString(d.Version) } }
-									@table.Cell() { 
-										@StatusBadge(d.Status)
+									@table.Cell() {
+										<div class="text-sm font-semibold">{ d.ServiceName }</div>
+									}
+									@table.Cell() {
+										<div class="font-mono text-xs bg-muted px-2 py-0.5 rounded w-fit">
+											v{ fmt.Sprint(d.Version) }
+										</div>
 									}
 									@table.Cell() { 
-										if d.NodeID != "" {
-											<span class="font-mono text-sm">{ truncateID(d.NodeID) }</span>
-										} else {
-											<span class="text-muted-foreground">-</span>
-										}
+										@DeploymentStatusBadge(d.Status)
 									}
 									@table.Cell() {
 										<span class="text-muted-foreground text-sm">
 											{ formatTime(d.CreatedAt) }
 										</span>
 									}
+									@table.Cell(table.CellProps{Class: "text-right"}) {
+										@button.Button(button.Props{
+											Variant: button.VariantSecondary,
+											Size:    button.SizeSm,
+											Href:    "/deployments/" + d.ID,
+										}) {
+											@icon.ExternalLink(icon.Props{Class: "size-3 mr-2"})
+											Details
+										}
+									}
 								}
 							}
 						}
 					}
-				</div>
+				}
 			}
 		</div>
 	}
 }
 
-// StatusBadge renders a deployment status badge
-templ StatusBadge(status string) {
-	switch status {
-		case "running":
-			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { running }
-		case "pending":
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { pending }
-		case "building":
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { building }
-		case "failed":
-			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { failed }
-		case "stopped":
-			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { stopped }
-		default:
-			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { status } }
-	}
-}
-
-func getAppName(apps map[string]string, appID string) string {
-	if name, ok := apps[appID]; ok {
-		return name
-	}
-	return truncateID(appID)
-}
-
-func truncateID(id string) string {
-	if len(id) > 8 {
-		return id[:8] + "..."
-	}
-	return id
-}
-
-func intToString(i int) string {
-	return fmt.Sprintf("%d", i)
-}
-
-func formatTime(t time.Time) string {
-	diff := time.Since(t)
-	switch {
-	case diff < time.Minute:
-		return "just now"
-	case diff < time.Hour:
-		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
-	case diff < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(diff.Hours()))
-	default:
-		return t.Format("Jan 2, 2006")
-	}
-}
