@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -220,6 +221,31 @@ type RegisterRequest struct {
 	Password string `json:"password"`
 }
 
+// GitHubConfigStatus represents the configuration state of the GitHub integration.
+type GitHubConfigStatus struct {
+	Configured bool   `json:"configured"`
+	ConfigType string `json:"config_type,omitempty"` // "app" or "oauth"
+	AppID      *int64 `json:"app_id,omitempty"`
+	Slug       *string `json:"slug,omitempty"`
+}
+
+// GitHubInstallation represents an installation of the GitHub App.
+type GitHubInstallation struct {
+	ID           int64  `json:"id"`
+	AccountLogin string `json:"account_login"`
+	AccountType  string `json:"account_type"`
+}
+
+// GitHubRepository represents a repository from the GitHub API.
+type GitHubRepository struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	FullName      string `json:"full_name"`
+	HTMLURL       string `json:"html_url"`
+	Description   string `json:"description"`
+	DefaultBranch string `json:"default_branch"`
+}
+
 // ============================================================================
 // Auth Methods
 // ============================================================================
@@ -247,7 +273,7 @@ func (c *Client) Register(ctx context.Context, email, password string) (*AuthRes
 // ListApps fetches all apps for the current user.
 func (c *Client) ListApps(ctx context.Context) ([]App, error) {
 	var apps []App
-	err := c.get(ctx, "/v1/apps", &apps)
+	err := c.Get(ctx, "/v1/apps", &apps)
 	if apps == nil {
 		apps = []App{}
 	}
@@ -257,7 +283,7 @@ func (c *Client) ListApps(ctx context.Context) ([]App, error) {
 // GetApp fetches a single app by ID.
 func (c *Client) GetApp(ctx context.Context, id string) (*App, error) {
 	var app App
-	err := c.get(ctx, "/v1/apps/"+id, &app)
+	err := c.Get(ctx, "/v1/apps/"+id, &app)
 	return &app, err
 }
 
@@ -311,7 +337,7 @@ func (c *Client) Deploy(ctx context.Context, appID, serviceName string) (*Deploy
 // ListAppDeployments fetches all deployments for an app.
 func (c *Client) ListAppDeployments(ctx context.Context, appID string) ([]Deployment, error) {
 	var deployments []Deployment
-	err := c.get(ctx, "/v1/apps/"+appID+"/deployments", &deployments)
+	err := c.Get(ctx, "/v1/apps/"+appID+"/deployments", &deployments)
 	if deployments == nil {
 		deployments = []Deployment{}
 	}
@@ -321,7 +347,7 @@ func (c *Client) ListAppDeployments(ctx context.Context, appID string) ([]Deploy
 // GetDeployment fetches a single deployment by ID.
 func (c *Client) GetDeployment(ctx context.Context, id string) (*Deployment, error) {
 	var deployment Deployment
-	err := c.get(ctx, "/v1/deployments/"+id, &deployment)
+	err := c.Get(ctx, "/v1/deployments/"+id, &deployment)
 	return &deployment, err
 }
 
@@ -339,7 +365,7 @@ func (c *Client) RollbackDeployment(ctx context.Context, id string) (*Deployment
 // ListSecrets fetches all secrets for an app.
 func (c *Client) ListSecrets(ctx context.Context, appID string) ([]Secret, error) {
 	var secrets []Secret
-	err := c.get(ctx, "/v1/apps/"+appID+"/secrets", &secrets)
+	err := c.Get(ctx, "/v1/apps/"+appID+"/secrets", &secrets)
 	if secrets == nil {
 		secrets = []Secret{}
 	}
@@ -364,7 +390,7 @@ func (c *Client) DeleteSecret(ctx context.Context, appID, key string) error {
 // GetAppLogs fetches logs for an app.
 func (c *Client) GetAppLogs(ctx context.Context, appID string) ([]Log, error) {
 	var logs []Log
-	err := c.get(ctx, "/v1/apps/"+appID+"/logs", &logs)
+	err := c.Get(ctx, "/v1/apps/"+appID+"/logs", &logs)
 	if logs == nil {
 		logs = []Log{}
 	}
@@ -378,11 +404,82 @@ func (c *Client) GetAppLogs(ctx context.Context, appID string) ([]Log, error) {
 // ListNodes fetches all nodes.
 func (c *Client) ListNodes(ctx context.Context) ([]Node, error) {
 	var nodes []Node
-	err := c.get(ctx, "/v1/nodes", &nodes)
+	err := c.Get(ctx, "/v1/nodes", &nodes)
 	if nodes == nil {
 		nodes = []Node{}
 	}
 	return nodes, err
+}
+
+// ============================================================================
+// GitHub Methods
+// ============================================================================
+
+// GetGitHubConfig checks if the GitHub App is configured.
+func (c *Client) GetGitHubConfig(ctx context.Context) (*GitHubConfigStatus, error) {
+	var status GitHubConfigStatus
+	err := c.Get(ctx, "/v1/github/config", &status)
+	return &status, err
+}
+
+// GetGitHubSetupURL returns the path to start GitHub App creation.
+// Note: This endpoint now returns HTML for a POST manifest flow, so we don't fetch it as JSON.
+func (c *Client) GetGitHubSetupURL(ctx context.Context, org string) (string, error) {
+	path := "/v1/github/setup"
+	if org != "" {
+		path += "?org=" + url.QueryEscape(org)
+	}
+	return path, nil
+}
+
+// GetGitHubOAuthURL gets the URL to start standard GitHub OAuth authorization.
+func (c *Client) GetGitHubOAuthURL(ctx context.Context) (string, error) {
+	var resp struct {
+		URL string `json:"url"`
+	}
+	err := c.Get(ctx, "/v1/github/oauth/start", &resp)
+	return resp.URL, err
+}
+
+// SaveGitHubConfig saves the GitHub configuration (for manual OAuth).
+func (c *Client) SaveGitHubConfig(ctx context.Context, configType, clientID, clientSecret string) error {
+	req := map[string]string{
+		"config_type":   configType,
+		"client_id":     clientID,
+		"client_secret": clientSecret,
+	}
+	return c.post(ctx, "/v1/github/config", req, nil)
+}
+
+// GetGitHubInstallURL gets the URL to install the GitHub App.
+func (c *Client) GetGitHubInstallURL(ctx context.Context) (string, error) {
+	var resp struct {
+		URL string `json:"url"`
+	}
+	err := c.Get(ctx, "/v1/github/install", &resp)
+	return resp.URL, err
+}
+
+// ResetGitHubConfig clears the GitHub configuration and all associated data.
+func (c *Client) ResetGitHubConfig(ctx context.Context) error {
+	return c.delete(ctx, "/v1/github/config")
+}
+
+// ListGitHubInstallations lists all GitHub App installations.
+func (c *Client) ListGitHubInstallations(ctx context.Context) ([]GitHubInstallation, error) {
+	var resp []GitHubInstallation
+	err := c.Get(ctx, "/v1/github/installations", &resp)
+	return resp, err
+}
+
+// ListGitHubRepos lists repositories across all user installations.
+func (c *Client) ListGitHubRepos(ctx context.Context) ([]GitHubRepository, error) {
+	var repos []GitHubRepository
+	err := c.Get(ctx, "/v1/github/repos", &repos)
+	if repos == nil {
+		repos = []GitHubRepository{}
+	}
+	return repos, err
 }
 
 // ============================================================================
@@ -465,13 +562,42 @@ func formatTimeAgo(t time.Time) string {
 // HTTP Helpers
 // ============================================================================
 
-// get performs a GET request and unmarshals the response.
-func (c *Client) get(ctx context.Context, path string, result interface{}) error {
+// Get performs a GET request and unmarshals the response.
+func (c *Client) Get(ctx context.Context, path string, result interface{}) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
 	return c.doRequest(req, result)
+}
+
+// GetRaw performs a GET request and returns the raw response body as a byte slice.
+func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("creating request: %w", err)
+	}
+
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, "", fmt.Errorf("API error (%d): %s", resp.StatusCode, string(body))
+	}
+
+	return body, resp.Header.Get("Content-Type"), nil
 }
 
 // post performs a POST request and unmarshals the response.
