@@ -483,6 +483,22 @@ func (c *Client) ListGitHubRepos(ctx context.Context) ([]GitHubRepository, error
 }
 
 // ============================================================================
+// Settings Methods
+// ============================================================================
+
+// GetSettings fetches global settings.
+func (c *Client) GetSettings(ctx context.Context) (map[string]string, error) {
+	var settings map[string]string
+	err := c.Get(ctx, "/v1/settings", &settings)
+	return settings, err
+}
+
+// UpdateSettings updates global settings.
+func (c *Client) UpdateSettings(ctx context.Context, settings map[string]string) error {
+	return c.patch(ctx, "/v1/settings", settings, nil)
+}
+
+// ============================================================================
 // Dashboard Methods
 // ============================================================================
 
