@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -52,6 +53,7 @@ func main() {
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(requireAuth)
+		r.Use(userContextMiddleware)
 
 		r.Get("/", handleDashboard)
 		r.Get("/git", handleGitPage)
@@ -78,9 +80,15 @@ func main() {
 		r.Get("/api/server/stats", handleServerStats)
 		r.Get("/api/server/stats/stream", handleServerStatsStream)
 
+		// User profile proxy
+		r.Get("/api/user/profile", handleUserProfile)
+		r.Patch("/api/user/profile", handleUpdateUserProfile)
+
 		// Server management pages
 		r.Get("/settings/server/logs", handleSettingsServerLogs)
 		r.Get("/settings/server/stats", handleSettingsServerStats)
+		r.Get("/settings/profile", handleSettingsProfile)
+		r.Post("/settings/profile", handleUpdateProfile)
 
 		// GitHub proxy routes
 		r.Get("/api/github/config", handleGetGitHubConfig)
@@ -125,6 +133,27 @@ func requireAuth(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func userContextMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := getAuthToken(r)
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		client := getAPIClient(r)
+		user, err := client.GetUserProfile(r.Context())
+		if err != nil {
+			slog.Debug("failed to get user profile for context", "error", err)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), "user", user)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -495,6 +524,40 @@ func handleServerStatsStream(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r)
 }
 
+func handleUserProfile(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = "/v1/user/profile"
+	proxy.ServeHTTP(w, r)
+}
+
+func handleUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = "/v1/user/profile"
+	proxy.ServeHTTP(w, r)
+}
+
 func handleServerConsoleWS(w http.ResponseWriter, r *http.Request) {
 	apiURL := os.Getenv("API_URL")
 	if apiURL == "" {
@@ -770,28 +833,55 @@ func handleGitHubManifestStart(w http.ResponseWriter, r *http.Request) {
 // Settings Handlers
 
 func handleSettingsGeneral(w http.ResponseWriter, r *http.Request) {
-	// Mock user data for now
-	data := settings_page.GeneralData{
-		UserEmail: "admin@narvana.io",
-		UserName:  "Admin",
-	}
-	settings_page.General(data).Render(r.Context(), w)
+	http.Redirect(w, r, "/settings/profile", http.StatusMovedPermanently)
 }
 
-func handleSettingsGeneralUpdate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form", http.StatusBadRequest)
+func handleSettingsProfile(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
+	user, err := client.GetUserProfile(r.Context())
+	
+	successMsg := r.URL.Query().Get("success")
+	errorMsg := r.URL.Query().Get("error")
+
+	if err != nil {
+		slog.Error("failed to get user profile", "error", err)
+		settings_page.Profile(settings_page.ProfileData{
+			ErrorMsg: "Failed to load profile",
+		}).Render(r.Context(), w)
+		return
+	}
+
+	data := settings_page.ProfileData{
+		UserEmail:  user.Email,
+		UserName:   user.Name,
+		AvatarURL:  user.AvatarURL,
+		SuccessMsg: successMsg,
+		ErrorMsg:   errorMsg,
+	}
+	settings_page.Profile(data).Render(r.Context(), w)
+}
+
+func handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	name := r.FormValue("name")
-	data := settings_page.GeneralData{
-		UserEmail:  "admin@narvana.io",
-		UserName:   name,
-		SuccessMsg: "Profile updated successfully",
+	avatarURL := r.FormValue("avatar_url") // Hidden or from upload
+
+	client := getAPIClient(r)
+	_, err := client.UpdateUserProfile(r.Context(), name, avatarURL)
+	if err != nil {
+		slog.Error("failed to update user profile", "error", err)
+		http.Redirect(w, r, "/settings/profile?error=Failed to update profile", http.StatusSeeOther)
+		return
 	}
-	settings_page.General(data).Render(r.Context(), w)
+
+	http.Redirect(w, r, "/settings/profile?success=Profile updated successfully", http.StatusSeeOther)
 }
+
+
 
 func handleSettingsServer(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
