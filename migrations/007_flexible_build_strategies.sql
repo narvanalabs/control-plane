@@ -34,7 +34,7 @@ SET services = (
     )
     FROM jsonb_array_elements(apps.services) AS service
 )
-WHERE jsonb_array_length(services) > 0;
+WHERE jsonb_typeof(services) = 'array';
 
 -- ============================================================================
 -- Part 2: Update builds table with new columns for flexible build strategies

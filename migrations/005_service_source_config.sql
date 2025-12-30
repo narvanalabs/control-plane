@@ -37,7 +37,7 @@ SET services = (
     )
     FROM jsonb_array_elements(apps.services) AS service
 )
-WHERE jsonb_array_length(services) > 0;
+WHERE jsonb_typeof(services) = 'array';
 
 -- Add comment documenting the service source fields
 COMMENT ON COLUMN apps.services IS 'JSONB array of ServiceConfig objects. Each service has source_type (git/flake/image) with corresponding fields: git_repo+git_ref+flake_output for git, flake_uri for flake, or image for OCI images.';

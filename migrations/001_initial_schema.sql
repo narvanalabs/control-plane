@@ -14,11 +14,11 @@ CREATE TABLE apps (
     services JSONB NOT NULL DEFAULT '[]',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at TIMESTAMPTZ,
-    
-    -- Unique constraint on owner_id + name for non-deleted apps
-    CONSTRAINT apps_owner_name_unique UNIQUE (owner_id, name) WHERE deleted_at IS NULL
+    deleted_at TIMESTAMPTZ
 );
+
+-- Unique index on owner_id + name for non-deleted apps (replacement for constraint)
+CREATE UNIQUE INDEX apps_owner_name_unique ON apps(owner_id, name) WHERE deleted_at IS NULL;
 
 -- Indexes for apps
 CREATE INDEX idx_apps_owner_id ON apps(owner_id) WHERE deleted_at IS NULL;
