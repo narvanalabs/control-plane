@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -41,6 +41,11 @@ func main() {
 	r.Get("/logout", handleLogout)
 	r.Get("/settings/server", handleSettingsServer)
 	r.Post("/settings/server", handleSettingsServerUpdate)
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -75,9 +80,23 @@ func main() {
 		r.Get("/api/github/setup", handleGitHubManifestStart)
 	})
 
-	fmt.Println("🚀 Web UI running on http://0.0.0.0:8090")
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	logger.Info("starting web server", 
+		"addr", "0.0.0.0:8090", 
+		"internal_api_url", apiURL,
+	)
+
 	if err := http.ListenAndServe(":8090", r); err != nil {
-		fmt.Printf("❌ Web UI failed to start: %v\n", err)
+		logger.Error("web server failed to start", "error", err)
 		os.Exit(1)
 	}
 }
