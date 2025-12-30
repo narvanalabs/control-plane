@@ -803,6 +803,27 @@ func (m *MockUserStore) List(ctx context.Context) ([]*store.User, error) {
 	return result, nil
 }
 
+func (m *MockUserStore) GetByID(ctx context.Context, id string) (*store.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if user, ok := m.users[id]; ok {
+		return user, nil
+	}
+	for _, user := range m.users {
+		if user.ID == id {
+			return user, nil
+		}
+	}
+	return nil, errors.New("user not found")
+}
+
+func (m *MockUserStore) Update(ctx context.Context, user *store.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.users[user.ID] = user
+	return nil
+}
+
 // MockGitHubStore is a mock implementation of GitHubStore for testing.
 type MockGitHubStore struct {
 	mu            sync.Mutex
