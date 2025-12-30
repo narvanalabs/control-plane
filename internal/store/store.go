@@ -27,6 +27,8 @@ type Store interface {
 	GitHub() GitHubStore
 	// GitHubAccounts returns the GitHubAccountStore for GitHub OAuth operations.
 	GitHubAccounts() GitHubAccountStore
+	// Settings returns the SettingsStore for global configuration.
+	Settings() SettingsStore
 
 	// WithTx executes the given function within a database transaction.
 	// If the function returns an error, the transaction is rolled back.
