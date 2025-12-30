@@ -13,20 +13,9 @@ import (
 )
 
 // PostgresStore implements the Store interface using PostgreSQL.
-type PostgresStore struct {
-	db     *sql.DB
-	logger *slog.Logger
-
-	// Sub-stores
-	apps        *AppStore
-	deployments *DeploymentStore
-	nodes       *NodeStore
-	builds      *BuildStore
-	secrets     *SecretStore
-	logs        *LogStore
-	users       *UserStore
 	github      *GitHubStore
 	githubAccounts *GitHubAccountStore
+	settings    *SettingsStore
 }
 
 // Config holds PostgreSQL connection configuration.
@@ -90,6 +79,7 @@ func NewPostgresStore(cfg *Config, logger *slog.Logger) (*PostgresStore, error) 
 	s.users = &UserStore{db: db, logger: logger}
 	s.github = &GitHubStore{db: db, logger: logger}
 	s.githubAccounts = &GitHubAccountStore{db: db, logger: logger}
+	s.settings = &SettingsStore{db: db, logger: logger}
 
 	logger.Info("connected to PostgreSQL database")
 	return s, nil
@@ -141,6 +131,11 @@ func (s *PostgresStore) GitHubAccounts() store.GitHubAccountStore {
 	return s.githubAccounts
 }
 
+// Settings returns the SettingsStore.
+func (s *PostgresStore) Settings() store.SettingsStore {
+	return s.settings
+}
+
 // WithTx executes the given function within a database transaction.
 func (s *PostgresStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -183,19 +178,9 @@ func (s *PostgresStore) DB() *sql.DB {
 }
 
 // txStore wraps a transaction and implements the Store interface.
-type txStore struct {
-	tx     *sql.Tx
-	logger *slog.Logger
-
-	apps        *AppStore
-	deployments *DeploymentStore
-	nodes       *NodeStore
-	builds      *BuildStore
-	secrets     *SecretStore
-	logs        *LogStore
-	users       *UserStore
 	github      *GitHubStore
 	githubAccounts *GitHubAccountStore
+	settings    *SettingsStore
 }
 
 func (s *txStore) Apps() store.AppStore {
@@ -259,6 +244,13 @@ func (s *txStore) GitHubAccounts() store.GitHubAccountStore {
 		s.githubAccounts = &GitHubAccountStore{tx: s.tx, logger: s.logger}
 	}
 	return s.githubAccounts
+}
+
+func (s *txStore) Settings() store.SettingsStore {
+	if s.settings == nil {
+		s.settings = &SettingsStore{db: s.tx, logger: s.logger}
+	}
+	return s.settings
 }
 
 func (s *txStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
