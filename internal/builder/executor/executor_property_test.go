@@ -66,6 +66,10 @@ func NewMockAutoGoExecutor() *MockAutoGoExecutor { return &MockAutoGoExecutor{} 
 func (e *MockAutoGoExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
 	return &BuildResult{Artifact: "/nix/store/mock-go"}, nil
 }
+func (e *MockAutoGoExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error) {
+	logCallback("Mock Go build started")
+	return e.Execute(ctx, job)
+}
 func (e *MockAutoGoExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyAutoGo
 }
@@ -79,6 +83,10 @@ type MockAutoNodeExecutor struct{}
 func NewMockAutoNodeExecutor() *MockAutoNodeExecutor { return &MockAutoNodeExecutor{} }
 func (e *MockAutoNodeExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
 	return &BuildResult{Artifact: "/nix/store/mock-node"}, nil
+}
+func (e *MockAutoNodeExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error) {
+	logCallback("Mock Node build started")
+	return e.Execute(ctx, job)
 }
 func (e *MockAutoNodeExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyAutoNode
@@ -94,6 +102,10 @@ func NewMockAutoRustExecutor() *MockAutoRustExecutor { return &MockAutoRustExecu
 func (e *MockAutoRustExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
 	return &BuildResult{Artifact: "/nix/store/mock-rust"}, nil
 }
+func (e *MockAutoRustExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error) {
+	logCallback("Mock Rust build started")
+	return e.Execute(ctx, job)
+}
 func (e *MockAutoRustExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyAutoRust
 }
@@ -107,6 +119,10 @@ type MockAutoPythonExecutor struct{}
 func NewMockAutoPythonExecutor() *MockAutoPythonExecutor { return &MockAutoPythonExecutor{} }
 func (e *MockAutoPythonExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
 	return &BuildResult{Artifact: "/nix/store/mock-python"}, nil
+}
+func (e *MockAutoPythonExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error) {
+	logCallback("Mock Python build started")
+	return e.Execute(ctx, job)
 }
 func (e *MockAutoPythonExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyAutoPython
@@ -493,6 +509,10 @@ func NewMockDockerfileExecutor() *MockDockerfileExecutor { return &MockDockerfil
 func (e *MockDockerfileExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
 	return &BuildResult{Artifact: "mock:dockerfile", ImageTag: "mock:dockerfile"}, nil
 }
+func (e *MockDockerfileExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error) {
+	logCallback("Mock Dockerfile build started")
+	return e.Execute(ctx, job)
+}
 func (e *MockDockerfileExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyDockerfile
 }
@@ -506,6 +526,10 @@ type MockNixpacksExecutor struct{}
 func NewMockNixpacksExecutor() *MockNixpacksExecutor { return &MockNixpacksExecutor{} }
 func (e *MockNixpacksExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {
 	return &BuildResult{Artifact: "mock:nixpacks", ImageTag: "mock:nixpacks"}, nil
+}
+func (e *MockNixpacksExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error) {
+	logCallback("Mock Nixpacks build started")
+	return e.Execute(ctx, job)
 }
 func (e *MockNixpacksExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyNixpacks
@@ -974,6 +998,11 @@ func (e *MockAutoExecutorWithFlakeGeneration) Supports(strategy models.BuildStra
 
 func (e *MockAutoExecutorWithFlakeGeneration) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
 	return e.generatedFlake, nil
+}
+
+func (e *MockAutoExecutorWithFlakeGeneration) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, logCallback LogCallback) (*BuildResult, error) {
+	logCallback("Mock Auto build with generation started")
+	return e.Execute(ctx, job)
 }
 
 // createRegistryWithFlakeGeneratingExecutors creates a registry with executors that generate flakes.

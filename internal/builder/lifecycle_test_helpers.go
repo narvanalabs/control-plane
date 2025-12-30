@@ -224,6 +224,8 @@ type MockStore struct {
 	secrets     *MockSecretStore
 	logs        *LifecycleMockLogStore
 	users       *MockUserStore
+	github      *MockGitHubStore
+	githubAccounts *MockGitHubAccountStore
 }
 
 // NewMockStore creates a new MockStore.
@@ -236,6 +238,8 @@ func NewMockStore() *MockStore {
 		secrets:     NewMockSecretStore(),
 		logs:        NewLifecycleMockLogStore(),
 		users:       NewMockUserStore(),
+		github:      NewMockGitHubStore(),
+		githubAccounts: NewMockGitHubAccountStore(),
 	}
 }
 
@@ -246,6 +250,8 @@ func (m *MockStore) Builds() store.BuildStore       { return m.builds }
 func (m *MockStore) Secrets() store.SecretStore     { return m.secrets }
 func (m *MockStore) Logs() store.LogStore           { return m.logs }
 func (m *MockStore) Users() store.UserStore         { return m.users }
+func (m *MockStore) GitHub() store.GitHubStore      { return m.github }
+func (m *MockStore) GitHubAccounts() store.GitHubAccountStore { return m.githubAccounts }
 func (m *MockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *MockStore) Close() error                   { return nil }
 
@@ -792,6 +798,140 @@ func (m *MockUserStore) List(ctx context.Context) ([]*store.User, error) {
 		result = append(result, user)
 	}
 	return result, nil
+}
+
+// MockGitHubStore is a mock implementation of GitHubStore for testing.
+type MockGitHubStore struct {
+	mu            sync.Mutex
+	config        *models.GitHubAppConfig
+	installations map[int64]*models.GitHubInstallation
+}
+
+func NewMockGitHubStore() *MockGitHubStore {
+	return &MockGitHubStore{
+		installations: make(map[int64]*models.GitHubInstallation),
+	}
+}
+
+func (m *MockGitHubStore) GetConfig(ctx context.Context) (*models.GitHubAppConfig, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.config, nil
+}
+
+func (m *MockGitHubStore) SaveConfig(ctx context.Context, config *models.GitHubAppConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config = config
+	return nil
+}
+
+func (m *MockGitHubStore) CreateInstallation(ctx context.Context, inst *models.GitHubInstallation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.installations[inst.ID] = inst
+	return nil
+}
+
+func (m *MockGitHubStore) GetInstallation(ctx context.Context, id int64) (*models.GitHubInstallation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inst, ok := m.installations[id]; ok {
+		return inst, nil
+	}
+	return nil, errors.New("installation not found")
+}
+
+func (m *MockGitHubStore) ListInstallations(ctx context.Context, userID string) ([]*models.GitHubInstallation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.GitHubInstallation
+	for _, inst := range m.installations {
+		if inst.UserID == userID {
+			result = append(result, inst)
+		}
+	}
+	return result, nil
+}
+
+func (m *MockGitHubStore) DeleteInstallation(ctx context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.installations, id)
+	return nil
+}
+
+func (m *MockGitHubStore) ResetConfig(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config = nil
+	m.installations = make(map[int64]*models.GitHubInstallation)
+	return nil
+}
+
+// MockGitHubAccountStore is a mock implementation of GitHubAccountStore for testing.
+type MockGitHubAccountStore struct {
+	mu       sync.Mutex
+	accounts map[int64]*models.GitHubAccount
+}
+
+func NewMockGitHubAccountStore() *MockGitHubAccountStore {
+	return &MockGitHubAccountStore{
+		accounts: make(map[int64]*models.GitHubAccount),
+	}
+}
+
+func (m *MockGitHubAccountStore) Create(ctx context.Context, acc *models.GitHubAccount) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.accounts[acc.ID] = acc
+	return nil
+}
+
+func (m *MockGitHubAccountStore) Get(ctx context.Context, id int64) (*models.GitHubAccount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if acc, ok := m.accounts[id]; ok {
+		return acc, nil
+	}
+	return nil, errors.New("account not found")
+}
+
+func (m *MockGitHubAccountStore) GetByUserID(ctx context.Context, userID string) (*models.GitHubAccount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, acc := range m.accounts {
+		if acc.UserID == userID {
+			return acc, nil
+		}
+	}
+	return nil, errors.New("account not found")
+}
+
+func (m *MockGitHubAccountStore) Update(ctx context.Context, account *models.GitHubAccount) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.accounts[account.ID] = account
+	return nil
+}
+
+func (m *MockGitHubAccountStore) List(ctx context.Context, userID string) ([]*models.GitHubAccount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.GitHubAccount
+	for _, acc := range m.accounts {
+		if acc.UserID == userID {
+			result = append(result, acc)
+		}
+	}
+	return result, nil
+}
+
+func (m *MockGitHubAccountStore) Delete(ctx context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.accounts, id)
+	return nil
 }
 
 // MockProgressTracker is a mock implementation of BuildProgressTracker for testing.

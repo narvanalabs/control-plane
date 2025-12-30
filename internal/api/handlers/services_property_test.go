@@ -61,6 +61,14 @@ func (m *serviceMockStore) Users() store.UserStore {
 	return nil
 }
 
+func (m *serviceMockStore) GitHub() store.GitHubStore {
+	return nil
+}
+
+func (m *serviceMockStore) GitHubAccounts() store.GitHubAccountStore {
+	return nil
+}
+
 func (m *serviceMockStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
 	return fn(m)
 }

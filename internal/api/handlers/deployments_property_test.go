@@ -62,6 +62,16 @@ func (m *mockDeploymentStore) ListByNode(ctx context.Context, nodeID string) ([]
 	return nil, nil
 }
 
+func (m *mockDeploymentStore) ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error) {
+	var result []*models.Deployment
+	for _, d := range m.deployments {
+		if d.Status == status {
+			result = append(result, d)
+		}
+	}
+	return result, nil
+}
+
 func (m *mockDeploymentStore) Update(ctx context.Context, deployment *models.Deployment) error {
 	m.deployments[deployment.ID] = deployment
 	return nil
@@ -200,6 +210,14 @@ func (m *deploymentMockStore) Logs() store.LogStore {
 }
 
 func (m *deploymentMockStore) Users() store.UserStore {
+	return nil
+}
+
+func (m *deploymentMockStore) GitHub() store.GitHubStore {
+	return nil
+}
+
+func (m *deploymentMockStore) GitHubAccounts() store.GitHubAccountStore {
 	return nil
 }
 
