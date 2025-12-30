@@ -184,3 +184,13 @@ type LogStore interface {
 	// DeleteOlderThan removes log entries older than the specified time.
 	DeleteOlderThan(ctx context.Context, deploymentID string, before int64) error
 }
+
+// SettingsStore defines operations for global system settings.
+type SettingsStore interface {
+	// Get retrieves a setting by key.
+	Get(ctx context.Context, key string) (string, error)
+	// Set sets a setting key-value pair.
+	Set(ctx context.Context, key, value string) error
+	// GetAll retrieves all global settings.
+	GetAll(ctx context.Context) (map[string]string, error)
+}
