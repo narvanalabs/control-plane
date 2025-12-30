@@ -41,10 +41,12 @@ type Store interface {
 
 // User represents a user in the system.
 type User struct {
-	ID        string
-	Email     string
-	IsAdmin   bool
-	CreatedAt int64
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+	IsAdmin   bool   `json:"is_admin"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 // UserStore defines operations for user management.
@@ -53,8 +55,12 @@ type UserStore interface {
 	Create(ctx context.Context, email, password string, isAdmin bool) (*User, error)
 	// GetByEmail retrieves a user by email.
 	GetByEmail(ctx context.Context, email string) (*User, error)
+	// GetByID retrieves a user by ID.
+	GetByID(ctx context.Context, id string) (*User, error)
 	// Authenticate verifies credentials and returns the user.
 	Authenticate(ctx context.Context, email, password string) (*User, error)
+	// Update updates an existing user's information.
+	Update(ctx context.Context, user *User) error
 	// List retrieves all users.
 	List(ctx context.Context) ([]*User, error)
 }
