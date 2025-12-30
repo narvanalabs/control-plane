@@ -1,0 +1,81 @@
+// templui component checkbox - version: v1.0.0
+// 📚 Documentation: https://templui.io/docs/components/checkbox
+package checkbox
+
+import (
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/utils"
+)
+
+type Props struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	Name       string
+	Value      string
+	Checked    bool
+	Disabled   bool
+	Icon       templ.Component
+}
+
+templ Checkbox(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.ID == "" {
+		{{ p.ID = utils.RandomID() }}
+	}
+	<button
+		type="button"
+		role="checkbox"
+		aria-checked={ utils.IfElse(p.Checked, "true", "false") }
+		data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }
+		value={ p.Value }
+		if p.Name != "" {
+			name={ p.Name }
+		}
+		disabled?={ p.Disabled }
+		id={ p.ID }
+		class={
+			utils.TwMerge(
+				// Base styles
+				"peer h-4 w-4 shrink-0 rounded-sm border border-primary shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+		data-tui-checkbox
+	>
+		<span
+			data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }
+			class="flex items-center justify-center text-current data-[state=unchecked]:hidden"
+		>
+			if p.Icon != nil {
+				@p.Icon
+			} else {
+				@icon.Check(icon.Props{Class: "h-3.5 w-3.5"})
+			}
+		</span>
+	</button>
+	// Hidden input for form submission
+	<input
+		type="checkbox"
+		aria-hidden="true"
+		style="transform:translateX(-100%);position:absolute;pointer-events:none;opacity:0;margin:0"
+		if p.Name != "" {
+			name={ p.Name }
+		}
+		if p.Value != "" {
+			value={ p.Value }
+		}
+		disabled?={ p.Disabled }
+		checked?={ p.Checked }
+		tabindex="-1"
+		data-tui-checkbox-input={ p.ID }
+	/>
+}
+
+templ Script() {
+	<script defer src="/assets/js/checkbox.js"></script>
+}
