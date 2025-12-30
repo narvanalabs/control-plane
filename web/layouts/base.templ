@@ -44,11 +44,30 @@ templ Base(title string) {
 			<script src="/assets/js/theme-switcher.js"></script>
 			<script>
 				(function() {
-					const theme = localStorage.getItem('narvana-theme');
-					if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-						document.documentElement.classList.add('dark');
+					const t = localStorage.getItem('narvana-theme') || 'system';
+					const isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+					document.documentElement.classList.toggle('dark', isDark);
+
+					// Sidebar persistence tracker
+					const initSidebarTracker = () => {
+						const sidebar = document.querySelector('[data-tui-sidebar-wrapper]');
+						if (sidebar) {
+							const observer = new MutationObserver((mutations) => {
+								mutations.forEach((mutation) => {
+									if (mutation.attributeName === 'data-tui-sidebar-state') {
+										const state = mutation.target.getAttribute('data-tui-sidebar-state');
+										document.cookie = `sidebar-collapsed=${state === 'collapsed'}; path=/; max-age=31104000; SameSite=Lax`;
+									}
+								});
+							});
+							observer.observe(sidebar, { attributes: true });
+						}
+					};
+
+					if (document.readyState === 'loading') {
+						document.addEventListener('DOMContentLoaded', initSidebarTracker);
 					} else {
-						document.documentElement.classList.remove('dark');
+						initSidebarTracker();
 					}
 				})();
 			</script>

@@ -8,8 +8,8 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/dropdown"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/sidebar"
+	"github.com/narvanalabs/control-plane/web/components/tabs"
 	"github.com/narvanalabs/control-plane/internal/store"
-	switchcomp "github.com/narvanalabs/control-plane/web/components/switch"
 	"context"
 )
 
@@ -34,10 +34,17 @@ func isActive(currentPath, path string) bool {
 
 // SidebarLayout renders the sidebar with main content area
 templ SidebarLayout(activePath string) {
+	{{
+		collapsed := false
+		if val, ok := ctx.Value("sidebar-collapsed").(bool); ok {
+			collapsed = val
+		}
+	}}
 	@sidebar.Layout() {
 		@sidebar.Sidebar(sidebar.Props{
 			Collapsible: sidebar.CollapsibleIcon,
 			Variant:     sidebar.VariantFloating,
+			Collapsed:   collapsed,
 		}) {
 			@sidebar.Header() {
 				@sidebar.Menu() {
@@ -205,23 +212,56 @@ templ SidebarLayout(activePath string) {
 			@sidebar.Footer() {
 				@sidebar.Menu() {
 					@sidebar.MenuItem() {
-						<div class="flex items-center justify-between px-3 py-3 w-full group/theme hover:bg-zinc-100 dark:hover:bg-zinc-800/50 rounded-lg transition-all duration-200">
-							<div class="flex items-center gap-3">
-								<div data-theme-icon-dark class="hidden dark:block transform group-hover/theme:scale-110 transition-transform">
-									@icon.Moon(icon.Props{Class: "size-4 text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.5)]"})
-								</div>
-								<div data-theme-icon-light class="block dark:hidden transform group-hover/theme:scale-110 transition-transform">
-									@icon.Sun(icon.Props{Class: "size-4 text-orange-500 drop-shadow-[0_0_8px_rgba(249,115,22,0.5)]"})
-								</div>
-								<span class="text-xs font-semibold text-muted-foreground group-hover/theme:text-foreground transition-colors uppercase tracking-wider">Dark Mode</span>
+						<div class="px-3 py-2 group-data-[tui-sidebar-state=collapsed]:p-1 group-data-[tui-sidebar-state=collapsed]:flex group-data-[tui-sidebar-state=collapsed]:justify-center">
+							<!-- Expanded State: 3-column pill -->
+							<div class="flex flex-col gap-2 group-data-[tui-sidebar-state=collapsed]:hidden">
+								<span class="text-[10px] font-bold text-muted-foreground uppercase tracking-widest pl-1">Theme</span>
+								@tabs.Tabs(tabs.Props{Class: "w-full"}) {
+									@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 w-full h-9 p-1 bg-sidebar-accent/50 dark:bg-sidebar-accent/30 rounded-lg border border-sidebar-border shadow-inner"}) {
+										@tabs.Trigger(tabs.TriggerProps{
+											Value: "light",
+											Class: "text-[10px] h-full flex items-center justify-center gap-1 px-0 rounded-md transition-all duration-200 data-[tui-tabs-state=active]:bg-sidebar dark:data-[tui-tabs-state=active]:bg-sidebar hover:text-sidebar-accent-foreground",
+											Attributes: templ.Attributes{"data-theme-value": "light"},
+										}) {
+											@icon.Sun(icon.Props{Class: "size-3.5 text-orange-500"})
+											<span class="font-medium">Light</span>
+										}
+										@tabs.Trigger(tabs.TriggerProps{
+											Value: "dark",
+											Class: "text-[10px] h-full flex items-center justify-center gap-1 px-0 rounded-md transition-all duration-200 data-[tui-tabs-state=active]:bg-sidebar dark:data-[tui-tabs-state=active]:bg-sidebar hover:text-sidebar-accent-foreground",
+											Attributes: templ.Attributes{"data-theme-value": "dark"},
+										}) {
+											@icon.Moon(icon.Props{Class: "size-3.5 text-blue-400"})
+											<span class="font-medium">Dark</span>
+										}
+										@tabs.Trigger(tabs.TriggerProps{
+											Value: "system",
+											Class: "text-[10px] h-full flex items-center justify-center gap-1 px-0 rounded-md transition-all duration-200 data-[tui-tabs-state=active]:bg-sidebar dark:data-[tui-tabs-state=active]:bg-sidebar hover:text-sidebar-accent-foreground",
+											Attributes: templ.Attributes{"data-theme-value": "system"},
+										}) {
+											@icon.Monitor(icon.Props{Class: "size-3.5 text-muted-foreground"})
+											<span class="font-medium">Auto</span>
+										}
+									}
+								}
 							</div>
-							@switchcomp.Switch(switchcomp.Props{
-								ID: "theme-switcher",
-								Attributes: templ.Attributes{
-									"data-theme-switcher":       "true",
-									"data-theme-switcher-input": "true",
-								},
-							})
+
+							<!-- Collapsed State: Single Cycling Icon -->
+							<button 
+								data-theme-cycle 
+								class="hidden group-data-[tui-sidebar-state=collapsed]:flex items-center justify-center size-8 rounded-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200 relative"
+								title="Cycle Theme"
+							>
+								<div data-theme-icon="light" class="hidden">
+									@icon.Sun(icon.Props{Class: "size-5 text-orange-500"})
+								</div>
+								<div data-theme-icon="dark" class="hidden">
+									@icon.Moon(icon.Props{Class: "size-5 text-blue-400"})
+								</div>
+								<div data-theme-icon="system" class="hidden">
+									@icon.Monitor(icon.Props{Class: "size-5 text-muted-foreground"})
+								</div>
+							</button>
 						</div>
 					}
 					@sidebar.MenuItem() {

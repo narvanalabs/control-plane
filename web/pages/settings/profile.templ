@@ -10,7 +10,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/avatar"
 	"github.com/narvanalabs/control-plane/web/components/separator"
 	"github.com/narvanalabs/control-plane/web/components/icon"
-	switchcomp "github.com/narvanalabs/control-plane/web/components/switch"
+	"github.com/narvanalabs/control-plane/web/components/tabs"
 )
 
 // ProfileData holds the data for the profile settings page
@@ -109,26 +109,37 @@ templ Profile(data ProfileData) {
 				@card.Content() {
 					<div class="flex items-center justify-between">
 						<div class="space-y-1">
-							<p class="text-sm font-medium">Dark Mode</p>
-							<p class="text-xs text-muted-foreground">Adjust the theme to your preference.</p>
+							<p class="text-sm font-medium">Appearance</p>
+							<p class="text-xs text-muted-foreground">Select your preferred theme for the control plane.</p>
 						</div>
-						<div class="flex items-center gap-3">
-							<div class="flex items-center gap-2">
-								<div data-theme-icon-dark class="hidden dark:block">
-									@icon.Moon(icon.Props{Class: "size-4 text-muted-foreground"})
-								</div>
-								<div data-theme-icon-light class="block dark:hidden">
-									@icon.Sun(icon.Props{Class: "size-4 text-muted-foreground"})
-								</div>
-							</div>
-							@switchcomp.Switch(switchcomp.Props{
-								ID: "profile-theme-switcher",
-								Attributes: templ.Attributes{
-									"data-theme-switcher":       "true",
-									"data-theme-switcher-input": "true",
-								},
-							})
-						</div>
+						@tabs.Tabs(tabs.Props{Class: "w-80"}) {
+							@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 w-full h-9 p-1 bg-zinc-100 dark:bg-zinc-800/55 rounded-lg border border-border/50 shadow-inner"}) {
+								@tabs.Trigger(tabs.TriggerProps{
+									Value: "light",
+									Class: "text-xs h-full flex items-center justify-center gap-2 px-0 rounded-md transition-all duration-200",
+									Attributes: templ.Attributes{"data-theme-value": "light"},
+								}) {
+									@icon.Sun(icon.Props{Class: "size-4 text-orange-500"})
+									<span class="font-medium">Light</span>
+								}
+								@tabs.Trigger(tabs.TriggerProps{
+									Value: "dark",
+									Class: "text-xs h-full flex items-center justify-center gap-2 px-0 rounded-md transition-all duration-200",
+									Attributes: templ.Attributes{"data-theme-value": "dark"},
+								}) {
+									@icon.Moon(icon.Props{Class: "size-4 text-blue-400"})
+									<span class="font-medium">Dark</span>
+								}
+								@tabs.Trigger(tabs.TriggerProps{
+									Value: "system",
+									Class: "text-xs h-full flex items-center justify-center gap-2 px-0 rounded-md transition-all duration-200",
+									Attributes: templ.Attributes{"data-theme-value": "system"},
+								}) {
+									@icon.Monitor(icon.Props{Class: "size-4 text-muted-foreground"})
+									<span class="font-medium">System</span>
+								}
+							}
+						}
 					</div>
 				}
 			}
