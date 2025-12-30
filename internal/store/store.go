@@ -130,7 +130,8 @@ type DeploymentStore interface {
 	// Update updates an existing deployment.
 	Update(ctx context.Context, deployment *models.Deployment) error
 	// GetLatestSuccessful retrieves the most recent successful deployment for an app.
-	GetLatestSuccessful(ctx context.Context, appID string) (*models.Deployment, error)
+	// ListByUser retrieves all deployments for all apps owned by a given user.
+	ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error)
 }
 
 // NodeStore defines operations for node management.
@@ -161,6 +162,10 @@ type BuildStore interface {
 	GetByDeployment(ctx context.Context, deploymentID string) (*models.BuildJob, error)
 	// Update updates an existing build job.
 	Update(ctx context.Context, build *models.BuildJob) error
+	// List retrieves all builds for a given application.
+	List(ctx context.Context, appID string) ([]*models.BuildJob, error)
+	// ListByUser retrieves all builds for a given user across all apps.
+	ListByUser(ctx context.Context, userID string) ([]*models.BuildJob, error)
 	// ListPending retrieves all pending build jobs.
 	ListPending(ctx context.Context) ([]*models.BuildJob, error)
 }
