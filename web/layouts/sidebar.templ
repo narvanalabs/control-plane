@@ -141,7 +141,7 @@ templ SidebarLayout(activePath string) {
 						}
 						@sidebar.MenuItem() {
 							@collapsible.Collapsible(collapsible.Props{
-								Open:  isActive(activePath, "/settings/general") || isActive(activePath, "/settings/api-keys") || isActive(activePath, "/settings/server"),
+								Open:  isActive(activePath, "/settings"),
 								Class: "group/collapsible w-full",
 							}) {
 								@collapsible.Trigger() {

@@ -1,0 +1,124 @@
+package settings
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+)
+
+// ServerStatsData holds the data for the server stats page
+type ServerStatsData struct {
+	SuccessMsg string
+	ErrorMsg   string
+}
+
+// ServerStats renders the server stats page
+templ ServerStats(data ServerStatsData) {
+	@layouts.PageWithSidebar("Server Stats", "/settings/server/stats") {
+		<div class="space-y-6">
+			<div>
+				<h1 class="text-2xl font-bold">Server Stats</h1>
+				<p class="text-muted-foreground">Monitor your server's resource usage and health</p>
+			</div>
+			
+			// Navigation tabs
+			<div class="flex gap-2 border-b pb-2">
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server",
+				}) {
+					Identity
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server/logs",
+				}) {
+					Logs
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server/stats",
+					Class:   "border-b-2 border-primary rounded-none",
+				}) {
+					Stats
+				}
+			</div>
+
+			<div class="grid gap-4 md:grid-cols-3">
+				@card.Card() {
+					@card.Header() {
+						<div class="flex flex-row items-center justify-between space-y-0 pb-2">
+							@card.Title() {
+								CPU Usage
+							}
+							@icon.Cpu(icon.Props{Class: "size-4 text-muted-foreground"})
+						</div>
+					}
+					@card.Content() {
+						<div class="text-2xl font-bold">--%</div>
+						<p class="text-xs text-muted-foreground">
+							Across all cores
+						</p>
+					}
+				}
+				@card.Card() {
+					@card.Header() {
+						<div class="flex flex-row items-center justify-between space-y-0 pb-2">
+							@card.Title() {
+								Memory
+							}
+							@icon.Activity(icon.Props{Class: "size-4 text-muted-foreground"})
+						</div>
+					}
+					@card.Content() {
+						<div class="text-2xl font-bold">-- GB</div>
+						<p class="text-xs text-muted-foreground">
+							of -- GB total
+						</p>
+					}
+				}
+				@card.Card() {
+					@card.Header() {
+						<div class="flex flex-row items-center justify-between space-y-0 pb-2">
+							@card.Title() {
+								Disk Space
+							}
+							@icon.HardDrive(icon.Props{Class: "size-4 text-muted-foreground"})
+						</div>
+					}
+					@card.Content() {
+						<div class="text-2xl font-bold">--%</div>
+						<p class="text-xs text-muted-foreground">
+							/opt/narvana usage
+						</p>
+					}
+				}
+			</div>
+
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						System Info
+					}
+				}
+				@card.Content() {
+					<div class="space-y-2 text-sm">
+						<div class="flex justify-between border-b pb-2">
+							<span class="text-muted-foreground">OS</span>
+							<span class="font-medium">Linux</span>
+						</div>
+						<div class="flex justify-between border-b pb-2">
+							<span class="text-muted-foreground">Control Plane Version</span>
+							<span class="font-medium">v0.1.0-alpha</span>
+						</div>
+						<div class="flex justify-between border-b pb-2">
+							<span class="text-muted-foreground">Uptime</span>
+							<span class="font-medium">--</span>
+						</div>
+					</div>
+				}
+			}
+		</div>
+	}
+}

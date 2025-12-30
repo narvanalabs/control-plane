@@ -1,0 +1,357 @@
+package settings
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/selectbox"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/label"
+)
+
+// ServerLogsData holds the data for the server logs page
+type ServerLogsData struct {
+	SuccessMsg string
+	ErrorMsg   string
+}
+
+// ServerLogs renders the server logs page
+templ ServerLogs(data ServerLogsData) {
+	@layouts.PageWithSidebar("Server Logs", "/settings/server/logs") {
+		<div class="space-y-6">
+			<div>
+				<h1 class="text-2xl font-bold">Server Logs</h1>
+				<p class="text-muted-foreground">Real-time logs from Narvana system services</p>
+			</div>
+			
+			// Navigation tabs
+			<div class="flex gap-2 border-b pb-2">
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server",
+				}) {
+					Identity
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server/logs",
+					Class:   "border-b-2 border-primary rounded-none",
+				}) {
+					Logs
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server/stats",
+				}) {
+					Stats
+				}
+			</div>
+
+			@card.Card() {
+				@card.Header() {
+					<div class="flex items-center justify-between">
+						<div class="flex-1 min-w-0">
+							@card.Title() {
+								Server Logs
+							}
+							@card.Description() {
+								Real-time tailing of system services
+							}
+						</div>
+					</div>
+					
+					<div class="mt-4 flex flex-wrap items-end gap-4 border-t pt-4">
+						// Filters Group
+						<div class="flex flex-wrap items-center gap-3">
+							<div class="space-y-1.5">
+								@label.Label(label.Props{Class: "text-[10px] uppercase text-muted-foreground font-semibold px-0.5"}) { Service }
+								<div class="w-32">
+									@selectbox.SelectBox(selectbox.Props{ID: "service-selector"}) {
+										@selectbox.Trigger() {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "Service"})
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All Services }
+											@selectbox.Item(selectbox.ItemProps{Value: "api"}) { API }
+											@selectbox.Item(selectbox.ItemProps{Value: "web"}) { Web UI }
+											@selectbox.Item(selectbox.ItemProps{Value: "worker"}) { Worker }
+										}
+									}
+								</div>
+							</div>
+
+							<div class="space-y-1.5">
+								@label.Label(label.Props{Class: "text-[10px] uppercase text-muted-foreground font-semibold px-0.5"}) { History }
+								<div class="w-24">
+									@selectbox.SelectBox(selectbox.Props{ID: "lines-selector"}) {
+										@selectbox.Trigger() {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "Lines"})
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "100", Selected: true}) { 100 lines }
+											@selectbox.Item(selectbox.ItemProps{Value: "500"}) { 500 lines }
+											@selectbox.Item(selectbox.ItemProps{Value: "1000"}) { 1000 lines }
+											@selectbox.Item(selectbox.ItemProps{Value: "5000"}) { 5000 lines }
+										}
+									}
+								</div>
+							</div>
+
+							<div class="space-y-1.5">
+								@label.Label(label.Props{Class: "text-[10px] uppercase text-muted-foreground font-semibold px-0.5"}) { Since }
+								<div class="w-28">
+									@selectbox.SelectBox(selectbox.Props{ID: "range-selector"}) {
+										@selectbox.Trigger() {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "Range"})
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: true}) { Live }
+											@selectbox.Item(selectbox.ItemProps{Value: "-1h"}) { 1h ago }
+											@selectbox.Item(selectbox.ItemProps{Value: "-6h"}) { 6h ago }
+											@selectbox.Item(selectbox.ItemProps{Value: "-24h"}) { 24h ago }
+										}
+									}
+								</div>
+							</div>
+
+							<div class="space-y-1.5">
+								@label.Label(label.Props{Class: "text-[10px] uppercase text-muted-foreground font-semibold px-0.5"}) { Level }
+								<div class="w-28">
+									@selectbox.SelectBox(selectbox.Props{ID: "level-selector"}) {
+										@selectbox.Trigger() {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: "Level"})
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: true}) { All Levels }
+											@selectbox.Item(selectbox.ItemProps{Value: "info"}) { Info }
+											@selectbox.Item(selectbox.ItemProps{Value: "warning"}) { Warning }
+											@selectbox.Item(selectbox.ItemProps{Value: "error"}) { Error }
+											@selectbox.Item(selectbox.ItemProps{Value: "debug"}) { Debug }
+										}
+									}
+								</div>
+							</div>
+						</div>
+
+						// Search & Actions
+						<div class="flex flex-1 items-end gap-3 justify-end min-w-[300px]">
+							<div class="space-y-1.5 flex-1 max-w-sm">
+								@label.Label(label.Props{Class: "text-[10px] uppercase text-muted-foreground font-semibold px-0.5"}) { Search Logs }
+								@input.Input(input.Props{
+									ID:          "log-search",
+									Placeholder: "Filter messages...",
+									Class:       "h-9",
+								})
+							</div>
+							
+							<div class="flex items-center gap-1.5 pb-0.5">
+								@button.Button(button.Props{
+									ID:      "pause-btn",
+									Variant: button.VariantOutline,
+									Size:    button.SizeIcon,
+									Class:   "h-9 w-9",
+									Attributes: templ.Attributes{"title": "Pause/Resume Stream"},
+								}) {
+									<div id="pause-icon">@icon.Pause(icon.Props{Size: 16})</div>
+									<div id="play-icon" class="hidden">@icon.Play(icon.Props{Size: 16})</div>
+								}
+								@button.Button(button.Props{
+									ID:      "copy-btn",
+									Variant: button.VariantOutline,
+									Size:    button.SizeIcon,
+									Class:   "h-9 w-9",
+									Attributes: templ.Attributes{"title": "Copy Logs"},
+								}) {
+									@icon.Copy(icon.Props{Size: 16})
+								}
+								@button.Button(button.Props{
+									ID:      "download-btn",
+									Variant: button.VariantOutline,
+									Size:    button.SizeIcon,
+									Class:   "h-9 w-9",
+									Attributes: templ.Attributes{"title": "Download Full Logs"},
+								}) {
+									@icon.Download(icon.Props{Size: 16})
+								}
+							</div>
+						</div>
+					</div>
+				}
+				@card.Content() {
+					<div 
+						id="server-live-logs" 
+						class="h-[600px] w-full overflow-y-auto rounded-md bg-zinc-950 p-4 font-mono text-sm text-zinc-300"
+					>
+						// Logs will be appended here via the script below
+					</div>
+				}
+			}
+		</div>
+
+		// Inject the log streaming script
+		<script>
+			document.addEventListener('DOMContentLoaded', function() {
+				const logContainer = document.getElementById('server-live-logs');
+				const serviceSelector = document.getElementById('service-selector');
+				const linesSelector = document.getElementById('lines-selector');
+				const rangeSelector = document.getElementById('range-selector');
+				const levelSelector = document.getElementById('level-selector');
+				const searchInput = document.getElementById('log-search');
+				const pauseBtn = document.getElementById('pause-btn');
+				const copyBtn = document.getElementById('copy-btn');
+				const downloadBtn = document.getElementById('download-btn');
+				
+				if (!logContainer) return;
+
+				let eventSource = null;
+				let isPaused = false;
+
+				function startStream() {
+					if (eventSource) {
+						eventSource.close();
+					}
+
+					if (isPaused) return;
+
+					// Clear logs when switching
+					logContainer.innerHTML = '';
+					
+					const service = serviceSelector.querySelector('input[type="hidden"]').value || 'all';
+					const lines = linesSelector.querySelector('input[type="hidden"]').value || '100';
+					const since = rangeSelector.querySelector('input[type="hidden"]').value || '';
+					const level = levelSelector.querySelector('input[type="hidden"]').value || 'all';
+
+					const params = new URLSearchParams({
+						service: service === 'all' ? '' : service,
+						lines: lines,
+						since: since,
+						level: level
+					});
+
+					const streamUrl = `/api/server/logs/stream?${params.toString()}`;
+					eventSource = new EventSource(streamUrl);
+					
+					eventSource.onmessage = function(event) {
+						if (isPaused) return;
+
+						try {
+							const log = JSON.parse(event.data);
+							if (log.message) {
+								const line = document.createElement('div');
+								line.className = 'flex gap-2 mb-1 log-line';
+								
+								// Apply search filter if active
+								const searchText = searchInput.value.toLowerCase();
+								if (searchText && !log.message.toLowerCase().includes(searchText)) {
+									line.classList.add('hidden');
+								}
+
+								const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+								line.innerHTML = `
+									<span class="text-zinc-500 shrink-0 font-mono text-[11px]">${time}</span>
+									<span class="text-zinc-400 break-all">${log.message}</span>
+								`;
+								logContainer.appendChild(line);
+								if (!line.classList.contains('hidden')) {
+									logContainer.scrollTop = logContainer.scrollHeight;
+								}
+								
+								// Limit container size to avoid memory issues (e.g., keep last 5000 in DOM)
+								if (logContainer.children.length > 5000) {
+									logContainer.removeChild(logContainer.firstChild);
+								}
+							}
+						} catch (e) {
+							console.error('Error parsing log:', e);
+						}
+					};
+					
+					eventSource.onerror = function() {
+						eventSource.close();
+					};
+				}
+
+				// Initial stream
+				startStream();
+
+				// Helper to observe selectbox changes
+				function observeSelect(selector, callback) {
+					if (!selector) return;
+					const hiddenInput = selector.querySelector('input[type="hidden"]');
+					if (!hiddenInput) return;
+					
+					const observer = new MutationObserver((mutations) => {
+						mutations.forEach((mutation) => {
+							if (mutation.type === 'attributes' && mutation.attributeName === 'value') {
+								callback(hiddenInput.value);
+							}
+						});
+					});
+					observer.observe(hiddenInput, { attributes: true });
+					hiddenInput.addEventListener('change', () => callback(hiddenInput.value));
+				}
+
+				observeSelect(serviceSelector, startStream);
+				observeSelect(linesSelector, startStream);
+				observeSelect(rangeSelector, startStream);
+				observeSelect(levelSelector, startStream);
+
+				// Client-side search
+				searchInput.addEventListener('input', function() {
+					const searchText = this.value.toLowerCase();
+					const lines = logContainer.querySelectorAll('.log-line');
+					lines.forEach(line => {
+						const content = line.textContent.toLowerCase();
+						if (content.includes(searchText)) {
+							line.classList.remove('hidden');
+						} else {
+							line.classList.add('hidden');
+						}
+					});
+					logContainer.scrollTop = logContainer.scrollHeight;
+				});
+
+				// Pause/Resume
+				pauseBtn.addEventListener('click', function() {
+					isPaused = !isPaused;
+					document.getElementById('pause-icon').classList.toggle('hidden', isPaused);
+					document.getElementById('play-icon').classList.toggle('hidden', !isPaused);
+					
+					if (isPaused) {
+						if (eventSource) eventSource.close();
+					} else {
+						startStream();
+					}
+				});
+
+				// Copy content
+				copyBtn.addEventListener('click', function() {
+					const text = logContainer.innerText;
+					navigator.clipboard.writeText(text).then(() => {
+						// Optional: Show toast or feedback
+						this.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-500"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+						setTimeout(() => {
+							this.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+						}, 2000);
+					});
+				});
+
+				// Download logs
+				downloadBtn.addEventListener('click', function() {
+					const service = serviceSelector.querySelector('input[type="hidden"]').value || 'all';
+					const level = levelSelector.querySelector('input[type="hidden"]').value || 'all';
+					const since = rangeSelector.querySelector('input[type="hidden"]').value || '';
+					
+					const params = new URLSearchParams({
+						service: service === 'all' ? '' : service,
+						level: level,
+						since: since
+					});
+					
+					window.location.href = `/api/server/logs/download?${params.toString()}`;
+				});
+			});
+		</script>
+	}
+}

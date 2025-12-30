@@ -33,22 +33,22 @@ templ Server(data ServerData) {
 			<div class="flex gap-2 border-b pb-2">
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
-					Href:    "/settings/general",
-				}) {
-					General
-				}
-				@button.Button(button.Props{
-					Variant: button.VariantGhost,
 					Href:    "/settings/server",
 					Class:   "border-b-2 border-primary rounded-none",
 				}) {
-					Server
+					Identity
 				}
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
-					Href:    "/settings/api-keys",
+					Href:    "/settings/server/logs",
 				}) {
-					API Keys
+					Logs
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server/stats",
+				}) {
+					Stats
 				}
 			</div>
 			

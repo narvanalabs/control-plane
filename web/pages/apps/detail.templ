@@ -251,7 +251,7 @@ templ Detail(data DetailData) {
 										for _, d := range data.Deployments {
 											@table.Row() {
 												@table.Cell() { { d.ServiceName } }
-												@table.Cell() { v{ intToString(d.Version) } }
+												@table.Cell() { { "v" + intToString(d.Version) } }
 												@table.Cell() { @DeploymentStatusBadge(d.Status) }
 												@table.Cell() { 
 													if d.NodeID != "" {
