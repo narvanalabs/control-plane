@@ -280,6 +280,28 @@ func (h *DeploymentHandler) List(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, deployments)
 }
 
+// ListAll handles GET /v1/deployments - lists all deployments for the authenticated user.
+func (h *DeploymentHandler) ListAll(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	deployments, err := h.store.Deployments().ListByUser(r.Context(), userID)
+	if err != nil {
+		h.logger.Error("failed to list deployments for user", "error", err, "user_id", userID)
+		WriteInternalError(w, "Failed to list deployments")
+		return
+	}
+
+	if deployments == nil {
+		deployments = []*models.Deployment{}
+	}
+
+	WriteJSON(w, http.StatusOK, deployments)
+}
+
 // Get handles GET /v1/deployments/:deploymentID - retrieves a specific deployment.
 func (h *DeploymentHandler) Get(w http.ResponseWriter, r *http.Request) {
 	deploymentID := chi.URLParam(r, "deploymentID")
