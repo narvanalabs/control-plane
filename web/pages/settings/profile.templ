@@ -1,0 +1,170 @@
+package settings
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/avatar"
+	"github.com/narvanalabs/control-plane/web/components/separator"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	switchcomp "github.com/narvanalabs/control-plane/web/components/switch"
+)
+
+// ProfileData holds the data for the profile settings page
+type ProfileData struct {
+	UserEmail  string
+	UserName   string
+	AvatarURL  string
+	SuccessMsg string
+	ErrorMsg   string
+}
+
+// Profile renders the profile settings page
+templ Profile(data ProfileData) {
+	@layouts.PageWithSidebar("Profile Settings", "/settings/profile") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
+		<div class="max-w-2xl space-y-6">
+			<div>
+				<h1 class="text-2xl font-bold">Profile</h1>
+				<p class="text-muted-foreground">Manage your public information and account security</p>
+			</div>
+			
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Public Profile }
+					@card.Description() { This information will be visible to other members. }
+				}
+				@card.Content() {
+					<form method="POST" action="/settings/profile" class="space-y-6">
+						<div class="flex items-center gap-6">
+							@avatar.Avatar(avatar.Props{Class: "size-20"}) {
+								if data.AvatarURL != "" {
+									@avatar.Image(avatar.ImageProps{Src: data.AvatarURL, Alt: data.UserName})
+								}
+								@avatar.Fallback(avatar.FallbackProps{}) {
+									if data.UserName != "" {
+										{ data.UserName[:2] }
+									} else {
+										{ data.UserEmail[:2] }
+									}
+								}
+							}
+							<div class="space-y-1">
+								<p class="text-sm font-medium">Profile Picture</p>
+								<p class="text-xs text-muted-foreground">JPG, GIF or PNG. Max size of 800K</p>
+								<div class="flex gap-2 mt-2">
+									@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}) {
+										Upload new
+									}
+									@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "text-destructive"}) {
+										Remove
+									}
+								</div>
+							</div>
+						</div>
+
+						@separator.Separator()
+
+						<div class="grid gap-4">
+							@form.Item() {
+								@label.Label(label.Props{For: "name"}) { Display Name }
+								@input.Input(input.Props{
+									ID:          "name",
+									Name:        "name",
+									Placeholder: "Your full name",
+									Value:       data.UserName,
+								})
+								@form.Description() { This is your public display name. It can be your real name or a pseudonym. }
+							}
+							
+							@form.Item() {
+								@label.Label(label.Props{For: "email"}) { Email Address }
+								@input.Input(input.Props{
+									ID:       "email",
+									Name:     "email",
+									Type:     input.TypeEmail,
+									Value:    data.UserEmail,
+									Disabled: true,
+								})
+								@form.Description() { Your email is managed by your organization and cannot be changed here. }
+							}
+						</div>
+						
+						<div class="flex justify-end pt-4">
+							@button.Button(button.Props{Type: "submit"}) {
+								Save Profile
+							}
+						</div>
+					</form>
+				}
+			}
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Appearance }
+					@card.Description() { Customize the look and feel of the control plane. }
+				}
+				@card.Content() {
+					<div class="flex items-center justify-between">
+						<div class="space-y-1">
+							<p class="text-sm font-medium">Dark Mode</p>
+							<p class="text-xs text-muted-foreground">Adjust the theme to your preference.</p>
+						</div>
+						<div class="flex items-center gap-3">
+							<div class="flex items-center gap-2">
+								<div data-theme-icon-dark class="hidden dark:block">
+									@icon.Moon(icon.Props{Class: "size-4 text-muted-foreground"})
+								</div>
+								<div data-theme-icon-light class="block dark:hidden">
+									@icon.Sun(icon.Props{Class: "size-4 text-muted-foreground"})
+								</div>
+							</div>
+							@switchcomp.Switch(switchcomp.Props{
+								ID: "profile-theme-switcher",
+								Attributes: templ.Attributes{
+									"data-theme-switcher":       "true",
+									"data-theme-switcher-input": "true",
+								},
+							})
+						</div>
+					</div>
+				}
+			}
+
+
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Security }
+					@card.Description() { Manage your password and account security settings. }
+				}
+				@card.Content() {
+					<div class="space-y-4">
+						<div class="flex items-center justify-between">
+							<div class="space-y-0.5">
+								<p class="font-medium text-sm">Two-Factor Authentication</p>
+								<p class="text-xs text-muted-foreground">Add an extra layer of security to your account.</p>
+							</div>
+							@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}) {
+								Enable
+							}
+						</div>
+						
+						@separator.Separator()
+
+						<div class="flex items-center justify-between">
+							<div class="space-y-0.5">
+								<p class="font-medium text-sm">Change Password</p>
+								<p class="text-xs text-muted-foreground">Update your account password regularly.</p>
+							</div>
+							@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm}) {
+								Update
+							}
+						</div>
+					</div>
+				}
+			}
+		</div>
+	}
+}

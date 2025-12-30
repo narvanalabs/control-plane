@@ -14,6 +14,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/dialog"
 	"github.com/narvanalabs/control-plane/web/components/selectbox"
 	"github.com/narvanalabs/control-plane/web/components/checkbox"
+	switchcomp "github.com/narvanalabs/control-plane/web/components/switch"
 )
 
 // Base renders the base HTML layout with all scripts and sidebar
@@ -39,8 +40,20 @@ templ Base(title string) {
 			@dialog.Script()
 			@selectbox.Script()
 			@checkbox.Script()
+			@switchcomp.Script()
+			<script src="/assets/js/theme-switcher.js"></script>
+			<script>
+				(function() {
+					const theme = localStorage.getItem('narvana-theme');
+					if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+						document.documentElement.classList.add('dark');
+					} else {
+						document.documentElement.classList.remove('dark');
+					}
+				})();
+			</script>
 		</head>
-		<body class="dark">
+		<body class="bg-background text-foreground">
 			{ children... }
 			<script src="/assets/js/ui-polish.js"></script>
 			<script src="/assets/js/live-logs.js"></script>

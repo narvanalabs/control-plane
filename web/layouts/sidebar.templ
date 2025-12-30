@@ -8,7 +8,21 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/dropdown"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/sidebar"
+	"github.com/narvanalabs/control-plane/internal/store"
+	switchcomp "github.com/narvanalabs/control-plane/web/components/switch"
+	"context"
 )
+
+// GetUser returns the user from the context or a default one
+func GetUser(ctx context.Context) *store.User {
+	if u, ok := ctx.Value("user").(*store.User); ok {
+		return u
+	}
+	return &store.User{
+		Email: "admin@narvana.io",
+		Name:  "Admin",
+	}
+}
 
 // isActive returns true if the current path matches the given path or is a subpath
 func isActive(currentPath, path string) bool {
@@ -159,10 +173,10 @@ templ SidebarLayout(activePath string) {
 									@sidebar.MenuSub() {
 										@sidebar.MenuSubItem() {
 											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-												Href:     "/settings/general",
-												IsActive: isActive(activePath, "/settings/general"),
+												Href:     "/settings/profile",
+												IsActive: isActive(activePath, "/settings/profile"),
 											}) {
-												<span>General</span>
+												<span>Profile</span>
 											}
 										}
 										@sidebar.MenuSubItem() {
@@ -191,19 +205,52 @@ templ SidebarLayout(activePath string) {
 			@sidebar.Footer() {
 				@sidebar.Menu() {
 					@sidebar.MenuItem() {
+						<div class="flex items-center justify-between px-3 py-2 w-full">
+							<div class="flex items-center gap-2">
+								<div data-theme-icon-dark class="hidden dark:block">
+									@icon.Moon(icon.Props{Class: "size-4 text-muted-foreground"})
+								</div>
+								<div data-theme-icon-light class="block dark:hidden">
+									@icon.Sun(icon.Props{Class: "size-4 text-muted-foreground"})
+								</div>
+								<span class="text-xs font-medium text-muted-foreground">Dark Mode</span>
+							</div>
+							@switchcomp.Switch(switchcomp.Props{
+								ID: "theme-switcher",
+								Attributes: templ.Attributes{
+									"data-theme-switcher":       "true",
+									"data-theme-switcher-input": "true",
+								},
+							})
+						</div>
+					}
+					@sidebar.MenuItem() {
 						@dropdown.Dropdown() {
 							@dropdown.Trigger() {
 								@sidebar.MenuButton(sidebar.MenuButtonProps{
 									Size: sidebar.MenuButtonSizeLg,
 								}) {
 									@avatar.Avatar(avatar.Props{Class: "size-8 rounded-lg"}) {
+										if GetUser(ctx).AvatarURL != "" {
+											@avatar.Image(avatar.ImageProps{Src: GetUser(ctx).AvatarURL, Alt: GetUser(ctx).Name})
+										}
 										@avatar.Fallback(avatar.FallbackProps{}) {
-											AD
+											if GetUser(ctx).Name != "" {
+												{ GetUser(ctx).Name[:2] }
+											} else {
+												{ GetUser(ctx).Email[:2] }
+											}
 										}
 									}
 									<div class="grid flex-1 text-left text-sm leading-tight">
-										<span class="truncate font-medium">Admin</span>
-										<span class="truncate text-xs text-muted-foreground">admin@narvana.io</span>
+										<span class="truncate font-medium">
+											if GetUser(ctx).Name != "" {
+												{ GetUser(ctx).Name }
+											} else {
+												Admin
+											}
+										</span>
+										<span class="truncate text-xs text-muted-foreground">{ GetUser(ctx).Email }</span>
 									</div>
 									@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
 								}
@@ -213,10 +260,14 @@ templ SidebarLayout(activePath string) {
 								Placement: dropdown.PlacementTopStart,
 							}) {
 								@dropdown.Label() {
-									Admin
+									if GetUser(ctx).Name != "" {
+										{ GetUser(ctx).Name }
+									} else {
+										Admin
+									}
 								}
 								@dropdown.Separator()
-								@dropdown.Item(dropdown.ItemProps{Href: "/settings/general"}) {
+								@dropdown.Item(dropdown.ItemProps{Href: "/settings/profile"}) {
 									<span class="flex items-center">
 										@icon.User(icon.Props{Size: 16, Class: "mr-2"})
 										Profile

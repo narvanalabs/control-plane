@@ -1,0 +1,78 @@
+// templui component switch - version: v1.0.0
+// 📚 Documentation: https://templui.io/docs/components/switch
+package switchcomp
+
+import (
+	"github.com/narvanalabs/control-plane/web/utils"
+)
+
+type Props struct {
+	ID         string
+	Class      string
+	Attributes templ.Attributes
+	Name       string
+	Value      string
+	Checked    bool
+	Disabled   bool
+}
+
+templ Switch(props ...Props) {
+	{{ var p Props }}
+	if len(props) > 0 {
+		{{ p = props[0] }}
+	}
+	if p.ID == "" {
+		{{ p.ID = utils.RandomID() }}
+	}
+	<button
+		type="button"
+		role="switch"
+		aria-checked={ utils.IfElse(p.Checked, "true", "false") }
+		data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }
+		value={ p.Value }
+		if p.Name != "" {
+			name={ p.Name }
+		}
+		disabled?={ p.Disabled }
+		id={ p.ID }
+		class={
+			utils.TwMerge(
+				// Base styles
+				"peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
+				p.Class,
+			),
+		}
+		{ p.Attributes... }
+		data-tui-switch
+	>
+		<span
+			data-state={ utils.IfElse(p.Checked, "checked", "unchecked") }
+			class={
+				utils.TwMerge(
+					"pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0",
+				)
+			}
+		></span>
+	</button>
+	// Hidden input for form submission
+	<input
+		type="checkbox"
+		aria-hidden="true"
+		style="transform:translateX(-100%);position:absolute;pointer-events:none;opacity:0;margin:0"
+		if p.Name != "" {
+			name={ p.Name }
+		}
+		if p.Value != "" {
+			value={ p.Value }
+		}
+		disabled?={ p.Disabled }
+		checked?={ p.Checked }
+		tabindex="-1"
+		data-tui-switch-input={ p.ID }
+		{ p.Attributes... }
+	/>
+}
+
+templ Script() {
+	<script defer src="/assets/js/switch.js"></script>
+}
