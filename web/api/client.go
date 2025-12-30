@@ -47,12 +47,14 @@ func (c *Client) WithToken(token string) *Client {
 
 // App represents an application from the API.
 type App struct {
-	ID        string    `json:"id"`
-	OwnerID   string    `json:"owner_id"`
-	Name      string    `json:"name"`
-	Services  []Service `json:"services"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	OwnerID     string    `json:"owner_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	IconURL     string    `json:"icon_url"`
+	Services    []Service `json:"services"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Service represents a service within an app.
@@ -193,7 +195,9 @@ type AuthResponse struct {
 
 // CreateAppRequest is the request body for creating an app.
 type CreateAppRequest struct {
-	Name string `json:"name"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IconURL     string `json:"icon_url"`
 }
 
 // BuildStrategy represents the method used to build an application.
@@ -315,8 +319,12 @@ func (c *Client) GetApp(ctx context.Context, id string) (*App, error) {
 }
 
 // CreateApp creates a new application.
-func (c *Client) CreateApp(ctx context.Context, name string) (*App, error) {
-	req := CreateAppRequest{Name: name}
+func (c *Client) CreateApp(ctx context.Context, name, description, iconURL string) (*App, error) {
+	req := CreateAppRequest{
+		Name:        name,
+		Description: description,
+		IconURL:     iconURL,
+	}
 	var app App
 	err := c.post(ctx, "/v1/apps", req, &app)
 	return &app, err
