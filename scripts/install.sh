@@ -87,7 +87,7 @@ DATABASE_URL=postgres://narvana:${DB_PASSWORD}@localhost:5432/narvana?sslmode=di
 JWT_SECRET=${JWT_SECRET}
 API_HOST=0.0.0.0
 API_PORT=8080
-INTERNAL_API_URL=http://localhost:8080
+INTERNAL_API_URL=http://127.0.0.1:8080
 API_URL=http://${PUBLIC_IP}:8080
 WEB_URL=http://${PUBLIC_IP}:8090
 GRPC_PORT=9090
@@ -99,9 +99,14 @@ else
     echo -e "Environment file exists. Checking for health..."
     
     # 1. Ensure Internal communication is healthy
-    if ! grep -q "INTERNAL_API_URL=" "$ENV_FILE"; then
-        echo "INTERNAL_API_URL=http://localhost:8080" >> "$ENV_FILE"
-        echo "Added INTERNAL_API_URL for local communication"
+    if ! grep -q "INTERNAL_API_URL=" "$ENV_FILE" || grep -q "localhost:8080" "$ENV_FILE"; then
+        # Force 127.0.0.1 for reliability
+        if grep -q "INTERNAL_API_URL=" "$ENV_FILE"; then
+            sed -i "s|INTERNAL_API_URL=.*|INTERNAL_API_URL=http://127.0.0.1:8080|" "$ENV_FILE"
+        else
+            echo "INTERNAL_API_URL=http://127.0.0.1:8080" >> "$ENV_FILE"
+        fi
+        echo "Updated INTERNAL_API_URL to 127.0.0.1 for local communication"
     fi
 
     # 2. Update API_URL and WEB_URL to use the raw IP if they are using sslip.io (revert magic domain)
@@ -209,16 +214,35 @@ systemctl daemon-reload
 systemctl enable narvana-api narvana-web narvana-worker
 systemctl restart narvana-api narvana-web narvana-worker
 
-# 8. Success Output
+# 8. Verification
+echo -e "\n${BLUE}Step 7: Verifying services...${NC}"
+sleep 5 # Give services a moment to start
+
+check_service() {
+    local name=$1
+    local port=$2
+    if curl -s "http://127.0.0.1:${port}/health" > /dev/null || curl -s "http://127.0.0.1:${port}/login" > /dev/null; then
+        echo -e "${GREEN}✓ $name is responding on port $port${NC}"
+    else
+        echo -e "${RED}✗ $name is NOT responding on port $port${NC}"
+        echo "Tailing logs for $name:"
+        journalctl -u $name -n 20 --no-pager
+    fi
+}
+
+check_service "narvana-api" 8080
+check_service "narvana-web" 8090
+
+# 9. Success Output
 echo -e "\n${GREEN}${BOLD}─────────────────────────────────────────────────────────────────${NC}"
 echo -e "${GREEN}${BOLD}              Narvana Control Plane Installed Successfully!      ${NC}"
 echo -e "${GREEN}${BOLD}─────────────────────────────────────────────────────────────────${NC}"
 echo -e "\nYou can now access your dashboard at:"
 echo -e "👉 ${BOLD}http://${PUBLIC_IP}:8090${NC}"
 echo -e "\n${BLUE}Next Steps:${NC}"
-echo -e "1. Point your domain to this IP (${PUBLIC_IP})"
-echo -e "2. Configure SSL using Caddy (sample in /opt/narvana/control-plane/deploy/Caddyfile)"
-echo -e "3. Connect your GitHub App via the dashboard."
-echo -e "\n${BLUE}Logs:${NC}"
-echo -e "View logs: journalctl -u narvana-api -f"
+echo -e "1. Visit the URL above and create your admin account."
+echo -e "2. Connect your GitHub App via the dashboard."
+echo -e "\n${BLUE}Troubleshooting:${NC}"
+echo -e "View logs: journalctl -u narvana-web -f"
+echo -e "API logs:  journalctl -u narvana-api -f"
 echo -e "${GREEN}${BOLD}─────────────────────────────────────────────────────────────────${NC}"
