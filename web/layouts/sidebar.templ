@@ -75,41 +75,13 @@ templ SidebarLayout(activePath string) {
 							}
 						}
 						@sidebar.MenuItem() {
-							@collapsible.Collapsible(collapsible.Props{
-								Open:  isActive(activePath, "/apps") || isActive(activePath, "/apps/new"),
-								Class: "group/collapsible w-full",
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/apps",
+								Tooltip:  "Apps",
+								IsActive: isActive(activePath, "/apps"),
 							}) {
-								@collapsible.Trigger() {
-									@sidebar.MenuButton(sidebar.MenuButtonProps{
-										Tooltip: "Apps",
-									}) {
-										@icon.Box(icon.Props{Class: "size-4"})
-										<span>Apps</span>
-										@icon.ChevronRight(icon.Props{
-											Class: "ml-auto size-4 transition-transform group-data-[tui-collapsible-state=open]/collapsible:rotate-90",
-										})
-									}
-								}
-								@collapsible.Content() {
-									@sidebar.MenuSub() {
-										@sidebar.MenuSubItem() {
-											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-												Href:     "/apps",
-												IsActive: isActive(activePath, "/apps"),
-											}) {
-												<span>All Apps</span>
-											}
-										}
-										@sidebar.MenuSubItem() {
-											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-												Href:     "/apps/new",
-												IsActive: isActive(activePath, "/apps/new"),
-											}) {
-												<span>Create App</span>
-											}
-										}
-									}
-								}
+								@icon.Box(icon.Props{Class: "size-4"})
+								<span>Apps</span>
 							}
 						}
 						@sidebar.MenuItem() {

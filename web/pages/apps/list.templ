@@ -9,12 +9,18 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/badge"
 	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
 	"github.com/narvanalabs/control-plane/web/api"
+	"github.com/narvanalabs/control-plane/web/utils"
 )
 
 // ListData holds the data for the apps list page
 type ListData struct {
-	Apps []api.App
+	Apps  []api.App
+	Error string
 }
 
 // List renders the apps list page
@@ -26,11 +32,60 @@ templ List(data ListData) {
 					<h1 class="text-3xl font-bold tracking-tight">Apps</h1>
 					<p class="text-muted-foreground mt-1">Deploy and manage your application units</p>
 				</div>
-				@button.Button(button.Props{
-					Href: "/apps/new",
-				}) {
-					@icon.Plus(icon.Props{Class: "size-4 mr-2"})
-					New Application
+				if data.Error != "" {
+					<div class="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+						{ data.Error }
+					</div>
+				}
+				@dialog.Dialog(dialog.Props{ID: "create-app-dialog"}) {
+					@dialog.Trigger() {
+						@button.Button(button.Props{}) {
+							@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+							New Application
+						}
+					}
+					@dialog.Content() {
+						@dialog.Header() {
+							@dialog.Title() { Create New Application }
+							@dialog.Description() {
+								Provide basic details for your new application. You can add services later.
+							}
+						}
+						<form method="POST" action="/apps" class="space-y-4 py-4">
+							@form.Item() {
+								@label.Label(label.Props{For: "name"}) { App Name }
+								@input.Input(input.Props{
+									ID:          "name",
+									Name:        "name",
+									Placeholder: "my-awesome-app",
+									Attributes:  templ.Attributes{"required": true, "autofocus": true},
+								})
+								@form.Description() { A unique name for your application. }
+							}
+							@form.Item() {
+								@label.Label(label.Props{For: "description"}) { Description }
+								@input.Input(input.Props{
+									ID:          "description",
+									Name:        "description",
+									Placeholder: "A brief description of what this app does",
+								})
+							}
+							@form.Item() {
+								@label.Label(label.Props{For: "icon_url"}) { Icon URL (Optional) }
+								@input.Input(input.Props{
+									ID:          "icon_url",
+									Name:        "icon_url",
+									Placeholder: "https://example.com/logo.png",
+								})
+							}
+							@dialog.Footer() {
+								@dialog.Close() {
+									@button.Button(button.Props{Variant: button.VariantOutline}) { Cancel }
+								}
+								@button.Button(button.Props{Type: "submit"}) { Create App }
+							}
+						</form>
+					}
 				}
 			</div>
 			
@@ -46,11 +101,11 @@ templ List(data ListData) {
 								Create your first application to start deploying your services to the cloud.
 							</p>
 							<div class="mt-8">
-								@button.Button(button.Props{
-									Href: "/apps/new",
-								}) {
-									@icon.Plus(icon.Props{Class: "size-4 mr-2"})
-									Create Your First App
+								@dialog.Trigger(dialog.TriggerProps{For: "create-app-dialog"}) {
+									@button.Button(button.Props{}) {
+										@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+										Create Your First App
+									}
 								}
 							</div>
 						</div>
@@ -72,8 +127,15 @@ templ AppCard(app api.App) {
 		@card.Header() {
 			<div class="flex items-start justify-between">
 				<div class="flex items-center gap-3">
-					<div class="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20 group-hover:scale-110 transition-transform">
-						@icon.LayoutDashboard(icon.Props{Class: "size-5"})
+					<div class={ utils.TwMerge(
+						"rounded-xl bg-primary/10 text-primary border border-primary/20 group-hover:scale-110 transition-transform flex items-center justify-center size-10 overflow-hidden",
+						utils.If(app.IconURL == "", "p-2"),
+					) }>
+						if app.IconURL != "" {
+							<img src={ app.IconURL } alt={ app.Name } class="size-full object-cover"/>
+						} else {
+							@icon.LayoutDashboard(icon.Props{Class: "size-5"})
+						}
 					</div>
 					<div>
 						@card.Title() { { app.Name } }
@@ -83,6 +145,11 @@ templ AppCard(app api.App) {
 					</div>
 				</div>
 			</div>
+			if app.Description != "" {
+				<p class="text-xs text-muted-foreground mt-3 line-clamp-2">
+					{ app.Description }
+				</p>
+			}
 		}
 		@card.Content() {
 			<div class="space-y-4">
