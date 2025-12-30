@@ -285,23 +285,49 @@ func (s *BuildStore) Update(ctx context.Context, build *models.BuildJob) error {
 	return nil
 }
 
-// ListPending retrieves all pending build jobs.
-func (s *BuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, error) {
+// List retrieves all builds for a given application.
+func (s *BuildStore) List(ctx context.Context, appID string) ([]*models.BuildJob, error) {
 	query := `
 		SELECT id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
 			generated_flake, flake_lock, vendor_hash
 		FROM builds
-		WHERE status = 'queued'
-		ORDER BY created_at ASC`
+		WHERE app_id = $1
+		ORDER BY created_at DESC`
 
-	rows, err := s.conn().QueryContext(ctx, query)
+	rows, err := s.conn().QueryContext(ctx, query, appID)
 	if err != nil {
-		return nil, fmt.Errorf("querying pending builds: %w", err)
+		return nil, fmt.Errorf("querying builds by app: %w", err)
 	}
 	defer rows.Close()
 
+	return s.scanBuilds(rows)
+}
+
+// ListByUser retrieves all builds for a given user across all apps.
+func (s *BuildStore) ListByUser(ctx context.Context, userID string) ([]*models.BuildJob, error) {
+	query := `
+		SELECT b.id, b.deployment_id, b.app_id, b.git_url, b.git_ref, 
+			b.flake_output, b.build_type, b.status, b.created_at, b.started_at, b.finished_at,
+			b.build_strategy, b.timeout_seconds, b.retry_count, b.retry_as_oci,
+			b.generated_flake, b.flake_lock, b.vendor_hash
+		FROM builds b
+		JOIN apps a ON b.app_id = a.id
+		WHERE a.owner_id = $1
+		ORDER BY b.created_at DESC`
+
+	rows, err := s.conn().QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("querying builds by user: %w", err)
+	}
+	defer rows.Close()
+
+	return s.scanBuilds(rows)
+}
+
+// scanBuilds is a helper to scan build rows into a slice.
+func (s *BuildStore) scanBuilds(rows *sql.Rows) ([]*models.BuildJob, error) {
 	var builds []*models.BuildJob
 
 	for rows.Next() {
@@ -360,4 +386,24 @@ func (s *BuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, error
 	}
 
 	return builds, nil
+}
+
+// ListPending retrieves all pending build jobs.
+func (s *BuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, error) {
+	query := `
+		SELECT id, deployment_id, app_id, git_url, git_ref, 
+			flake_output, build_type, status, created_at, started_at, finished_at,
+			build_strategy, timeout_seconds, retry_count, retry_as_oci,
+			generated_flake, flake_lock, vendor_hash
+		FROM builds
+		WHERE status = 'queued'
+		ORDER BY created_at ASC`
+
+	rows, err := s.conn().QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("querying pending builds: %w", err)
+	}
+	defer rows.Close()
+
+	return s.scanBuilds(rows)
 }

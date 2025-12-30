@@ -341,6 +341,26 @@ func (s *DeploymentStore) GetLatestSuccessful(ctx context.Context, appID string)
 	return deployment, nil
 }
 
+// ListByUser retrieves all deployments for all apps owned by a given user.
+func (s *DeploymentStore) ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error) {
+	query := `
+		SELECT d.id, d.app_id, d.service_name, d.version, d.git_ref, d.git_commit, 
+			d.build_type, d.artifact, d.status, d.node_id, d.resource_tier, d.config, d.depends_on,
+			d.created_at, d.updated_at, d.started_at, d.finished_at
+		FROM deployments d
+		JOIN apps a ON d.app_id = a.id
+		WHERE a.owner_id = $1
+		ORDER BY d.created_at DESC`
+
+	rows, err := s.conn().QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("querying deployments by user: %w", err)
+	}
+	defer rows.Close()
+
+	return s.scanDeployments(rows)
+}
+
 // scanDeployments scans multiple deployment rows.
 func (s *DeploymentStore) scanDeployments(rows *sql.Rows) ([]*models.Deployment, error) {
 	var deployments []*models.Deployment
