@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"time"
+
+	"github.com/creack/pty"
+	"github.com/gorilla/websocket"
 )
 
 // ServerLogsHandler handles real-time server log streaming via SSE.
@@ -156,6 +160,103 @@ func (h *ServerLogsHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	if err := cmd.Run(); err != nil {
 		h.logger.Error("failed to download logs", "error", err)
+	}
+}
+
+// Restart handles POST /v1/server/restart - restarts systemd services.
+func (h *ServerLogsHandler) Restart(w http.ResponseWriter, r *http.Request) {
+	services := []string{"narvana-api", "narvana-web", "narvana-worker"}
+	
+	for _, svc := range services {
+		cmd := exec.Command("sudo", "systemctl", "restart", svc)
+		if err := cmd.Run(); err != nil {
+			h.logger.Error("failed to restart service", "service", svc, "error", err)
+			http.Error(w, fmt.Sprintf("failed to restart %s", svc), http.StatusInternalServerError)
+			return
+		}
+	}
+	
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "restarted"})
+}
+
+// TerminalWS handles GET /v1/server/console/ws - WebSocket terminal bridge.
+func (h *ServerLogsHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("terminal websocket request received")
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.logger.Error("failed to upgrade websocket", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	// Spawn shell with PTY
+	h.logger.Info("starting bash pty")
+	c := exec.Command("bash", "--norc") // Use --norc to avoid local bashrc pollution
+	c.Env = append(os.Environ(), 
+		"TERM=xterm-256color", 
+		"PS1=\\u@\\h:\\w\\$ ",
+		"LANG=en_US.UTF-8",
+		"LC_ALL=en_US.UTF-8",
+	)
+	
+	f, err := pty.Start(c)
+	if err != nil {
+		h.logger.Error("failed to start pty", "error", err)
+		return
+	}
+	h.logger.Info("pty started successfully")
+	defer f.Close()
+
+	// Set initial size
+	_ = pty.Setsize(f, &pty.Winsize{Rows: 24, Cols: 80})
+
+	// Clean up process on exit
+	defer func() {
+		c.Process.Kill()
+	}()
+
+	// Copy PTY output to WebSocket
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := f.Read(buf)
+			if err != nil {
+				return
+			}
+			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Handle WebSocket input (both data and control messages)
+	for {
+		mt, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		if mt == websocket.TextMessage {
+			// Check for control messages (e.g., resize)
+			var ctrl struct {
+				Type string `json:"type"`
+				Rows uint16 `json:"rows"`
+				Cols uint16 `json:"cols"`
+			}
+			if err := json.Unmarshal(msg, &ctrl); err == nil && ctrl.Type == "resize" {
+				_ = pty.Setsize(f, &pty.Winsize{Rows: ctrl.Rows, Cols: ctrl.Cols})
+				continue
+			}
+		}
+
+		// Otherwise treat as raw terminal input
+		if mt == websocket.BinaryMessage || mt == websocket.TextMessage {
+			f.Write(msg)
+		}
 	}
 }
 
