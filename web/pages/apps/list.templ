@@ -8,7 +8,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/button"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/badge"
-	"github.com/narvanalabs/control-plane/web/components/table"
+	"github.com/narvanalabs/control-plane/web/components/card"
 	"github.com/narvanalabs/control-plane/web/api"
 )
 
@@ -20,81 +20,112 @@ type ListData struct {
 // List renders the apps list page
 templ List(data ListData) {
 	@layouts.PageWithSidebar("Apps", "/apps") {
-		<div class="space-y-6">
-			<div class="flex items-center justify-between">
+		<div class="space-y-8">
+			<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 				<div>
-					<h1 class="text-2xl font-bold">Apps</h1>
-					<p class="text-muted-foreground">Manage your applications</p>
+					<h1 class="text-3xl font-bold tracking-tight">Apps</h1>
+					<p class="text-muted-foreground mt-1">Deploy and manage your application units</p>
 				</div>
 				@button.Button(button.Props{
 					Href: "/apps/new",
 				}) {
 					@icon.Plus(icon.Props{Class: "size-4 mr-2"})
-					Create App
+					New Application
 				}
 			</div>
 			
 			if len(data.Apps) == 0 {
-				<div class="flex flex-col items-center justify-center rounded-lg border border-dashed p-12">
-					@icon.Box(icon.Props{Class: "size-12 text-muted-foreground mb-4"})
-					<h3 class="text-lg font-medium">No apps yet</h3>
-					<p class="text-muted-foreground text-center mt-1 mb-4">
-						Create your first app to get started
-					</p>
-					@button.Button(button.Props{
-						Href: "/apps/new",
-					}) {
-						@icon.Plus(icon.Props{Class: "size-4 mr-2"})
-						Create App
-					}
-				</div>
-			} else {
-				<div class="rounded-lg border">
-					@table.Table() {
-						@table.Header() {
-							@table.Row() {
-								@table.Head() { Name }
-								@table.Head() { Services }
-								@table.Head() { Created }
-								@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
-							}
-						}
-						@table.Body() {
-							for _, app := range data.Apps {
-								@table.Row() {
-									@table.Cell() {
-										<a href={ templ.SafeURL("/apps/" + app.ID) } class="font-medium hover:underline">
-											{ app.Name }
-										</a>
-									}
-									@table.Cell() {
-										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-											{ fmt.Sprintf("%d services", len(app.Services)) }
-										}
-									}
-									@table.Cell() {
-										<span class="text-muted-foreground text-sm">
-											{ formatListTime(app.CreatedAt) }
-										</span>
-									}
-									@table.Cell(table.CellProps{Class: "text-right"}) {
-										<div class="flex items-center justify-end gap-2">
-											@button.Button(button.Props{
-												Variant: button.VariantOutline,
-												Size:    button.SizeSm,
-												Href:    "/apps/" + app.ID,
-											}) {
-												View
-											}
-										</div>
-									}
+				@card.Card(card.Props{Class: "border-dashed"}) {
+					@card.Content(card.ContentProps{Class: "py-16"}) {
+						<div class="flex flex-col items-center justify-center text-center">
+							<div class="rounded-full bg-muted p-6 mb-6">
+								@icon.Box(icon.Props{Class: "size-12 text-muted-foreground/60"})
+							</div>
+							<h3 class="text-2xl font-bold">No apps here yet</h3>
+							<p class="text-muted-foreground mt-2 max-w-sm">
+								Create your first application to start deploying your services to the cloud.
+							</p>
+							<div class="mt-8">
+								@button.Button(button.Props{
+									Href: "/apps/new",
+								}) {
+									@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+									Create Your First App
 								}
-							}
-						}
+							</div>
+						</div>
+					}
+				}
+			} else {
+				<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+					for _, app := range data.Apps {
+						@AppCard(app)
 					}
 				</div>
 			}
 		</div>
+	}
+}
+
+templ AppCard(app api.App) {
+	@card.Card(card.Props{Class: "group hover:shadow-lg transition-all duration-300"}) {
+		@card.Header() {
+			<div class="flex items-start justify-between">
+				<div class="flex items-center gap-3">
+					<div class="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20 group-hover:scale-110 transition-transform">
+						@icon.LayoutDashboard(icon.Props{Class: "size-5"})
+					</div>
+					<div>
+						@card.Title() { { app.Name } }
+						<p class="text-xs text-muted-foreground mt-0.5">
+							Created { formatListTime(app.CreatedAt) }
+						</p>
+					</div>
+				</div>
+			</div>
+		}
+		@card.Content() {
+			<div class="space-y-4">
+				<div class="flex items-center justify-between text-sm">
+					<span class="text-muted-foreground">Services</span>
+					<span class="font-medium">{ fmt.Sprint(len(app.Services)) } services</span>
+				</div>
+				
+				if len(app.Services) > 0 {
+					<div class="flex flex-wrap gap-2">
+						for i, svc := range app.Services {
+							if i < 3 {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-[10px] h-5"}) {
+									{ svc.Name }
+								}
+							}
+						}
+						if len(app.Services) > 3 {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-[10px] h-5"}) {
+								+{ fmt.Sprint(len(app.Services) - 3) } more
+							}
+						}
+					</div>
+				} else {
+					<div class="h-5 flex items-center text-[10px] text-muted-foreground italic">
+						No services configured
+					</div>
+				}
+			</div>
+		}
+		@card.Footer() {
+			<div class="flex w-full gap-2 pt-2">
+				@button.Button(button.Props{
+					Variant: button.VariantSecondary,
+					Size:    button.SizeSm,
+					Class:   "flex-1",
+					Href:    "/apps/" + app.ID,
+				}) {
+					@icon.ArrowRight(icon.Props{Class: "size-3.5 mr-2"})
+					View Dashboard
+				}
+			</div>
+		}
 	}
 }
 
