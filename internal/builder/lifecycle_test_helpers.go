@@ -217,15 +217,16 @@ func (m *MockAtticClient) Reset() {
 
 // MockStore is a mock implementation of the Store interface for testing.
 type MockStore struct {
-	apps        *MockAppStore
-	deployments *MockDeploymentStore
-	nodes       *MockNodeStore
-	builds      *MockBuildStore
-	secrets     *MockSecretStore
-	logs        *LifecycleMockLogStore
-	users       *MockUserStore
-	github      *MockGitHubStore
+	apps           *MockAppStore
+	deployments    *MockDeploymentStore
+	nodes          *MockNodeStore
+	builds         *MockBuildStore
+	secrets        *MockSecretStore
+	logs           *LifecycleMockLogStore
+	users          *MockUserStore
+	github         *MockGitHubStore
 	githubAccounts *MockGitHubAccountStore
+	settings       *MockSettingsStore
 }
 
 // NewMockStore creates a new MockStore.
@@ -240,6 +241,7 @@ func NewMockStore() *MockStore {
 		users:       NewMockUserStore(),
 		github:      NewMockGitHubStore(),
 		githubAccounts: NewMockGitHubAccountStore(),
+		settings:    NewMockSettingsStore(),
 	}
 }
 
@@ -252,6 +254,7 @@ func (m *MockStore) Logs() store.LogStore           { return m.logs }
 func (m *MockStore) Users() store.UserStore         { return m.users }
 func (m *MockStore) GitHub() store.GitHubStore      { return m.github }
 func (m *MockStore) GitHubAccounts() store.GitHubAccountStore { return m.githubAccounts }
+func (m *MockStore) Settings() store.SettingsStore      { return m.settings }
 func (m *MockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *MockStore) Close() error                   { return nil }
 
@@ -1303,4 +1306,37 @@ func CanTransition(from, to models.BuildStatus, isRetry bool) bool {
 // IsTerminalState delegates to models.IsTerminalState for terminal state checking.
 func IsTerminalState(status models.BuildStatus) bool {
 	return models.IsTerminalState(status)
+}
+
+// MockSettingsStore is a mock implementation of SettingsStore for testing.
+type MockSettingsStore struct {
+	mu       sync.Mutex
+	settings map[string]string
+}
+
+func NewMockSettingsStore() *MockSettingsStore {
+	return &MockSettingsStore{settings: make(map[string]string)}
+}
+
+func (m *MockSettingsStore) Get(ctx context.Context, key string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.settings[key], nil
+}
+
+func (m *MockSettingsStore) Set(ctx context.Context, key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.settings[key] = value
+	return nil
+}
+
+func (m *MockSettingsStore) GetAll(ctx context.Context) (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res := make(map[string]string)
+	for k, v := range m.settings {
+		res[k] = v
+	}
+	return res, nil
 }
