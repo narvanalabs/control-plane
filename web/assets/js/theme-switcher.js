@@ -57,37 +57,22 @@
             });
         };
 
-        // If View Transitions API is not available or no event to track coordinates
-        if (!document.startViewTransition || !event) {
+        // If View Transitions API is not available
+        if (!document.startViewTransition) {
             updateTheme();
             return;
         }
 
-        // Circular Reveal Effect
-        const x = event.clientX ?? window.innerWidth / 2;
-        const y = event.clientY ?? window.innerHeight / 2;
-        const endRadius = Math.hypot(
-            Math.max(x, window.innerWidth - x),
-            Math.max(y, window.innerHeight - y)
-        );
+        // Sleek Synchronized Cross-fade
+        document.documentElement.setAttribute('data-view-transitioning', 'true');
 
         const transition = document.startViewTransition(updateTheme);
 
-        await transition.ready;
-
-        document.documentElement.animate(
-            {
-                clipPath: [
-                    `circle(0px at ${x}px ${y}px)`,
-                    `circle(${endRadius}px at ${x}px ${y}px)`,
-                ],
-            },
-            {
-                duration: 500,
-                easing: 'ease-in-out',
-                pseudoElement: '::view-transition-new(root)',
-            }
-        );
+        try {
+            await transition.finished;
+        } finally {
+            document.documentElement.removeAttribute('data-view-transitioning');
+        }
     }
 
     document.addEventListener('DOMContentLoaded', function () {

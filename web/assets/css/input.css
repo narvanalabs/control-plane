@@ -110,7 +110,7 @@
 @layer base {
   * {
     @apply border-border;
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out, fill 0.2s ease-in-out, stroke 0.2s ease-in-out, opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
   }
 
   body {
@@ -118,20 +118,16 @@
   }
 }
 
+/* Disable all transitions during View Transitions to prevent "early" theme shifts */
+[data-view-transitioning] * {
+  transition: none !important;
+}
+
 /* View Transitions for "Cool" Theme Swapping */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-}
-
-/* Ensure the new state is on top for the circular reveal clip-path to work */
-::view-transition-new(root) {
-  z-index: 999;
-}
-
-::view-transition-old(root) {
-  z-index: 1;
+  animation-duration: 0.4s;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @layer utilities {
