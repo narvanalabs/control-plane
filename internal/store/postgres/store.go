@@ -12,7 +12,18 @@ import (
 	"github.com/narvanalabs/control-plane/internal/store"
 )
 
-// PostgresStore implements the Store interface using PostgreSQL.
+type PostgresStore struct {
+	db     *sql.DB
+	logger *slog.Logger
+
+	// Sub-stores
+	apps        *AppStore
+	deployments *DeploymentStore
+	nodes       *NodeStore
+	builds      *BuildStore
+	secrets     *SecretStore
+	logs        *LogStore
+	users       *UserStore
 	github      *GitHubStore
 	githubAccounts *GitHubAccountStore
 	settings    *SettingsStore
@@ -178,6 +189,17 @@ func (s *PostgresStore) DB() *sql.DB {
 }
 
 // txStore wraps a transaction and implements the Store interface.
+type txStore struct {
+	tx     *sql.Tx
+	logger *slog.Logger
+
+	apps        *AppStore
+	deployments *DeploymentStore
+	nodes       *NodeStore
+	builds      *BuildStore
+	secrets     *SecretStore
+	logs        *LogStore
+	users       *UserStore
 	github      *GitHubStore
 	githubAccounts *GitHubAccountStore
 	settings    *SettingsStore
