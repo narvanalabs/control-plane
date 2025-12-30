@@ -76,12 +76,6 @@ if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "your-ip" ]; then
 fi
 
 ENV_FILE="/etc/narvana/control-plane.env"
-# Use a magic domain if we have a public IP (makes redirects/SSL much easier)
-if [[ "$PUBLIC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    DOMAIN="${PUBLIC_IP}.sslip.io"
-else
-    DOMAIN="localhost"
-fi
 
 if [ ! -f "$ENV_FILE" ]; then
     JWT_SECRET=$(openssl rand -hex 32)
@@ -94,13 +88,13 @@ JWT_SECRET=${JWT_SECRET}
 API_HOST=0.0.0.0
 API_PORT=8080
 INTERNAL_API_URL=http://localhost:8080
-API_URL=http://${DOMAIN}:8080
-WEB_URL=http://${DOMAIN}:8090
+API_URL=http://${PUBLIC_IP}:8080
+WEB_URL=http://${PUBLIC_IP}:8090
 GRPC_PORT=9090
 WEB_PORT=8090
 WORKER_WORKDIR=/tmp/narvana-builds
 EOF
-    echo -e "${GREEN}✓ Created new environment file using domain: ${DOMAIN}${NC}"
+    echo -e "${GREEN}✓ Created new environment file using IP: ${PUBLIC_IP}${NC}"
 else
     echo -e "Environment file exists. Checking for health..."
     
@@ -110,19 +104,12 @@ else
         echo "Added INTERNAL_API_URL for local communication"
     fi
 
-    # 2. Update/Add API_URL and WEB_URL with the public domain
-    if grep -q "API_URL=" "$ENV_FILE"; then
-        sed -i "s|API_URL=.*|API_URL=http://${DOMAIN}:8080|" "$ENV_FILE"
-    else
-        echo "API_URL=http://${DOMAIN}:8080" >> "$ENV_FILE"
+    # 2. Update API_URL and WEB_URL to use the raw IP if they are using sslip.io (revert magic domain)
+    if grep -q "\.sslip\.io" "$ENV_FILE"; then
+        echo "Migrating from sslip.io back to raw IP..."
+        sed -i "s|API_URL=http://.*\.sslip\.io:8080|API_URL=http://${PUBLIC_IP}:8080|" "$ENV_FILE"
+        sed -i "s|WEB_URL=http://.*\.sslip\.io:8090|WEB_URL=http://${PUBLIC_IP}:8090|" "$ENV_FILE"
     fi
-
-    if grep -q "WEB_URL=" "$ENV_FILE"; then
-        sed -i "s|WEB_URL=.*|WEB_URL=http://${DOMAIN}:8090|" "$ENV_FILE"
-    else
-        echo "WEB_URL=http://${DOMAIN}:8090" >> "$ENV_FILE"
-    fi
-    echo "Updated API_URL and WEB_URL to use ${DOMAIN}"
 
     # 2. Fix malformed/unsafe DATABASE_URL (especially if password contains / or :)
     CURRENT_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | cut -d'=' -f2-)
