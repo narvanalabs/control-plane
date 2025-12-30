@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/websocket"
 	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
@@ -72,6 +73,8 @@ func main() {
 		r.Get("/api/logs/stream", handleLogStream)
 		r.Get("/api/server/logs/stream", handleServerLogStream)
 		r.Get("/api/server/logs/download", handleServerLogDownload)
+		r.Post("/api/server/restart", handleServerRestart)
+		r.Get("/api/server/console/ws", handleServerConsoleWS)
 
 		// Server management pages
 		r.Get("/settings/server/logs", handleSettingsServerLogs)
@@ -428,6 +431,97 @@ func handleServerLogDownload(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/v1/server/logs/download"
 	
 	proxy.ServeHTTP(w, r)
+}
+
+func handleServerRestart(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	// Add auth token if present
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	// Rewrite path: /api/server/restart -> /v1/server/restart
+	r.URL.Path = "/v1/server/restart"
+	
+	proxy.ServeHTTP(w, r)
+}
+
+func handleServerConsoleWS(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	target := "ws://" + u.Host + "/v1/server/console/ws"
+	if u.Scheme == "https" {
+		target = "wss://" + u.Host + "/v1/server/console/ws"
+	}
+
+	// Upgrade client connection
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	clientConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("failed to upgrade client websocket", "error", err)
+		return
+	}
+	defer clientConn.Close()
+
+	// Connect to backend
+	header := http.Header{}
+	token := getAuthToken(r)
+	if token != "" {
+		header.Set("Authorization", "Bearer "+token)
+	}
+
+	backendConn, resp, err := websocket.DefaultDialer.Dial(target, header)
+	if err != nil {
+		slog.Error("failed to dial backend websocket", "error", err, "resp_code", resp.StatusCode)
+		return
+	}
+	defer backendConn.Close()
+
+	// Bridge connections
+	errChan := make(chan error, 2)
+
+	go func() {
+		for {
+			mt, msg, err := clientConn.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if err := backendConn.WriteMessage(mt, msg); err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			mt, msg, err := backendConn.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if err := clientConn.WriteMessage(mt, msg); err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	<-errChan
 }
 
 func handleDeployService(w http.ResponseWriter, r *http.Request) {
