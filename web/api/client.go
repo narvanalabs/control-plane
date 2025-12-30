@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/narvanalabs/control-plane/internal/store"
 )
 
 // Client is an API client for the control-plane.
@@ -149,6 +151,28 @@ type NodeHealth struct {
 	Healthy    bool
 	CPUPercent int
 	MemPercent int
+}
+
+// GetUserProfile retrieves the current user's profile.
+func (c *Client) GetUserProfile(ctx context.Context) (*store.User, error) {
+	var user store.User
+	if err := c.Get(ctx, "/v1/user/profile", &user); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// UpdateUserProfile updates the current user's profile.
+func (c *Client) UpdateUserProfile(ctx context.Context, name, avatarURL string) (*store.User, error) {
+	req := map[string]string{
+		"name":       name,
+		"avatar_url": avatarURL,
+	}
+	var user store.User
+	if err := c.patch(ctx, "/v1/user/profile", req, &user); err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // ============================================================================
