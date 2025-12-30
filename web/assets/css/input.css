@@ -111,7 +111,14 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .skeleton {
+    @apply animate-pulse bg-zinc-200 dark:bg-zinc-800 rounded;
   }
 }
