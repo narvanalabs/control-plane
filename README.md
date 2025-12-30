@@ -9,15 +9,19 @@ The control plane manages applications, services, deployments, and coordinates w
 
 ### Quick Start
 
+**Local Development (Nix):**
 ```bash
 # Enter the development shell (starts PostgreSQL automatically)
 nix develop
 
-# Run migrations
-make migrate-up
-
-# Start all services in one terminal
+# Run migrations and start all services
 make dev-all
+```
+
+**VPS Deployment (One-Click):**
+Run this command on your Azure VPS to install everything (API, Worker, UI, Caddy, Postgres):
+```bash
+curl -sSL https://raw.githubusercontent.com/narvanalabs/control-plane/main/scripts/install.sh | sudo bash
 ```
 
 That's it! The API server runs on `http://localhost:8080` and gRPC on port `9090`.
