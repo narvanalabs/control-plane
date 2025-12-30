@@ -186,6 +186,13 @@ func (s *Server) setupRouter() {
 			r.Patch("/", settingsHandler.Update)
 		})
 
+		// User routes
+		userHandler := handlers.NewUserHandler(s.store, s.logger)
+		r.Route("/user", func(r chi.Router) {
+			r.Get("/profile", userHandler.GetProfile)
+			r.Patch("/profile", userHandler.UpdateProfile)
+		})
+
 		// Server management routes
 		serverLogsHandler := handlers.NewServerLogsHandler(s.logger)
 		r.Get("/server/logs/stream", serverLogsHandler.Stream)
