@@ -148,11 +148,14 @@ func (s *Server) setupRouter() {
 			})
 		})
 
-		// Deployment routes (direct access by ID)
+		// Deployment routes
 		deploymentHandler := handlers.NewDeploymentHandler(s.store, s.queue, s.logger)
-		r.Route("/deployments/{deploymentID}", func(r chi.Router) {
-			r.Get("/", deploymentHandler.Get)
-			r.Post("/rollback", deploymentHandler.Rollback)
+		r.Route("/deployments", func(r chi.Router) {
+			r.Get("/", deploymentHandler.ListAll)
+			r.Route("/{deploymentID}", func(r chi.Router) {
+				r.Get("/", deploymentHandler.Get)
+				r.Post("/rollback", deploymentHandler.Rollback)
+			})
 		})
 
 		// Node routes
@@ -184,6 +187,16 @@ func (s *Server) setupRouter() {
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", settingsHandler.Get)
 			r.Patch("/", settingsHandler.Update)
+		})
+
+		// Build routes
+		buildHandler := handlers.NewBuildHandler(s.store, s.queue, s.logger)
+		r.Route("/builds", func(r chi.Router) {
+			r.Get("/", buildHandler.List)
+			r.Route("/{buildID}", func(r chi.Router) {
+				r.Get("/", buildHandler.Get)
+				r.Post("/retry", buildHandler.Retry)
+			})
 		})
 
 		// User routes
