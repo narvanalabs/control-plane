@@ -12,14 +12,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/narvanalabs/control-plane/web/api"
-	"github.com/narvanalabs/control-plane/web/layouts"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
 	"github.com/narvanalabs/control-plane/web/pages/auth"
 	"github.com/narvanalabs/control-plane/web/pages/git"
 	"github.com/narvanalabs/control-plane/web/pages/nodes"
 	settings_page "github.com/narvanalabs/control-plane/web/pages/settings"
-	"github.com/narvanalabs/control-plane/web/utils"
 )
 
 // NOTE: Builds and deployments list handlers are currently omitted/stubbed 
@@ -77,8 +75,11 @@ func main() {
 		r.Get("/api/github/setup", handleGitHubManifestStart)
 	})
 
-	fmt.Println("🚀 Web UI running on http://localhost:8090")
-	http.ListenAndServe(":8090", r)
+	fmt.Println("🚀 Web UI running on http://0.0.0.0:8090")
+	if err := http.ListenAndServe(":8090", r); err != nil {
+		fmt.Printf("❌ Web UI failed to start: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // ============================================================================
@@ -109,8 +110,13 @@ func getAPIClient(r *http.Request) *api.Client {
 		apiURL = os.Getenv("API_URL")
 	}
 	if apiURL == "" {
-		apiURL = "http://localhost:8080"
+		apiURL = "http://127.0.0.1:8080"
 	}
+	// Use 127.0.0.1 for internal calls if localhost was specified
+	if apiURL == "http://localhost:8080" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
 	apiClient := api.NewClient(apiURL)
 	token := getAuthToken(r)
 	if token != "" {
