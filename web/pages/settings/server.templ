@@ -9,6 +9,8 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/label"
 	"github.com/narvanalabs/control-plane/web/components/form"
 	"github.com/narvanalabs/control-plane/web/components/separator"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/badge"
 )
 
 // ServerData holds the data for the server settings page
@@ -43,6 +45,12 @@ templ Server(data ServerData) {
 					Href:    "/settings/server/logs",
 				}) {
 					Logs
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost,
+					Href:    "/settings/server/stats",
+				}) {
+					Stats
 				}
 				@button.Button(button.Props{
 					Variant: button.VariantGhost,
@@ -129,8 +137,218 @@ templ Server(data ServerData) {
 							Run Check
 						}
 					</div>
+					
+					@separator.Separator(separator.Props{Class: "my-4"})
+					
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-medium">Reload Services</p>
+							<p class="text-sm text-muted-foreground">Restart all Narvana system services (API, Web UI, Worker)</p>
+						</div>
+						@dialog.Dialog(dialog.Props{ID: "reload-dialog"}) {
+							@dialog.Trigger() {
+								@button.Button(button.Props{
+									Variant: button.VariantOutline,
+									Size:    button.SizeSm,
+								}) {
+									@icon.RefreshCw(icon.Props{Class: "size-4 mr-2 reload-icon-anim"})
+									Reload
+								}
+							}
+							@dialog.Content() {
+								@dialog.Header() {
+									@dialog.Title() { Confirm Restart }
+									@dialog.Description() {
+										Are you sure you want to reload all system services? This will cause a brief interruption in service across the platform.
+									}
+								}
+								@dialog.Footer() {
+									@dialog.Close() {
+										@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+									}
+									@button.Button(button.Props{
+										ID:      "confirm-reload-btn",
+										Variant: button.VariantDestructive,
+									}) {
+										Confirm Reload
+									}
+								}
+							}
+						}
+					</div>
+
+					@separator.Separator(separator.Props{Class: "my-4"})
+
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-medium">System Console</p>
+							<p class="text-sm text-muted-foreground">Access a secure terminal on the server</p>
+						</div>
+						@dialog.Dialog(dialog.Props{ID: "terminal-dialog", DisableClickAway: true}) {
+							@dialog.Trigger() {
+								@button.Button(button.Props{
+									Variant: button.VariantOutline,
+									Size:    button.SizeSm,
+								}) {
+									@icon.Terminal(icon.Props{Class: "size-4 mr-2"})
+									Launch Console
+								}
+							}
+							@dialog.Content(dialog.ContentProps{Class: "sm:max-w-4xl"}) {
+								@dialog.Header() {
+									<div class="flex items-center justify-between pr-8">
+										<div>
+											@dialog.Title() { System Console }
+											@dialog.Description() { Interactive shell session }
+										</div>
+										@badge.Badge(badge.Props{ID: "term-status", Variant: badge.VariantOutline}) {
+											<span class="mr-1.5 size-2 rounded-full bg-zinc-500"></span>
+											Connecting...
+										}
+									</div>
+								}
+								<div class="rounded-md bg-zinc-950 p-2 border border-zinc-800">
+									<div id="terminal" class="h-[500px] w-full"></div>
+								</div>
+								@dialog.Footer() {
+									<div class="flex flex-1 items-center gap-2">
+										<p class="text-[10px] uppercase text-muted-foreground font-semibold">Common:</p>
+										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-cmd", Attributes: templ.Attributes{"data-cmd": "top\n"}}) { top }
+										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-cmd", Attributes: templ.Attributes{"data-cmd": "df -h\n"}}) { disk }
+										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-cmd", Attributes: templ.Attributes{"data-cmd": "free -m\n"}}) { ram }
+									</div>
+									@dialog.Close() {
+										@button.Button(button.Props{Variant: button.VariantOutline}) { Close Terminal }
+									}
+								}
+							}
+						}
+					</div>
 				}
 			}
 		</div>
+
+		// Load xterm.js
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+		<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+
+		<script>
+			document.addEventListener('DOMContentLoaded', function() {
+				const confirmBtn = document.getElementById('confirm-reload-btn');
+				const reloadTrigger = document.querySelector('[data-tui-dialog-trigger="reload-dialog"] button');
+				
+				if (confirmBtn) {
+					confirmBtn.addEventListener('click', async function() {
+						const dialogClose = document.querySelector('[data-tui-dialog-close="reload-dialog"]');
+						const reloadIcon = reloadTrigger?.querySelector('svg');
+						
+						if (reloadTrigger) reloadTrigger.disabled = true;
+						if (reloadIcon) reloadIcon.classList.add('animate-spin');
+						
+						// Close dialog immediately
+						if (dialogClose) dialogClose.click();
+						
+						try {
+							const response = await fetch('/api/server/restart', { method: 'POST' });
+							if (response.ok) {
+								alert('Services reloaded successfully');
+							} else {
+								alert('Failed to reload services');
+							}
+						} catch (e) {
+							console.error(e);
+							alert('An error occurred while reloading services');
+						} finally {
+							if (reloadTrigger) reloadTrigger.disabled = false;
+							if (reloadIcon) reloadIcon.classList.remove('animate-spin');
+						}
+					});
+				}
+
+				// Terminal Logic
+				let term = null;
+				let fitAddon = null;
+				let ws = null;
+
+				const termTrigger = document.querySelector('[data-tui-dialog-trigger="terminal-dialog"]');
+				const termContent = document.querySelector('[data-tui-dialog-content][data-dialog-instance="terminal-dialog"]');
+
+				if (termTrigger) {
+					termTrigger.addEventListener('click', function() {
+						if (!term) {
+							// Initialize terminal if not already done
+							setTimeout(() => {
+								term = new Terminal({
+									cursorBlink: true,
+									theme: {
+										background: '#09090b',
+										foreground: '#a1a1aa',
+										cursor: '#f4f4f5',
+										selectionBackground: '#27272a'
+									},
+									fontSize: 13,
+									fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, "Courier New", monospace'
+								});
+								fitAddon = new FitAddon.FitAddon();
+								term.loadAddon(fitAddon);
+								term.open(document.getElementById('terminal'));
+								fitAddon.fit();
+
+								initWebSocket();
+
+								term.onData(data => {
+									if (ws && ws.readyState === WebSocket.OPEN) {
+										ws.send(data);
+									}
+								});
+
+								window.addEventListener('resize', () => fitAddon.fit());
+
+								document.querySelectorAll('.quick-cmd').forEach(btn => {
+									btn.addEventListener('click', () => {
+										const cmd = btn.getAttribute('data-cmd');
+										if (ws && ws.readyState === WebSocket.OPEN) {
+											ws.send(cmd);
+										}
+										term.focus();
+									});
+								});
+							}, 100);
+						} else {
+							// Re-connect or just focus
+							if (!ws || ws.readyState !== WebSocket.OPEN) {
+								initWebSocket();
+							}
+							setTimeout(() => {
+								fitAddon.fit();
+								term.focus();
+							}, 100);
+						}
+					});
+				}
+
+				function initWebSocket() {
+					const statusBadge = document.getElementById('term-status');
+					const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+					ws = new WebSocket(`${protocol}//${window.location.host}/api/server/console/ws`);
+					ws.binaryType = 'arraybuffer';
+
+					ws.onopen = () => {
+						if (statusBadge) statusBadge.innerHTML = '<span class="mr-1.5 size-2 rounded-full bg-green-500"></span> Connected';
+						term.focus();
+					};
+
+					ws.onmessage = (event) => {
+						term.write(new Uint8Array(event.data));
+					};
+
+					ws.onclose = () => {
+						if (statusBadge) statusBadge.innerHTML = '<span class="mr-1.5 size-2 rounded-full bg-red-500"></span> Disconnected';
+						term.write('\r\n\x1b[31mTerminal connection closed.\x1b[0m\r\n');
+					};
+				}
+			});
+		</script>
 	}
 }
