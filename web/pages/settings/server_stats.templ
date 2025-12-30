@@ -19,7 +19,7 @@ templ ServerStats(data ServerStatsData) {
 		<div class="space-y-6">
 			<div>
 				<h1 class="text-2xl font-bold">Server Stats</h1>
-				<p class="text-muted-foreground">Monitor your server's resource usage and health</p>
+				<p class="text-muted-foreground">Monitor your server's resource usage and health in real-time</p>
 			</div>
 			
 			// Navigation tabs
@@ -49,76 +49,170 @@ templ ServerStats(data ServerStatsData) {
 				@card.Card() {
 					@card.Header() {
 						<div class="flex flex-row items-center justify-between space-y-0 pb-2">
-							@card.Title() {
-								CPU Usage
-							}
+							@card.Title() { CPU Usage }
 							@icon.Cpu(icon.Props{Class: "size-4 text-muted-foreground"})
 						</div>
 					}
 					@card.Content() {
-						<div class="text-2xl font-bold">--%</div>
-						<p class="text-xs text-muted-foreground">
-							Across all cores
-						</p>
+						<div class="text-2xl font-bold" id="cpu-value">--%</div>
+						<div class="h-[80px] mt-4">
+							<canvas id="cpu-chart"></canvas>
+						</div>
 					}
 				}
 				@card.Card() {
 					@card.Header() {
 						<div class="flex flex-row items-center justify-between space-y-0 pb-2">
-							@card.Title() {
-								Memory
-							}
+							@card.Title() { Memory }
 							@icon.Activity(icon.Props{Class: "size-4 text-muted-foreground"})
 						</div>
 					}
 					@card.Content() {
-						<div class="text-2xl font-bold">-- GB</div>
-						<p class="text-xs text-muted-foreground">
-							of -- GB total
-						</p>
+						<div class="text-2xl font-bold" id="mem-value">-- / -- GB</div>
+						<div class="h-[80px] mt-4">
+							<canvas id="mem-chart"></canvas>
+						</div>
 					}
 				}
 				@card.Card() {
 					@card.Header() {
 						<div class="flex flex-row items-center justify-between space-y-0 pb-2">
-							@card.Title() {
-								Disk Space
-							}
+							@card.Title() { Disk Space }
 							@icon.HardDrive(icon.Props{Class: "size-4 text-muted-foreground"})
 						</div>
 					}
 					@card.Content() {
-						<div class="text-2xl font-bold">--%</div>
-						<p class="text-xs text-muted-foreground">
-							/opt/narvana usage
+						<div class="text-2xl font-bold" id="disk-value">--%</div>
+						<p class="text-xs text-muted-foreground" id="disk-info">
+							-- GB available of -- GB
 						</p>
+						<div class="mt-4 h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
+							<div id="disk-progress" class="h-full bg-zinc-400 transition-all" style="width: 0%"></div>
+						</div>
 					}
 				}
 			</div>
 
 			@card.Card() {
 				@card.Header() {
-					@card.Title() {
-						System Info
-					}
+					@card.Title() { System Info }
 				}
 				@card.Content() {
-					<div class="space-y-2 text-sm">
-						<div class="flex justify-between border-b pb-2">
-							<span class="text-muted-foreground">OS</span>
-							<span class="font-medium">Linux</span>
+					<div class="grid gap-4 md:grid-cols-2">
+						<div class="space-y-4">
+							<div class="flex justify-between border-b border-zinc-800 pb-2">
+								<span class="text-muted-foreground">OS</span>
+								<span class="font-medium" id="os-name">--</span>
+							</div>
+							<div class="flex justify-between border-b border-zinc-800 pb-2">
+								<span class="text-muted-foreground">Hostname</span>
+								<span class="font-medium" id="hostname">--</span>
+							</div>
 						</div>
-						<div class="flex justify-between border-b pb-2">
-							<span class="text-muted-foreground">Control Plane Version</span>
-							<span class="font-medium">v0.1.0-alpha</span>
-						</div>
-						<div class="flex justify-between border-b pb-2">
-							<span class="text-muted-foreground">Uptime</span>
-							<span class="font-medium">--</span>
+						<div class="space-y-4">
+							<div class="flex justify-between border-b border-zinc-800 pb-2">
+								<span class="text-muted-foreground">Uptime</span>
+								<span class="font-medium" id="uptime">--</span>
+							</div>
+							<div class="flex justify-between border-b border-zinc-800 pb-2">
+								<span class="text-muted-foreground">Control Plane Version</span>
+								<span class="font-medium">v0.1.0-alpha</span>
+							</div>
 						</div>
 					</div>
 				}
 			}
 		</div>
+
+		<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+		<script>
+			function formatBytes(bytes) {
+				if (bytes === 0) return '0 B';
+				const k = 1024;
+				const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+				const i = Math.floor(Math.log(bytes) / Math.log(k));
+				return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+			}
+
+			function formatUptime(seconds) {
+				const d = Math.floor(seconds / (24 * 3600));
+				const h = Math.floor((seconds % (24 * 3600)) / 3600);
+				const m = Math.floor((seconds % 3600) / 60);
+				const s = Math.floor(seconds % 60);
+
+				const parts = [];
+				if (d > 0) parts.push(`${d}d`);
+				if (h > 0) parts.push(`${h}h`);
+				if (m > 0) parts.push(`${m}m`);
+				if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+				return parts.join(' ');
+			}
+
+			const chartOptions = {
+				responsive: true,
+				maintainAspectRatio: false,
+				plugins: { legend: { display: false } },
+				scales: {
+					x: { display: false },
+					y: { display: false, min: 0, max: 100 }
+				},
+				elements: {
+					line: { tension: 0.4, borderWidth: 2, borderColor: '#71717a', fill: true, backgroundColor: 'rgba(113, 113, 122, 0.1)' },
+					point: { radius: 0 }
+				},
+				animation: { duration: 0 }
+			};
+
+			const cpuCtx = document.getElementById('cpu-chart').getContext('2d');
+			const cpuChart = new Chart(cpuCtx, {
+				type: 'line',
+				data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0) }] },
+				options: chartOptions
+			});
+
+			const memCtx = document.getElementById('mem-chart').getContext('2d');
+			const memChart = new Chart(memCtx, {
+				type: 'line',
+				data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0) }] },
+				options: chartOptions
+			});
+
+			const eventSource = new EventSource('/api/server/stats/stream');
+			eventSource.onmessage = function(event) {
+				const data = JSON.parse(event.data);
+				const res = data.resources;
+
+				// CPU
+				const cpuUsage = res.cpu_total - res.cpu_available;
+				document.getElementById('cpu-value').innerText = cpuUsage.toFixed(1) + '%';
+				cpuChart.data.datasets[0].data.push(cpuUsage);
+				cpuChart.data.datasets[0].data.shift();
+				cpuChart.update();
+
+				// Memory
+				const memUsed = res.memory_total - res.memory_available;
+				const memUsagePercent = (memUsed / res.memory_total) * 100;
+				document.getElementById('mem-value').innerText = formatBytes(memUsed) + ' / ' + formatBytes(res.memory_total);
+				memChart.data.datasets[0].data.push(memUsagePercent);
+				memChart.data.datasets[0].data.shift();
+				memChart.update();
+
+				// Disk
+				const diskUsed = res.disk_total - res.disk_available;
+				const diskUsagePercent = (diskUsed / res.disk_total) * 100;
+				document.getElementById('disk-value').innerText = diskUsagePercent.toFixed(1) + '%';
+				document.getElementById('disk-info').innerText = formatBytes(res.disk_available) + ' available of ' + formatBytes(res.disk_total);
+				document.getElementById('disk-progress').style.width = diskUsagePercent + '%';
+
+				// Info
+				document.getElementById('os-name').innerText = data.os;
+				document.getElementById('hostname').innerText = data.hostname;
+				document.getElementById('uptime').innerText = formatUptime(data.uptime);
+			};
+
+			window.onbeforeunload = function() {
+				eventSource.close();
+			};
+		</script>
 	}
 }
