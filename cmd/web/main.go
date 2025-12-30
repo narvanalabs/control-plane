@@ -75,6 +75,8 @@ func main() {
 		r.Get("/api/server/logs/download", handleServerLogDownload)
 		r.Post("/api/server/restart", handleServerRestart)
 		r.Get("/api/server/console/ws", handleServerConsoleWS)
+		r.Get("/api/server/stats", handleServerStats)
+		r.Get("/api/server/stats/stream", handleServerStatsStream)
 
 		// Server management pages
 		r.Get("/settings/server/logs", handleSettingsServerLogs)
@@ -449,6 +451,46 @@ func handleServerRestart(w http.ResponseWriter, r *http.Request) {
 	
 	// Rewrite path: /api/server/restart -> /v1/server/restart
 	r.URL.Path = "/v1/server/restart"
+	
+	proxy.ServeHTTP(w, r)
+}
+
+func handleServerStats(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	// Add auth token if present
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	// Rewrite path: /api/server/stats -> /v1/server/stats
+	r.URL.Path = "/v1/server/stats"
+	
+	proxy.ServeHTTP(w, r)
+}
+
+func handleServerStatsStream(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	// Add auth token if present
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	// Rewrite path: /api/server/stats/stream -> /v1/server/stats/stream
+	r.URL.Path = "/v1/server/stats/stream"
 	
 	proxy.ServeHTTP(w, r)
 }
