@@ -20,11 +20,10 @@ import (
 	"github.com/narvanalabs/control-plane/web/pages/auth"
 	"github.com/narvanalabs/control-plane/web/pages/git"
 	"github.com/narvanalabs/control-plane/web/pages/nodes"
+	"github.com/narvanalabs/control-plane/web/pages/builds"
+	"github.com/narvanalabs/control-plane/web/pages/deployments"
 	settings_page "github.com/narvanalabs/control-plane/web/pages/settings"
 )
-
-// NOTE: Builds and deployments list handlers are currently omitted/stubbed 
-// as the backend API client doesn't support listing them yet.
 
 func main() {
 	r := chi.NewRouter()
@@ -70,8 +69,23 @@ func main() {
 		r.Post("/apps/{appID}/secrets", handleCreateSecret)
 		r.Post("/apps/{appID}/secrets/{key}/delete", handleDeleteSecret)
 		r.Get("/nodes", handleNodes)
-		// r.Get("/nodes/{nodeID}", handleNodeDetail) // Stubbed
 		
+		r.Route("/builds", func(r chi.Router) {
+			r.Get("/", handleBuildsList)
+			r.Route("/{buildID}", func(r chi.Router) {
+				r.Get("/", handleBuildsDetail)
+				r.Post("/retry", handleBuildRetry)
+			})
+		})
+
+		r.Route("/deployments", func(r chi.Router) {
+			r.Get("/", handleDeploymentsList)
+			r.Route("/{deploymentID}", func(r chi.Router) {
+				r.Get("/", handleDeploymentsDetail)
+				r.Post("/rollback", handleDeploymentRollback)
+			})
+		})
+
 		// SSE log stream proxy
 		r.Get("/api/logs/stream", handleLogStream)
 		r.Get("/api/server/logs/stream", handleServerLogStream)
@@ -90,6 +104,8 @@ func main() {
 		r.Get("/settings/server/stats", handleSettingsServerStats)
 		r.Get("/settings/profile", handleSettingsProfile)
 		r.Post("/settings/profile", handleUpdateProfile)
+		r.Get("/settings/ssh-keys", handleSettingsSSHKeys)
+		r.Get("/settings/notifications", handleSettingsNotifications)
 
 		// GitHub proxy routes
 		r.Get("/api/github/config", handleGetGitHubConfig)
@@ -954,5 +970,217 @@ func handleSettingsServerStats(w http.ResponseWriter, r *http.Request) {
 	settings_page.ServerStats(settings_page.ServerStatsData{}).Render(r.Context(), w)
 }
 
-// Suppress unused import warning
-var _ = time.Now
+func handleSettingsSSHKeys(w http.ResponseWriter, r *http.Request) {
+	// Mock data for SSH keys since backend is not implemented yet
+	data := settings_page.SSHKeysData{
+		Keys: []settings_page.SSHKey{
+			{
+				ID:          "key_1",
+				Name:        "Personal MacBook",
+				Fingerprint: "SHA256:m0...xX...Yy...Zz",
+				Type:        "ed25519",
+				CreatedAt:   time.Now().Add(-720 * time.Hour), // 30 days ago
+			},
+			{
+				ID:          "key_2",
+				Name:        "Work Workstation",
+				Fingerprint: "SHA256:ab...cd...ef...gh",
+				Type:        "ssh-rsa",
+				CreatedAt:   time.Now().Add(-168 * time.Hour), // 7 days ago
+			},
+		},
+	}
+	settings_page.SSHKeys(data).Render(r.Context(), w)
+}
+
+func handleSettingsNotifications(w http.ResponseWriter, r *http.Request) {
+	// Mock data for notification providers
+	data := settings_page.NotificationsData{
+		Providers: []settings_page.Provider{
+			{
+				ID:          "p1",
+				Type:        settings_page.ProviderSlack,
+				Name:        "Slack",
+				Description: "Send notifications to a Slack channel using incoming webhooks.",
+				Enabled:     true,
+				Configured:  true,
+				Config: map[string]string{
+					"webhook_url": "",
+				},
+			},
+			{
+				ID:          "p2",
+				Type:        settings_page.ProviderDiscord,
+				Name:        "Discord",
+				Description: "Post updates to a Discord server via webhook integration.",
+				Enabled:     false,
+				Configured:  true,
+				Config: map[string]string{
+					"webhook_url": "",
+				},
+			},
+			{
+				ID:          "p3",
+				Type:        settings_page.ProviderTelegram,
+				Name:        "Telegram",
+				Description: "Receive instant alerts via a Telegram bot.",
+				Enabled:     false,
+				Configured:  false,
+				Config:      make(map[string]string),
+			},
+			{
+				ID:          "p4",
+				Type:        settings_page.ProviderEmail,
+				Name:        "Email (SMTP)",
+				Description: "Send system alerts to your inbox using a custom SMTP server.",
+				Enabled:     false,
+				Configured:  false,
+				Config:      make(map[string]string),
+			},
+			{
+				ID:          "p5",
+				Type:        settings_page.ProviderGotify,
+				Name:        "Gotify",
+				Description: "Self-hosted notification server. Receive alerts on your own infrastructure.",
+				Enabled:     false,
+				Configured:  false,
+				Config:      make(map[string]string),
+			},
+			{
+				ID:          "p6",
+				Type:        settings_page.ProviderCustom,
+				Name:        "Custom Webhook",
+				Description: "Integrate with any third-party service by sending a custom HTTP POST request.",
+				Enabled:     false,
+				Configured:  false,
+				Config:      make(map[string]string),
+			},
+		},
+	}
+	settings_page.Notifications(data).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Builds Handlers
+// ============================================================================
+
+func handleBuildsList(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
+	
+	buildJobs, err := client.ListBuilds(r.Context())
+	if err != nil {
+		slog.Error("failed to list builds", "error", err)
+		// Show empty list on error for now
+		buildJobs = []api.Build{}
+	}
+
+	apps, err := client.ListApps(r.Context())
+	appMap := make(map[string]string)
+	if err == nil {
+		for _, a := range apps {
+			appMap[a.ID] = a.Name
+		}
+	}
+
+	builds.List(builds.ListData{
+		Builds: buildJobs,
+		Apps:   appMap,
+	}).Render(r.Context(), w)
+}
+
+func handleBuildsDetail(w http.ResponseWriter, r *http.Request) {
+	buildID := chi.URLParam(r, "buildID")
+	client := getAPIClient(r)
+
+	buildJob, err := client.GetBuild(r.Context(), buildID)
+	if err != nil {
+		slog.Error("failed to get build detail", "error", err, "build_id", buildID)
+		http.NotFound(w, r)
+		return
+	}
+
+	app, err := client.GetApp(r.Context(), buildJob.AppID)
+	appName := "Unknown App"
+	if err == nil {
+		appName = app.Name
+	}
+
+	builds.Detail(builds.DetailData{
+		Build:   *buildJob,
+		AppName: appName,
+	}).Render(r.Context(), w)
+}
+
+func handleBuildRetry(w http.ResponseWriter, r *http.Request) {
+	buildID := chi.URLParam(r, "buildID")
+	client := getAPIClient(r)
+
+	if err := client.RetryBuild(r.Context(), buildID); err != nil {
+		slog.Error("failed to retry build", "error", err, "build_id", buildID)
+	}
+
+	http.Redirect(w, r, "/builds/"+buildID, http.StatusSeeOther)
+}
+
+// ============================================================================
+// Deployments Handlers
+// ============================================================================
+
+func handleDeploymentsList(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
+	
+	deployList, err := client.ListDeployments(r.Context())
+	if err != nil {
+		slog.Error("failed to list deployments", "error", err)
+		deployList = []api.Deployment{}
+	}
+
+	apps, err := client.ListApps(r.Context())
+	appMap := make(map[string]string)
+	if err == nil {
+		for _, a := range apps {
+			appMap[a.ID] = a.Name
+		}
+	}
+
+	deployments.List(deployments.ListData{
+		Deployments: deployList,
+		Apps:        appMap,
+	}).Render(r.Context(), w)
+}
+
+func handleDeploymentsDetail(w http.ResponseWriter, r *http.Request) {
+	deploymentID := chi.URLParam(r, "deploymentID")
+	client := getAPIClient(r)
+
+	deployment, err := client.GetDeployment(r.Context(), deploymentID)
+	if err != nil {
+		slog.Error("failed to get deployment detail", "error", err, "deployment_id", deploymentID)
+		http.NotFound(w, r)
+		return
+	}
+
+	app, err := client.GetApp(r.Context(), deployment.AppID)
+	appName := "Unknown App"
+	if err == nil {
+		appName = app.Name
+	}
+
+	var node *api.Node
+	if deployment.NodeID != "" {
+		node, _ = client.GetNode(r.Context(), deployment.NodeID)
+	}
+
+	deployments.Detail(deployments.DetailData{
+		Deployment: *deployment,
+		AppName:    appName,
+		Node:       node,
+	}).Render(r.Context(), w)
+}
+
+func handleDeploymentRollback(w http.ResponseWriter, r *http.Request) {
+	deploymentID := chi.URLParam(r, "deploymentID")
+	// Rollback implementation in client/API would go here
+	// For now just redirect back
+	http.Redirect(w, r, "/deployments/"+deploymentID, http.StatusSeeOther)
+}
