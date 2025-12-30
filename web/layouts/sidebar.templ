@@ -111,6 +111,16 @@ templ SidebarLayout(activePath string) {
 								<span>Builds</span>
 							}
 						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/git",
+								Tooltip:  "Git",
+								IsActive: isActive(activePath, "/git"),
+							}) {
+								@icon.GitBranch(icon.Props{Class: "size-4"})
+								<span>Git</span>
+							}
+						}
 					}
 				}
 				@sidebar.Separator()
