@@ -33,6 +33,7 @@ func NewAppHandler(st store.Store, logger *slog.Logger) *AppHandler {
 type CreateAppRequest struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
+	IconURL     string                 `json:"icon_url,omitempty"`
 	Services    []models.ServiceConfig `json:"services"`
 }
 
@@ -85,6 +86,7 @@ func (h *AppHandler) Create(w http.ResponseWriter, r *http.Request) {
 		OwnerID:     userID,
 		Name:        strings.TrimSpace(req.Name),
 		Description: strings.TrimSpace(req.Description),
+		IconURL:     strings.TrimSpace(req.IconURL),
 		Services:    req.Services,
 		CreatedAt:   now,
 		UpdatedAt:   now,
