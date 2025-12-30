@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+set -o pipefail
 
 # Narvana Control Plane - One-Click Installer
 # Inspired by Dokploy and Coolify
