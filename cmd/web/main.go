@@ -59,7 +59,6 @@ func main() {
 		r.Get("/git", handleGitPage)
 		r.Route("/apps", func(r chi.Router) {
 			r.Get("/", handleApps)
-			r.Get("/new", handleCreateApp)
 			r.Post("/", handleCreateAppSubmit)
 			r.Get("/{appID}", handleAppDetail)
 			r.Post("/{appID}/delete", handleDeleteApp)
@@ -328,10 +327,6 @@ func handleApps(w http.ResponseWriter, r *http.Request) {
 	apps.List(apps.ListData{Apps: appList}).Render(r.Context(), w)
 }
 
-func handleCreateApp(w http.ResponseWriter, r *http.Request) {
-	apps.Create(apps.CreateData{}).Render(r.Context(), w)
-}
-
 func handleCreateAppSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form", http.StatusBadRequest)
@@ -339,10 +334,17 @@ func handleCreateAppSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := r.FormValue("name")
+	description := r.FormValue("description")
+	iconURL := r.FormValue("icon_url")
+
 	client := getAPIClient(r)
-	app, err := client.CreateApp(r.Context(), name)
+	app, err := client.CreateApp(r.Context(), name, description, iconURL)
 	if err != nil {
-		apps.Create(apps.CreateData{Error: err.Error()}).Render(r.Context(), w)
+		appList, _ := client.ListApps(r.Context())
+		apps.List(apps.ListData{
+			Apps:  appList,
+			Error: err.Error(),
+		}).Render(r.Context(), w)
 		return
 	}
 
