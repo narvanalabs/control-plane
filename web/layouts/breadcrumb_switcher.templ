@@ -1,0 +1,134 @@
+package layouts
+
+import (
+	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
+	"github.com/narvanalabs/control-plane/web/components/dropdown"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+)
+
+// BreadcrumbSwitcherData contains the data needed for breadcrumb switchers.
+type BreadcrumbSwitcherData struct {
+	CurrentOrg     *models.Organization
+	UserOrgs       []*models.Organization
+	CurrentApp     *models.App
+	OrgApps        []*models.App
+	CurrentService *models.ServiceConfig
+	AppServices    []models.ServiceConfig
+}
+
+// BreadcrumbWithSwitchers renders breadcrumbs with inline dropdown switchers
+// for organization, app, and service selection.
+templ BreadcrumbWithSwitchers(data BreadcrumbSwitcherData) {
+	@breadcrumb.Breadcrumb() {
+		@breadcrumb.List() {
+			// Organization Switcher
+			if data.CurrentOrg != nil {
+				@breadcrumb.Item() {
+					@dropdown.Dropdown(dropdown.Props{ID: "breadcrumb-org-switcher"}) {
+						@dropdown.Trigger() {
+							<span class="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+								{ data.CurrentOrg.Name }
+								@icon.ChevronDown(icon.Props{Size: 14, Class: "text-muted-foreground"})
+							</span>
+						}
+						@dropdown.Content(dropdown.ContentProps{
+							Class:     "w-48",
+							Placement: dropdown.PlacementBottomStart,
+						}) {
+							@dropdown.Label() {
+								Organizations
+							}
+							for _, org := range data.UserOrgs {
+								@dropdown.Item(dropdown.ItemProps{
+									Href: "/orgs/" + org.Slug + "/switch",
+								}) {
+									<span class="flex items-center">
+										if org.ID == data.CurrentOrg.ID {
+											@icon.Check(icon.Props{Size: 16, Class: "mr-2 text-primary"})
+										} else {
+											<span class="size-4 mr-2"></span>
+										}
+										{ org.Name }
+									</span>
+								}
+							}
+						}
+					}
+				}
+			}
+			// App Switcher (only shown when an app is selected)
+			if data.CurrentApp != nil {
+				@breadcrumb.Separator()
+				@breadcrumb.Item() {
+					@dropdown.Dropdown(dropdown.Props{ID: "breadcrumb-app-switcher"}) {
+						@dropdown.Trigger() {
+							<span class="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+								{ data.CurrentApp.Name }
+								@icon.ChevronDown(icon.Props{Size: 14, Class: "text-muted-foreground"})
+							</span>
+						}
+						@dropdown.Content(dropdown.ContentProps{
+							Class:     "w-48",
+							Placement: dropdown.PlacementBottomStart,
+						}) {
+							@dropdown.Label() {
+								Apps
+							}
+							for _, app := range data.OrgApps {
+								@dropdown.Item(dropdown.ItemProps{
+									Href: "/apps/" + app.ID,
+								}) {
+									<span class="flex items-center">
+										if app.ID == data.CurrentApp.ID {
+											@icon.Check(icon.Props{Size: 16, Class: "mr-2 text-primary"})
+										} else {
+											<span class="size-4 mr-2"></span>
+										}
+										{ app.Name }
+									</span>
+								}
+							}
+						}
+					}
+				}
+			}
+			// Service Switcher (only shown when a service is selected)
+			if data.CurrentService != nil && data.CurrentApp != nil {
+				@breadcrumb.Separator()
+				@breadcrumb.Item() {
+					@dropdown.Dropdown(dropdown.Props{ID: "breadcrumb-service-switcher"}) {
+						@dropdown.Trigger() {
+							<span class="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+								{ data.CurrentService.Name }
+								@icon.ChevronDown(icon.Props{Size: 14, Class: "text-muted-foreground"})
+							</span>
+						}
+						@dropdown.Content(dropdown.ContentProps{
+							Class:     "w-48",
+							Placement: dropdown.PlacementBottomStart,
+						}) {
+							@dropdown.Label() {
+								Services
+							}
+							for _, svc := range data.AppServices {
+								@dropdown.Item(dropdown.ItemProps{
+									Href: "/apps/" + data.CurrentApp.ID + "/services/" + svc.Name,
+								}) {
+									<span class="flex items-center">
+										if svc.Name == data.CurrentService.Name {
+											@icon.Check(icon.Props{Size: 16, Class: "mr-2 text-primary"})
+										} else {
+											<span class="size-4 mr-2"></span>
+										}
+										{ svc.Name }
+									</span>
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

@@ -3,13 +3,13 @@ package layouts
 import (
 	"strings"
 
+	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/web/components/avatar"
-	"github.com/narvanalabs/control-plane/web/components/collapsible"
 	"github.com/narvanalabs/control-plane/web/components/dropdown"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/sidebar"
 	"github.com/narvanalabs/control-plane/web/components/tabs"
-	"github.com/narvanalabs/control-plane/internal/store"
 	"context"
 )
 
@@ -22,6 +22,25 @@ func GetUser(ctx context.Context) *store.User {
 		Email: "admin@narvana.io",
 		Name:  "Admin",
 	}
+}
+
+// GetCurrentOrg returns the current organization from the context
+func GetCurrentOrg(ctx context.Context) *models.Organization {
+	if org, ok := ctx.Value("current_org").(*models.Organization); ok {
+		return org
+	}
+	return &models.Organization{
+		Name: "Default",
+		Slug: "default",
+	}
+}
+
+// GetUserOrgs returns the user's organizations from the context
+func GetUserOrgs(ctx context.Context) []*models.Organization {
+	if orgs, ok := ctx.Value("user_orgs").([]*models.Organization); ok {
+		return orgs
+	}
+	return []*models.Organization{}
 }
 
 // isActive returns true if the current path matches the given path or is a subpath
@@ -39,6 +58,9 @@ templ SidebarLayout(activePath string) {
 		if val, ok := ctx.Value("sidebar-collapsed").(bool); ok {
 			collapsed = val
 		}
+		currentOrg := GetCurrentOrg(ctx)
+		userOrgs := GetUserOrgs(ctx)
+		user := GetUser(ctx)
 	}}
 	@sidebar.Layout() {
 		@sidebar.Sidebar(sidebar.Props{
@@ -49,11 +71,49 @@ templ SidebarLayout(activePath string) {
 			@sidebar.Header() {
 				@sidebar.Menu() {
 					@sidebar.MenuItem() {
-						@sidebar.MenuButton(sidebar.MenuButtonProps{
-							Href: "/",
-						}) {
-							@icon.LayoutPanelLeft(icon.Props{Class: "size-4"})
-							<span class="font-semibold">Narvana</span>
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								@sidebar.MenuButton(sidebar.MenuButtonProps{
+									Tooltip: "Switch Organization",
+								}) {
+									if currentOrg.IconURL != "" {
+										<img src={ currentOrg.IconURL } class="size-5 rounded" alt={ currentOrg.Name } />
+									} else {
+										@icon.Building(icon.Props{Class: "size-4"})
+									}
+									<span class="font-semibold truncate">{ currentOrg.Name }</span>
+									@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
+								}
+							}
+							@dropdown.Content(dropdown.ContentProps{
+								Class:     "w-56",
+								Placement: dropdown.PlacementBottomStart,
+							}) {
+								@dropdown.Label() {
+									Organizations
+								}
+								for _, org := range userOrgs {
+									@dropdown.Item(dropdown.ItemProps{
+										Href: "/orgs/" + org.Slug + "/switch",
+									}) {
+										<span class="flex items-center">
+											if org.ID == currentOrg.ID {
+												@icon.Check(icon.Props{Size: 16, Class: "mr-2 text-primary"})
+											} else {
+												<span class="size-4 mr-2"></span>
+											}
+											{ org.Name }
+										</span>
+									}
+								}
+								@dropdown.Separator()
+								@dropdown.Item(dropdown.ItemProps{Href: "/orgs/new"}) {
+									<span class="flex items-center">
+										@icon.Plus(icon.Props{Size: 16, Class: "mr-2"})
+										Create Organization
+									</span>
+								}
+							}
 						}
 					}
 				}
@@ -68,7 +128,7 @@ templ SidebarLayout(activePath string) {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Href:     "/",
 								Tooltip:  "Dashboard",
-								IsActive: isActive(activePath, "/"),
+								IsActive: isActive(activePath, "/") && activePath == "/",
 							}) {
 								@icon.House(icon.Props{Class: "size-4"})
 								<span>Dashboard</span>
@@ -114,16 +174,6 @@ templ SidebarLayout(activePath string) {
 								<span>Git</span>
 							}
 						}
-						@sidebar.MenuItem() {
-							@sidebar.MenuButton(sidebar.MenuButtonProps{
-								Href:     "/settings/notifications",
-								Tooltip:  "Notifications",
-								IsActive: isActive(activePath, "/settings/notifications"),
-							}) {
-								@icon.Bell(icon.Props{Class: "size-4"})
-								<span>Notifications</span>
-							}
-						}
 					}
 				}
 				@sidebar.Separator()
@@ -143,56 +193,53 @@ templ SidebarLayout(activePath string) {
 							}
 						}
 						@sidebar.MenuItem() {
-							@collapsible.Collapsible(collapsible.Props{
-								Open:  isActive(activePath, "/settings"),
-								Class: "group/collapsible w-full",
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/domains",
+								Tooltip:  "Domains",
+								IsActive: isActive(activePath, "/domains"),
 							}) {
-								@collapsible.Trigger() {
-									@sidebar.MenuButton(sidebar.MenuButtonProps{
-										Tooltip: "Settings",
-									}) {
-										@icon.Settings(icon.Props{Class: "size-4"})
-										<span>Settings</span>
-										@icon.ChevronRight(icon.Props{
-											Class: "ml-auto size-4 transition-transform group-data-[tui-collapsible-state=open]/collapsible:rotate-90",
-										})
-									}
-								}
-								@collapsible.Content() {
-									@sidebar.MenuSub() {
-										@sidebar.MenuSubItem() {
-											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-												Href:     "/settings/profile",
-												IsActive: isActive(activePath, "/settings/profile"),
-											}) {
-												<span>Profile</span>
-											}
-										}
-										@sidebar.MenuSubItem() {
-											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-												Href:     "/settings/server",
-												IsActive: isActive(activePath, "/settings/server"),
-											}) {
-												<span>Server</span>
-											}
-										}
-										@sidebar.MenuSubItem() {
-											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-												Href:     "/settings/api-keys",
-												IsActive: isActive(activePath, "/settings/api-keys"),
-											}) {
-												<span>API Keys</span>
-											}
-										}
-										@sidebar.MenuSubItem() {
-											@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-												Href:     "/settings/ssh-keys",
-												IsActive: isActive(activePath, "/settings/ssh-keys"),
-											}) {
-												<span>SSH Keys</span>
-											}
-										}
-									}
+								@icon.Globe(icon.Props{Class: "size-4"})
+								<span>Domains</span>
+							}
+						}
+					}
+				}
+				@sidebar.Separator()
+				@sidebar.Group() {
+					@sidebar.Menu() {
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "https://docs.narvana.io",
+								Tooltip:  "Documentation",
+								Attributes: templ.Attributes{
+									"target": "_blank",
+									"rel":    "noopener noreferrer",
+								},
+							}) {
+								@icon.BookOpen(icon.Props{Class: "size-4"})
+								<span>Documentation</span>
+								@icon.ExternalLink(icon.Props{Class: "ml-auto size-3 text-muted-foreground"})
+							}
+						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/settings",
+								Tooltip:  "Settings",
+								IsActive: isActive(activePath, "/settings"),
+							}) {
+								@icon.Settings(icon.Props{Class: "size-4"})
+								<span>Settings</span>
+							}
+						}
+						if user.IsAdmin {
+							@sidebar.MenuItem() {
+								@sidebar.MenuButton(sidebar.MenuButtonProps{
+									Href:     "/users",
+									Tooltip:  "Users",
+									IsActive: isActive(activePath, "/users"),
+								}) {
+									@icon.Users(icon.Props{Class: "size-4"})
+									<span>Users</span>
 								}
 							}
 						}
@@ -261,26 +308,26 @@ templ SidebarLayout(activePath string) {
 									Size: sidebar.MenuButtonSizeLg,
 								}) {
 									@avatar.Avatar(avatar.Props{Class: "size-8 rounded-lg"}) {
-										if GetUser(ctx).AvatarURL != "" {
-											@avatar.Image(avatar.ImageProps{Src: GetUser(ctx).AvatarURL, Alt: GetUser(ctx).Name})
+										if user.AvatarURL != "" {
+											@avatar.Image(avatar.ImageProps{Src: user.AvatarURL, Alt: user.Name})
 										}
 										@avatar.Fallback(avatar.FallbackProps{}) {
-											if GetUser(ctx).Name != "" {
-												{ GetUser(ctx).Name[:2] }
+											if user.Name != "" {
+												{ user.Name[:2] }
 											} else {
-												{ GetUser(ctx).Email[:2] }
+												{ user.Email[:2] }
 											}
 										}
 									}
 									<div class="grid flex-1 text-left text-sm leading-tight">
 										<span class="truncate font-medium">
-											if GetUser(ctx).Name != "" {
-												{ GetUser(ctx).Name }
+											if user.Name != "" {
+												{ user.Name }
 											} else {
 												Admin
 											}
 										</span>
-										<span class="truncate text-xs text-muted-foreground">{ GetUser(ctx).Email }</span>
+										<span class="truncate text-xs text-muted-foreground">{ user.Email }</span>
 									</div>
 									@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
 								}
@@ -290,8 +337,8 @@ templ SidebarLayout(activePath string) {
 								Placement: dropdown.PlacementTopStart,
 							}) {
 								@dropdown.Label() {
-									if GetUser(ctx).Name != "" {
-										{ GetUser(ctx).Name }
+									if user.Name != "" {
+										{ user.Name }
 									} else {
 										Admin
 									}
@@ -303,7 +350,7 @@ templ SidebarLayout(activePath string) {
 										Profile
 									</span>
 								}
-								@dropdown.Item(dropdown.ItemProps{Href: "/settings/api-keys"}) {
+								@dropdown.Item(dropdown.ItemProps{Href: "/settings"}) {
 									<span class="flex items-center">
 										@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
 										Settings
