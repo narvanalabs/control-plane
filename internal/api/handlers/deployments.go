@@ -131,10 +131,20 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		// Determine build type from service source type
 		buildType := determineBuildType(&svc)
 
+		// Get next version for this service
+		// **Validates: Requirements 9.1, 9.2**
+		version, err := h.store.Deployments().GetNextVersion(r.Context(), appID, svc.Name)
+		if err != nil {
+			h.logger.Error("failed to get next version", "error", err, "service", svc.Name)
+			WriteInternalError(w, "Failed to determine deployment version")
+			return
+		}
+
 		deployment := &models.Deployment{
 			ID:           uuid.New().String(),
 			AppID:        appID,
 			ServiceName:  svc.Name,
+			Version:      version,
 			GitRef:       gitRef,
 			BuildType:    buildType,
 			Status:       models.DeploymentStatusPending,
@@ -416,11 +426,21 @@ func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Requ
 	// Determine build type from service source type
 	buildType := determineBuildType(service)
 
+	// Get next version for this service
+	// **Validates: Requirements 9.1, 9.2**
+	version, err := h.store.Deployments().GetNextVersion(r.Context(), appID, service.Name)
+	if err != nil {
+		h.logger.Error("failed to get next version", "error", err, "service", service.Name)
+		WriteInternalError(w, "Failed to determine deployment version")
+		return
+	}
+
 	// Create deployment for this service only
 	deployment := &models.Deployment{
 		ID:           uuid.New().String(),
 		AppID:        appID,
 		ServiceName:  service.Name,
+		Version:      version,
 		GitRef:       gitRef,
 		BuildType:    buildType,
 		Status:       models.DeploymentStatusPending,
@@ -616,12 +636,22 @@ func (h *DeploymentHandler) Rollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get next version for this service
+	// **Validates: Requirements 9.1, 9.2**
+	version, err := h.store.Deployments().GetNextVersion(r.Context(), targetDeployment.AppID, targetDeployment.ServiceName)
+	if err != nil {
+		h.logger.Error("failed to get next version", "error", err, "service", targetDeployment.ServiceName)
+		WriteInternalError(w, "Failed to determine deployment version")
+		return
+	}
+
 	// Create a new deployment using the artifact from the target
 	now := time.Now()
 	newDeployment := &models.Deployment{
 		ID:           uuid.New().String(),
 		AppID:        targetDeployment.AppID,
 		ServiceName:  targetDeployment.ServiceName,
+		Version:      version,
 		GitRef:       targetDeployment.GitRef,
 		GitCommit:    targetDeployment.GitCommit,
 		BuildType:    targetDeployment.BuildType,

@@ -93,6 +93,18 @@ func (m *mockDeploymentStore) ListByUser(ctx context.Context, userID string) ([]
 	return nil, nil
 }
 
+func (m *mockDeploymentStore) GetNextVersion(ctx context.Context, appID, serviceName string) (int, error) {
+	maxVersion := 0
+	for _, d := range m.deployments {
+		if d.AppID == appID && d.ServiceName == serviceName {
+			if d.Version > maxVersion {
+				maxVersion = d.Version
+			}
+		}
+	}
+	return maxVersion + 1, nil
+}
+
 
 // mockQueue implements queue.Queue for testing
 type mockQueue struct {
