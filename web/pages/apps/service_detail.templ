@@ -283,6 +283,7 @@ templ ServiceDetail(data ServiceDetailData) {
 								}
 								
 								// Log streaming script for database services
+								// Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
 								<script>
 									document.addEventListener('DOMContentLoaded', function() {
 										const logContainer = document.getElementById('live-logs');
@@ -298,8 +299,20 @@ templ ServiceDetail(data ServiceDetailData) {
 										const deploymentId = logContainer.dataset.deploymentId;
 										if (!appId) return;
 										
+										// Configuration - Requirements: 8.3, 8.6
+										const MAX_LOG_LINES = 5000;
+										const MAX_RECONNECT_ATTEMPTS = 10;
+										const BASE_RECONNECT_DELAY = 1000;
+										const MAX_RECONNECT_DELAY = 30000;
+										
 										let eventSource = null;
 										let isPaused = false;
+										let reconnectAttempts = 0;
+										let reconnectTimeout = null;
+										
+										function buildStreamUrl() {
+											return `/api/logs/stream?app_id=${appId}${deploymentId ? `&deployment_id=${deploymentId}` : ''}`;
+										}
 										
 										function startStream() {
 											if (eventSource) {
@@ -308,45 +321,51 @@ templ ServiceDetail(data ServiceDetailData) {
 											
 											if (isPaused) return;
 											
-											const streamUrl = `/api/logs/stream?app_id=${appId}${deploymentId ? `&deployment_id=${deploymentId}` : ''}`;
+											const streamUrl = buildStreamUrl();
 											eventSource = new EventSource(streamUrl);
 											
 											eventSource.onopen = function() {
-												if (streamStatus) {
-													streamStatus.className = 'text-xs text-green-500 animate-pulse';
-													streamStatus.textContent = '● Live';
-												}
+												reconnectAttempts = 0;
+												updateStatus('connected');
 											};
 											
+											// Handle named events - Requirements: 8.2
+											eventSource.addEventListener('connected', function(event) {
+												console.log('Stream connected:', event.data);
+											});
+											
+											eventSource.addEventListener('log', function(event) {
+												if (isPaused) return;
+												try {
+													const log = JSON.parse(event.data);
+													appendLog(log);
+													enforceLineLimit(); // Requirements: 8.3
+												} catch (e) {
+													console.error('Failed to parse log event:', e);
+												}
+											});
+											
+											eventSource.addEventListener('ping', function(event) {
+												// Keep-alive ping
+											});
+											
+											eventSource.addEventListener('new_deployment', function(event) {
+												console.log('New deployment:', event.data);
+											});
+											
+											eventSource.addEventListener('deployment_status', function(event) {
+												console.log('Deployment status:', event.data);
+											});
+											
+											// Fallback for generic messages
 											eventSource.onmessage = function(event) {
 												if (isPaused) return;
 												
 												try {
 													const log = JSON.parse(event.data);
 													if (log.message) {
-														const line = document.createElement('div');
-														line.className = 'flex gap-2 mb-1 log-line';
-														
-														// Apply search filter if active
-														const searchText = searchInput.value.toLowerCase();
-														if (searchText && !log.message.toLowerCase().includes(searchText)) {
-															line.classList.add('hidden');
-														}
-														
-														const time = new Date(log.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false });
-														line.innerHTML = `
-															<span class="text-zinc-500 shrink-0 font-mono text-[11px]">${time}</span>
-															<span class="text-zinc-400 break-all">${escapeHtml(log.message)}</span>
-														`;
-														logContainer.appendChild(line);
-														if (!line.classList.contains('hidden')) {
-															logContainer.scrollTop = logContainer.scrollHeight;
-														}
-														
-														// Limit container size to avoid memory issues
-														if (logContainer.children.length > 5000) {
-															logContainer.removeChild(logContainer.firstChild);
-														}
+														appendLog(log);
+														enforceLineLimit();
 													}
 												} catch (e) {
 													// Plain text log
@@ -355,18 +374,93 @@ templ ServiceDetail(data ServiceDetailData) {
 													line.textContent = event.data;
 													logContainer.appendChild(line);
 													logContainer.scrollTop = logContainer.scrollHeight;
+													enforceLineLimit();
 												}
 											};
 											
+											// Reconnection with exponential backoff - Requirements: 8.6
 											eventSource.onerror = function() {
-												if (streamStatus) {
-													streamStatus.className = 'text-xs text-yellow-500';
-													streamStatus.textContent = '○ Reconnecting...';
-												}
 												eventSource.close();
-												// Reconnect after delay
-												setTimeout(startStream, 2000);
+												scheduleReconnect();
 											};
+										}
+										
+										function appendLog(log) {
+											const line = document.createElement('div');
+											line.className = 'flex gap-2 mb-1 log-line';
+											
+											// Apply search filter if active
+											if (searchInput && searchInput.value) {
+												const searchText = searchInput.value.toLowerCase();
+												if (!log.message.toLowerCase().includes(searchText)) {
+													line.classList.add('hidden');
+												}
+											}
+											
+											const time = new Date(log.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false });
+											line.innerHTML = `
+												<span class="text-zinc-500 shrink-0 font-mono text-[11px]">${time}</span>
+												<span class="text-zinc-400 break-all">${escapeHtml(log.message)}</span>
+											`;
+											logContainer.appendChild(line);
+											if (!line.classList.contains('hidden')) {
+												logContainer.scrollTop = logContainer.scrollHeight;
+											}
+										}
+										
+										// Requirements: 8.3 - Limit container to 5000 lines
+										function enforceLineLimit() {
+											while (logContainer.children.length > MAX_LOG_LINES) {
+												logContainer.removeChild(logContainer.firstChild);
+											}
+										}
+										
+										// Requirements: 8.6 - Exponential backoff reconnection
+										function scheduleReconnect() {
+											if (isPaused) return;
+											
+											if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+												updateStatus('failed');
+												return;
+											}
+											
+											reconnectAttempts++;
+											const delay = Math.min(
+												BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts - 1),
+												MAX_RECONNECT_DELAY
+											);
+											
+											updateStatus('reconnecting', delay);
+											
+											reconnectTimeout = setTimeout(function() {
+												startStream();
+											}, delay);
+										}
+										
+										function updateStatus(status, delay) {
+											if (!streamStatus) return;
+											
+											switch (status) {
+												case 'connected':
+													streamStatus.className = 'text-xs text-green-500 animate-pulse';
+													streamStatus.textContent = '● Live';
+													break;
+												case 'reconnecting':
+													streamStatus.className = 'text-xs text-yellow-500';
+													streamStatus.textContent = `○ Reconnecting in ${Math.round(delay / 1000)}s...`;
+													break;
+												case 'paused':
+													streamStatus.className = 'text-xs text-zinc-500';
+													streamStatus.textContent = '○ Paused';
+													break;
+												case 'failed':
+													streamStatus.className = 'text-xs text-red-500';
+													streamStatus.textContent = '● Connection failed';
+													break;
+												default:
+													streamStatus.className = 'text-xs text-zinc-500';
+													streamStatus.textContent = '○ Disconnected';
+											}
 										}
 										
 										// Initial stream
@@ -379,7 +473,7 @@ templ ServiceDetail(data ServiceDetailData) {
 												const lines = logContainer.querySelectorAll('.log-line');
 												lines.forEach(line => {
 													const content = line.textContent.toLowerCase();
-													if (content.includes(searchText)) {
+													if (content.includes(searchText) || searchText === '') {
 														line.classList.remove('hidden');
 													} else {
 														line.classList.add('hidden');
@@ -389,20 +483,27 @@ templ ServiceDetail(data ServiceDetailData) {
 											});
 										}
 										
-										// Pause/Resume
+										// Pause/Resume - Requirements: 8.4, 8.5
 										if (pauseBtn) {
 											pauseBtn.addEventListener('click', function() {
 												isPaused = !isPaused;
-												document.getElementById('pause-icon').classList.toggle('hidden', isPaused);
-												document.getElementById('play-icon').classList.toggle('hidden', !isPaused);
+												const pauseIcon = document.getElementById('pause-icon');
+												const playIcon = document.getElementById('play-icon');
+												
+												if (pauseIcon) pauseIcon.classList.toggle('hidden', isPaused);
+												if (playIcon) playIcon.classList.toggle('hidden', !isPaused);
 												
 												if (isPaused) {
+													// Requirements: 8.4 - Pause streaming
 													if (eventSource) eventSource.close();
-													if (streamStatus) {
-														streamStatus.className = 'text-xs text-zinc-500';
-														streamStatus.textContent = '○ Paused';
+													if (reconnectTimeout) {
+														clearTimeout(reconnectTimeout);
+														reconnectTimeout = null;
 													}
+													updateStatus('paused');
 												} else {
+													// Requirements: 8.5 - Resume streaming
+													reconnectAttempts = 0;
 													startStream();
 												}
 											});
@@ -439,6 +540,9 @@ templ ServiceDetail(data ServiceDetailData) {
 										window.addEventListener('beforeunload', function() {
 											if (eventSource) {
 												eventSource.close();
+											}
+											if (reconnectTimeout) {
+												clearTimeout(reconnectTimeout);
 											}
 										});
 									});
