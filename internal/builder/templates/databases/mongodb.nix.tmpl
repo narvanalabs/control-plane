@@ -1,0 +1,154 @@
+{
+  description = "Narvana MongoDB Database: {{ .AppName }}/{{ .ServiceName }}";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+    let
+      system = "{{ .System }}";
+      pkgs = nixpkgs.legacyPackages.${system};
+      
+      dbVersion = "{{ .DatabaseVersion }}";
+      
+      # Select MongoDB package based on version
+      mongoPkg = 
+        if dbVersion == "6.0" then pkgs.mongodb-6_0
+        else if dbVersion == "7.0" then pkgs.mongodb-7_0
+        else pkgs.mongodb-7_0; # Default to 7.0
+      
+      wiredTigerCacheSize = "{{ index .Config "wired_tiger_cache_size" }}";
+    in
+    {
+      packages.${system}.default = pkgs.stdenv.mkDerivation {
+        pname = "{{ .AppName }}-{{ .ServiceName }}";
+        version = "1.0.0";
+        src = ./.;
+
+        buildInputs = [ mongoPkg ];
+
+        buildPhase = ''
+          mkdir -p $out/bin
+          mkdir -p $out/share
+          
+          echo "Creating MongoDB ${dbVersion} scripts..."
+          
+          # Create initialization script
+          cat > $out/bin/init-mongodb.sh <<'INITEOF'
+#!/usr/bin/env bash
+set -e
+
+MONGO_DATADIR="$1"
+MONGO_PORT="''${MONGO_PORT:-27017}"
+DB_NAME="''${DB_NAME:-narvana}"
+DB_USER="''${DB_USER:-narvana}"
+DB_PASSWORD="''${DB_PASSWORD:-narvana}"
+MONGO_ROOT_PASSWORD="''${MONGO_ROOT_PASSWORD:-root}"
+
+mkdir -p "$MONGO_DATADIR"
+
+# Start MongoDB temporarily for setup (without auth)
+mongod --dbpath "$MONGO_DATADIR" --port "$MONGO_PORT" --bind_ip 127.0.0.1 &
+MONGO_PID=$!
+sleep 5
+
+# Create admin user and application database/user
+mongosh --port "$MONGO_PORT" <<MONGOEOF
+use admin
+db.createUser({
+  user: "admin",
+  pwd: "$MONGO_ROOT_PASSWORD",
+  roles: [ { role: "root", db: "admin" } ]
+})
+
+use $DB_NAME
+db.createUser({
+  user: "$DB_USER",
+  pwd: "$DB_PASSWORD",
+  roles: [ { role: "readWrite", db: "$DB_NAME" } ]
+})
+
+db._narvana_meta.insertOne({
+  _id: "db_type",
+  value: "mongodb",
+  updated_at: new Date()
+})
+db._narvana_meta.insertOne({
+  _id: "db_version",
+  value: "${dbVersion}",
+  updated_at: new Date()
+})
+MONGOEOF
+
+# Stop MongoDB
+kill $MONGO_PID
+wait $MONGO_PID 2>/dev/null || true
+
+echo "MongoDB initialization complete"
+INITEOF
+          
+          # Create startup script
+          cat > $out/bin/start-mongodb.sh <<'STARTEOF'
+#!/usr/bin/env bash
+set -e
+
+MONGO_DATADIR="''${MONGO_DATADIR:-/app/data/mongodb}"
+MONGO_PORT="''${MONGO_PORT:-27017}"
+
+# Initialize if needed
+if [ ! -f "$MONGO_DATADIR/WiredTiger" ]; then
+  echo "Initializing MongoDB..."
+  init-mongodb.sh "$MONGO_DATADIR"
+fi
+
+# Start MongoDB with authentication
+echo "Starting MongoDB on port $MONGO_PORT..."
+exec mongod \
+  --dbpath "$MONGO_DATADIR" \
+  --port "$MONGO_PORT" \
+  --bind_ip 0.0.0.0 \
+  --auth \
+  --wiredTigerCacheSizeGB 0.25
+STARTEOF
+          
+          # Create entrypoint script
+          cat > $out/bin/entrypoint.sh <<'ENTRYEOF'
+#!/usr/bin/env bash
+set -e
+
+if [ "$1" = "mongodb" ] || [ "$1" = "mongod" ] || [ "$1" = "start" ] || [ -z "$1" ]; then
+  exec start-mongodb.sh
+else
+  exec "$@"
+fi
+ENTRYEOF
+          
+          chmod +x $out/bin/*.sh
+        '';
+
+        installPhase = ''
+          # Create wrapper that sets up environment
+          cat > $out/bin/database <<'WRAPEOF'
+#!/usr/bin/env bash
+export DATABASE_URL="mongodb://''${DB_USER:-narvana}:''${DB_PASSWORD:-narvana}@localhost:''${MONGO_PORT:-27017}/''${DB_NAME:-narvana}"
+export MONGO_DATADIR="''${MONGO_DATADIR:-/app/data/mongodb}"
+export MONGO_PORT="''${MONGO_PORT:-27017}"
+exec "$@"
+WRAPEOF
+          chmod +x $out/bin/database
+          
+          # Wrap each script to ensure MongoDB binaries are in PATH
+          for script in init-mongodb.sh start-mongodb.sh entrypoint.sh; do
+            mv $out/bin/$script $out/bin/.$script
+            cat > $out/bin/$script <<EOF
+#!/usr/bin/env bash
+export PATH="${mongoPkg}/bin:\$PATH"
+exec $out/bin/.$script "\$@"
+EOF
+            chmod +x $out/bin/$script
+          done
+        '';
+      };
+    };
+}
