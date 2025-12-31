@@ -162,6 +162,10 @@ type DeploymentStore interface {
 	// GetLatestSuccessful retrieves the most recent successful deployment for an app.
 	// ListByUser retrieves all deployments for all apps owned by a given user.
 	ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error)
+	// GetNextVersion returns the next version number for a service.
+	// Returns 1 for the first deployment, or max(version) + 1 for subsequent deployments.
+	// **Validates: Requirements 9.1, 9.2**
+	GetNextVersion(ctx context.Context, appID, serviceName string) (int, error)
 }
 
 // NodeStore defines operations for node management.
