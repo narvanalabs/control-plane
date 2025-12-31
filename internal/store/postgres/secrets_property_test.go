@@ -62,6 +62,7 @@ func runSecretMigrations(db *sql.DB) error {
 			name VARCHAR(63) NOT NULL,
 			description TEXT,
 			services JSONB NOT NULL DEFAULT '[]',
+			icon_url TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			deleted_at TIMESTAMPTZ
