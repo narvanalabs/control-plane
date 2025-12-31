@@ -1337,3 +1337,118 @@ func TestBuildTypeEnforcementNixpacks(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: platform-enhancements, Property 4: Container Name Uniqueness**
+// For any deployment, the generated container name SHALL include the app name, service name,
+// and version number in the format "{app}-{service}-v{version}", ensuring uniqueness across all deployments.
+// **Validates: Requirements 9.3, 9.4, 9.5**
+func TestContainerNameUniqueness(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: Container name follows the format {app}-{service}-v{version}
+	properties.Property("Container name follows correct format", prop.ForAll(
+		func(appName, serviceName string, version int) bool {
+			containerName := GenerateContainerName(appName, serviceName, version)
+			expected := fmt.Sprintf("%s-%s-v%d", appName, serviceName, version)
+			return containerName == expected
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.IntRange(1, 10000),
+	))
+
+	// Property: Different versions produce different container names
+	properties.Property("Different versions produce different container names", prop.ForAll(
+		func(appName, serviceName string, version1, version2 int) bool {
+			if version1 == version2 {
+				return true // Skip if versions are the same
+			}
+			name1 := GenerateContainerName(appName, serviceName, version1)
+			name2 := GenerateContainerName(appName, serviceName, version2)
+			return name1 != name2
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.IntRange(1, 10000),
+		gen.IntRange(1, 10000),
+	))
+
+	// Property: Different services produce different container names
+	properties.Property("Different services produce different container names", prop.ForAll(
+		func(appName, serviceName1, serviceName2 string, version int) bool {
+			if serviceName1 == serviceName2 {
+				return true // Skip if service names are the same
+			}
+			name1 := GenerateContainerName(appName, serviceName1, version)
+			name2 := GenerateContainerName(appName, serviceName2, version)
+			return name1 != name2
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.IntRange(1, 10000),
+	))
+
+	// Property: Different apps produce different container names
+	properties.Property("Different apps produce different container names", prop.ForAll(
+		func(appName1, appName2, serviceName string, version int) bool {
+			if appName1 == appName2 {
+				return true // Skip if app names are the same
+			}
+			name1 := GenerateContainerName(appName1, serviceName, version)
+			name2 := GenerateContainerName(appName2, serviceName, version)
+			return name1 != name2
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.IntRange(1, 10000),
+	))
+
+	// Property: Container name contains version number
+	properties.Property("Container name contains version number", prop.ForAll(
+		func(appName, serviceName string, version int) bool {
+			containerName := GenerateContainerName(appName, serviceName, version)
+			versionStr := fmt.Sprintf("v%d", version)
+			return findSubstring(containerName, versionStr)
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.IntRange(1, 10000),
+	))
+
+	// Property: Same inputs always produce the same container name (deterministic)
+	properties.Property("Container name generation is deterministic", prop.ForAll(
+		func(appName, serviceName string, version int) bool {
+			name1 := GenerateContainerName(appName, serviceName, version)
+			name2 := GenerateContainerName(appName, serviceName, version)
+			return name1 == name2
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
+		gen.IntRange(1, 10000),
+	))
+
+	// Property: Deployment.ContainerName() returns a valid container name
+	properties.Property("Deployment.ContainerName returns valid format", prop.ForAll(
+		func(deployment Deployment) bool {
+			containerName := deployment.ContainerName()
+			// Should contain version
+			versionStr := fmt.Sprintf("v%d", deployment.Version)
+			if !findSubstring(containerName, versionStr) {
+				return false
+			}
+			// Should contain service name
+			if !findSubstring(containerName, deployment.ServiceName) {
+				return false
+			}
+			return true
+		},
+		genDeployment(),
+	))
+
+	properties.TestingRun(t)
+}
