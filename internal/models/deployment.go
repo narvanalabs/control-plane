@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // DeploymentStatus represents the current state of a deployment.
 type DeploymentStatus string
@@ -44,4 +47,23 @@ type Deployment struct {
 	UpdatedAt    time.Time        `json:"updated_at"`
 	StartedAt    *time.Time       `json:"started_at,omitempty"`
 	FinishedAt   *time.Time       `json:"finished_at,omitempty"`
+}
+
+// GenerateContainerName creates a unique container name with version.
+// Format: {appName}-{serviceName}-v{version}
+// **Validates: Requirements 9.3, 9.4, 9.5**
+func GenerateContainerName(appName, serviceName string, version int) string {
+	return fmt.Sprintf("%s-%s-v%d", appName, serviceName, version)
+}
+
+// ContainerName returns the container name for this deployment.
+// It uses the app name from the deployment's app ID (first 8 chars) and service name.
+// For a proper app name, use GenerateContainerName with the actual app name.
+func (d *Deployment) ContainerName() string {
+	// Use first 8 chars of app ID as a fallback app name identifier
+	appID := d.AppID
+	if len(appID) > 8 {
+		appID = appID[:8]
+	}
+	return GenerateContainerName(appID, d.ServiceName, d.Version)
 }
