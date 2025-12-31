@@ -12,6 +12,168 @@ import (
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
+// **Feature: platform-enhancements, Property 1: Build Type Determination**
+// For any build strategy, the build type SHALL be determined as follows:
+// if strategy is "dockerfile" then build_type is "oci", otherwise build_type is "pure-nix".
+// **Validates: Requirements 4.1, 4.2, 4.7, 4.8**
+
+// genAllBuildStrategies generates all valid build strategies for testing.
+func genAllBuildStrategies() gopter.Gen {
+	return gen.OneConstOf(
+		models.BuildStrategyFlake,
+		models.BuildStrategyAutoGo,
+		models.BuildStrategyAutoRust,
+		models.BuildStrategyAutoNode,
+		models.BuildStrategyAutoPython,
+		models.BuildStrategyAutoDatabase,
+		models.BuildStrategyDockerfile,
+		models.BuildStrategyNixpacks,
+		models.BuildStrategyAuto,
+	)
+}
+
+// genNonDockerfileStrategies generates all build strategies except dockerfile.
+func genNonDockerfileStrategies() gopter.Gen {
+	return gen.OneConstOf(
+		models.BuildStrategyFlake,
+		models.BuildStrategyAutoGo,
+		models.BuildStrategyAutoRust,
+		models.BuildStrategyAutoNode,
+		models.BuildStrategyAutoPython,
+		models.BuildStrategyAutoDatabase,
+		models.BuildStrategyNixpacks,
+		models.BuildStrategyAuto,
+	)
+}
+
+// genLanguageSelection generates valid language selections for service creation.
+func genLanguageSelection() gopter.Gen {
+	return gen.OneConstOf(
+		"go", "Go",
+		"rust", "Rust",
+		"python", "Python",
+		"node", "nodejs", "Node.js", "node.js",
+		"dockerfile", "Dockerfile",
+	)
+}
+
+func TestBuildTypeDetermination(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 1a: Dockerfile strategy always returns OCI
+	properties.Property("dockerfile strategy always returns OCI build type", prop.ForAll(
+		func(strategy models.BuildStrategy) bool {
+			// Only test dockerfile strategy
+			if strategy != models.BuildStrategyDockerfile {
+				return true // Skip non-dockerfile strategies in this property
+			}
+			result := DetermineBuildType(strategy)
+			return result == models.BuildTypeOCI
+		},
+		genAllBuildStrategies(),
+	))
+
+	// Property 1b: All non-dockerfile strategies return pure-nix
+	properties.Property("non-dockerfile strategies always return pure-nix build type", prop.ForAll(
+		func(strategy models.BuildStrategy) bool {
+			result := DetermineBuildType(strategy)
+			return result == models.BuildTypePureNix
+		},
+		genNonDockerfileStrategies(),
+	))
+
+	// Property 1c: Build type determination is deterministic
+	properties.Property("build type determination is deterministic", prop.ForAll(
+		func(strategy models.BuildStrategy) bool {
+			result1 := DetermineBuildType(strategy)
+			result2 := DetermineBuildType(strategy)
+			result3 := DetermineBuildType(strategy)
+			return result1 == result2 && result2 == result3
+		},
+		genAllBuildStrategies(),
+	))
+
+	// Property 1d: IsOCIOnlyStrategy is consistent with DetermineBuildType
+	properties.Property("IsOCIOnlyStrategy is consistent with DetermineBuildType", prop.ForAll(
+		func(strategy models.BuildStrategy) bool {
+			buildType := DetermineBuildType(strategy)
+			isOCIOnly := IsOCIOnlyStrategy(strategy)
+
+			// If IsOCIOnlyStrategy returns true, build type must be OCI
+			if isOCIOnly {
+				return buildType == models.BuildTypeOCI
+			}
+			// If IsOCIOnlyStrategy returns false, build type must be pure-nix
+			return buildType == models.BuildTypePureNix
+		},
+		genAllBuildStrategies(),
+	))
+
+	properties.TestingRun(t)
+}
+
+func TestBuildTypeFromLanguageSelection(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: Language selection determines correct strategy and build type
+	properties.Property("language selection determines correct strategy and build type", prop.ForAll(
+		func(language string) bool {
+			strategy, buildType := DetermineBuildTypeFromLanguage(language)
+
+			// Dockerfile language should result in dockerfile strategy and OCI build type
+			if language == "dockerfile" || language == "Dockerfile" {
+				return strategy == models.BuildStrategyDockerfile && buildType == models.BuildTypeOCI
+			}
+
+			// All other languages should result in pure-nix build type
+			return buildType == models.BuildTypePureNix
+		},
+		genLanguageSelection(),
+	))
+
+	// Property: Go language selection returns auto-go strategy
+	properties.Property("Go language returns auto-go strategy with pure-nix", prop.ForAll(
+		func(language string) bool {
+			strategy, buildType := DetermineBuildTypeFromLanguage(language)
+			return strategy == models.BuildStrategyAutoGo && buildType == models.BuildTypePureNix
+		},
+		gen.OneConstOf("go", "Go"),
+	))
+
+	// Property: Rust language selection returns auto-rust strategy
+	properties.Property("Rust language returns auto-rust strategy with pure-nix", prop.ForAll(
+		func(language string) bool {
+			strategy, buildType := DetermineBuildTypeFromLanguage(language)
+			return strategy == models.BuildStrategyAutoRust && buildType == models.BuildTypePureNix
+		},
+		gen.OneConstOf("rust", "Rust"),
+	))
+
+	// Property: Python language selection returns auto-python strategy
+	properties.Property("Python language returns auto-python strategy with pure-nix", prop.ForAll(
+		func(language string) bool {
+			strategy, buildType := DetermineBuildTypeFromLanguage(language)
+			return strategy == models.BuildStrategyAutoPython && buildType == models.BuildTypePureNix
+		},
+		gen.OneConstOf("python", "Python"),
+	))
+
+	// Property: Node.js language selection returns auto-node strategy
+	properties.Property("Node.js language returns auto-node strategy with pure-nix", prop.ForAll(
+		func(language string) bool {
+			strategy, buildType := DetermineBuildTypeFromLanguage(language)
+			return strategy == models.BuildStrategyAutoNode && buildType == models.BuildTypePureNix
+		},
+		gen.OneConstOf("node", "nodejs", "Node.js", "node.js"),
+	))
+
+	properties.TestingRun(t)
+}
+
 // **Feature: flexible-build-strategies, Property 1: Strategy Detection Consistency**
 // For any repository with a go.mod file, the Build_Detector SHALL always identify it
 // as a Go application with strategy auto-go when using auto-detection.
