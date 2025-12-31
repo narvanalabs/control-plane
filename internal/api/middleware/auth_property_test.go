@@ -112,6 +112,18 @@ func (m *mockStore) WithTx(ctx context.Context, fn func(store.Store) error) erro
 	return fn(m)
 }
 
+func (m *mockStore) Orgs() store.OrgStore {
+	return nil
+}
+
+func (m *mockStore) Settings() store.SettingsStore {
+	return nil
+}
+
+func (m *mockStore) Domains() store.DomainStore {
+	return nil
+}
+
 func (m *mockStore) Close() error {
 	return nil
 }

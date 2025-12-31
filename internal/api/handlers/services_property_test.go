@@ -17,6 +17,7 @@ import (
 	"github.com/leanovate/gopter/prop"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/podman"
 	"github.com/narvanalabs/control-plane/internal/store"
 )
 
@@ -69,6 +70,18 @@ func (m *serviceMockStore) GitHubAccounts() store.GitHubAccountStore {
 	return nil
 }
 
+func (m *serviceMockStore) Settings() store.SettingsStore {
+	return nil
+}
+
+func (m *serviceMockStore) Domains() store.DomainStore {
+	return nil
+}
+
+func (m *serviceMockStore) Orgs() store.OrgStore {
+	return nil
+}
+
 func (m *serviceMockStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
 	return fn(m)
 }
@@ -108,7 +121,7 @@ func TestServiceNameUniqueness(t *testing.T) {
 		func(userID, serviceName, gitRepo string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
 
 			// Create an app first
 			appID := uuid.New().String()
@@ -195,7 +208,7 @@ func TestGitURLValidation(t *testing.T) {
 		func(userID, serviceName, invalidGitURL string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
 
 			// Create an app first
 			appID := uuid.New().String()
@@ -267,7 +280,7 @@ func TestFlakeURIValidation(t *testing.T) {
 		func(userID, serviceName, invalidFlakeURI string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
 
 			// Create an app first
 			appID := uuid.New().String()
@@ -330,7 +343,7 @@ func TestServiceUpdatePreservesFields(t *testing.T) {
 		func(userID, serviceName, gitRepo, newGitRef string, replicas int) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
 
 			// Create an app with a service
 			appID := uuid.New().String()
@@ -420,7 +433,7 @@ func TestDependencyDeletionPrevention(t *testing.T) {
 		func(userID string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
 
 			// Create an app with two services where one depends on the other
 			appID := uuid.New().String()
@@ -491,7 +504,7 @@ func TestEmptyServicesArray(t *testing.T) {
 		func(userID string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
 
 			// Create an app with no services
 			appID := uuid.New().String()
@@ -550,7 +563,7 @@ func TestServiceListingCompleteness(t *testing.T) {
 		func(userID string, serviceCount int) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
 
 			// Create services
 			services := make([]models.ServiceConfig, serviceCount)

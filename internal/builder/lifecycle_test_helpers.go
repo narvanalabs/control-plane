@@ -217,6 +217,7 @@ func (m *MockAtticClient) Reset() {
 
 // MockStore is a mock implementation of the Store interface for testing.
 type MockStore struct {
+	orgs           *MockOrgStore
 	apps           *MockAppStore
 	deployments    *MockDeploymentStore
 	nodes          *MockNodeStore
@@ -233,6 +234,7 @@ type MockStore struct {
 // NewMockStore creates a new MockStore.
 func NewMockStore() *MockStore {
 	return &MockStore{
+		orgs:        NewMockOrgStore(),
 		apps:        NewMockAppStore(),
 		deployments: NewMockDeploymentStore(),
 		nodes:       NewMockNodeStore(),
@@ -247,6 +249,7 @@ func NewMockStore() *MockStore {
 	}
 }
 
+func (m *MockStore) Orgs() store.OrgStore           { return m.orgs }
 func (m *MockStore) Apps() store.AppStore           { return m.apps }
 func (m *MockStore) Deployments() store.DeploymentStore { return m.deployments }
 func (m *MockStore) Nodes() store.NodeStore         { return m.nodes }
@@ -260,6 +263,97 @@ func (m *MockStore) Settings() store.SettingsStore      { return m.settings }
 func (m *MockStore) Domains() store.DomainStore         { return m.domains }
 func (m *MockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *MockStore) Close() error                   { return nil }
+
+// MockOrgStore is a mock implementation of OrgStore for testing.
+type MockOrgStore struct {
+	mu   sync.Mutex
+	orgs map[string]*models.Organization
+}
+
+// NewMockOrgStore creates a new MockOrgStore.
+func NewMockOrgStore() *MockOrgStore {
+	return &MockOrgStore{
+		orgs: make(map[string]*models.Organization),
+	}
+}
+
+func (m *MockOrgStore) Create(ctx context.Context, org *models.Organization) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.orgs[org.ID] = org
+	return nil
+}
+
+func (m *MockOrgStore) Get(ctx context.Context, id string) (*models.Organization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if org, ok := m.orgs[id]; ok {
+		return org, nil
+	}
+	return nil, errors.New("not found")
+}
+
+func (m *MockOrgStore) GetBySlug(ctx context.Context, slug string) (*models.Organization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, org := range m.orgs {
+		if org.Slug == slug {
+			return org, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (m *MockOrgStore) List(ctx context.Context, userID string) ([]*models.Organization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.Organization
+	for _, org := range m.orgs {
+		result = append(result, org)
+	}
+	return result, nil
+}
+
+func (m *MockOrgStore) Update(ctx context.Context, org *models.Organization) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.orgs[org.ID] = org
+	return nil
+}
+
+func (m *MockOrgStore) Delete(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.orgs, id)
+	return nil
+}
+
+func (m *MockOrgStore) AddMember(ctx context.Context, orgID, userID string, role models.Role) error {
+	return nil
+}
+
+func (m *MockOrgStore) RemoveMember(ctx context.Context, orgID, userID string) error {
+	return nil
+}
+
+func (m *MockOrgStore) GetDefault(ctx context.Context) (*models.Organization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, org := range m.orgs {
+		return org, nil
+	}
+	return nil, errors.New("not found")
+}
+
+func (m *MockOrgStore) Count(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.orgs), nil
+}
+
+func (m *MockOrgStore) ListMembers(ctx context.Context, orgID string) ([]*models.OrgMembership, error) {
+	return nil, nil
+}
 
 
 // MockBuildStore is a mock implementation of BuildStore for testing.

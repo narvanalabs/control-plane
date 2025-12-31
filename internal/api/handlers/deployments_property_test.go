@@ -89,6 +89,10 @@ func (m *mockDeploymentStore) GetLatestSuccessful(ctx context.Context, appID str
 	return latest, nil
 }
 
+func (m *mockDeploymentStore) ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error) {
+	return nil, nil
+}
+
 
 // mockQueue implements queue.Queue for testing
 type mockQueue struct {
@@ -170,6 +174,20 @@ func (m *mockBuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, e
 	return result, nil
 }
 
+func (m *mockBuildStore) List(ctx context.Context, appID string) ([]*models.BuildJob, error) {
+	var result []*models.BuildJob
+	for _, b := range m.builds {
+		if b.AppID == appID {
+			result = append(result, b)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockBuildStore) ListByUser(ctx context.Context, userID string) ([]*models.BuildJob, error) {
+	return nil, nil
+}
+
 // deploymentMockStore implements store.Store for deployment testing
 type deploymentMockStore struct {
 	appStore        *mockAppStore
@@ -218,6 +236,18 @@ func (m *deploymentMockStore) GitHub() store.GitHubStore {
 }
 
 func (m *deploymentMockStore) GitHubAccounts() store.GitHubAccountStore {
+	return nil
+}
+
+func (m *deploymentMockStore) Settings() store.SettingsStore {
+	return nil
+}
+
+func (m *deploymentMockStore) Domains() store.DomainStore {
+	return nil
+}
+
+func (m *deploymentMockStore) Orgs() store.OrgStore {
 	return nil
 }
 
