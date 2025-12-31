@@ -93,6 +93,23 @@ func (m *mockDeploymentStore) Update(ctx context.Context, d *models.Deployment) 
 func (m *mockDeploymentStore) GetLatestSuccessful(ctx context.Context, appID string) (*models.Deployment, error) {
 	return nil, nil
 }
+func (m *mockDeploymentStore) ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error) {
+	return nil, nil
+}
+func (m *mockDeploymentStore) ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error) {
+	return nil, nil
+}
+func (m *mockDeploymentStore) GetNextVersion(ctx context.Context, appID, serviceName string) (int, error) {
+	maxVersion := 0
+	for _, d := range m.deployments {
+		if d.AppID == appID && d.ServiceName == serviceName {
+			if d.Version > maxVersion {
+				maxVersion = d.Version
+			}
+		}
+	}
+	return maxVersion + 1, nil
+}
 
 // testableStore wraps mockStore to implement store.Store interface
 type testableStore struct {

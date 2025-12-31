@@ -186,6 +186,7 @@ func (c *GRPCAgentClient) buildDeployCommand(deployment *models.Deployment) *pb.
 				Artifact:     deployment.Artifact,
 				BuildType:    buildType,
 				Config:       config,
+				Version:      int32(deployment.Version),
 			},
 		},
 	}
