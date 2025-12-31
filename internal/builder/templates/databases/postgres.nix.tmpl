@@ -1,0 +1,154 @@
+{
+  description = "Narvana PostgreSQL Database: {{ .AppName }}/{{ .ServiceName }}";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+    let
+      system = "{{ .System }}";
+      pkgs = nixpkgs.legacyPackages.${system};
+      
+      dbVersion = "{{ .DatabaseVersion }}";
+      
+      # Select PostgreSQL package based on version
+      postgresqlPkg = 
+        if dbVersion == "14" then pkgs.postgresql_14
+        else if dbVersion == "15" then pkgs.postgresql_15
+        else if dbVersion == "16" then pkgs.postgresql_16
+        else if dbVersion == "17" then pkgs.postgresql_17
+        else pkgs.postgresql_16; # Default to 16
+      
+      maxConnections = "{{ index .Config "max_connections" }}";
+      sharedBuffers = "{{ index .Config "shared_buffers" }}";
+    in
+    {
+      packages.${system}.default = pkgs.stdenv.mkDerivation {
+        pname = "{{ .AppName }}-{{ .ServiceName }}";
+        version = "1.0.0";
+        src = ./.;
+
+        buildInputs = [ postgresqlPkg ];
+
+        buildPhase = ''
+          mkdir -p $out/bin
+          mkdir -p $out/share
+          
+          echo "Creating PostgreSQL ${dbVersion} scripts..."
+          
+          # Create initialization script
+          cat > $out/bin/init-postgres.sh <<'INITEOF'
+#!/usr/bin/env bash
+set -e
+
+PGDATA="$1"
+PGPORT="''${PGPORT:-5432}"
+DB_NAME="''${DB_NAME:-narvana}"
+DB_USER="''${DB_USER:-narvana}"
+DB_PASSWORD="''${DB_PASSWORD:-narvana}"
+
+if [ ! -f "$PGDATA/PG_VERSION" ]; then
+  echo "Initializing PostgreSQL data directory..."
+  initdb -D "$PGDATA" --auth-local=trust --auth-host=scram-sha-256
+  
+  # Configure postgresql.conf
+  echo "host all all 0.0.0.0/0 scram-sha-256" >> "$PGDATA/pg_hba.conf"
+  echo "listen_addresses = '*'" >> "$PGDATA/postgresql.conf"
+  echo "port = $PGPORT" >> "$PGDATA/postgresql.conf"
+  echo "max_connections = ${maxConnections}" >> "$PGDATA/postgresql.conf"
+  echo "shared_buffers = ${sharedBuffers}" >> "$PGDATA/postgresql.conf"
+  
+  echo "PostgreSQL data directory initialized"
+fi
+
+# Start PostgreSQL temporarily for setup
+pg_ctl -D "$PGDATA" -l "$PGDATA/postgres.log" -o "-k /tmp -p $PGPORT" start
+sleep 3
+
+# Create database and user
+psql -h /tmp -p "$PGPORT" -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || \
+  psql -h /tmp -p "$PGPORT" -U postgres -c "CREATE DATABASE $DB_NAME;"
+
+psql -h /tmp -p "$PGPORT" -U postgres -tc "SELECT 1 FROM pg_user WHERE usename = '$DB_USER'" | grep -q 1 || \
+  psql -h /tmp -p "$PGPORT" -U postgres -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';"
+
+psql -h /tmp -p "$PGPORT" -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
+
+# Create metadata table
+psql -h /tmp -p "$PGPORT" -U "$DB_USER" -d "$DB_NAME" <<'SQL'
+CREATE TABLE IF NOT EXISTS _narvana_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO _narvana_meta (key, value) VALUES ('db_type', 'postgres') ON CONFLICT (key) DO NOTHING;
+INSERT INTO _narvana_meta (key, value) VALUES ('db_version', '${dbVersion}') ON CONFLICT (key) DO NOTHING;
+SQL
+
+# Stop PostgreSQL
+pg_ctl -D "$PGDATA" stop
+sleep 1
+
+echo "PostgreSQL initialization complete"
+INITEOF
+          
+          # Create startup script
+          cat > $out/bin/start-postgres.sh <<'STARTEOF'
+#!/usr/bin/env bash
+set -e
+
+PGDATA="''${PGDATA:-/app/data/pgdata}"
+PGPORT="''${PGPORT:-5432}"
+
+# Initialize if needed
+if [ ! -f "$PGDATA/PG_VERSION" ]; then
+  echo "Initializing PostgreSQL..."
+  init-postgres.sh "$PGDATA"
+fi
+
+# Start PostgreSQL
+echo "Starting PostgreSQL on port $PGPORT..."
+exec postgres -D "$PGDATA" -p "$PGPORT"
+STARTEOF
+          
+          # Create entrypoint script
+          cat > $out/bin/entrypoint.sh <<'ENTRYEOF'
+#!/usr/bin/env bash
+set -e
+
+if [ "$1" = "postgres" ] || [ "$1" = "start" ] || [ -z "$1" ]; then
+  exec start-postgres.sh
+else
+  exec "$@"
+fi
+ENTRYEOF
+          
+          chmod +x $out/bin/*.sh
+        '';
+
+        installPhase = ''
+          # Create wrapper that ensures PostgreSQL is in PATH
+          cat > $out/bin/database <<'WRAPEOF'
+#!/usr/bin/env bash
+export DATABASE_URL="postgresql://''${DB_USER:-narvana}:''${DB_PASSWORD:-narvana}@localhost:''${PGPORT:-5432}/''${DB_NAME:-narvana}"
+export PGDATA="''${PGDATA:-/app/data/pgdata}"
+export PGPORT="''${PGPORT:-5432}"
+exec "$@"
+WRAPEOF
+          chmod +x $out/bin/database
+          
+          # Wrap each script to ensure PostgreSQL binaries are in PATH
+          for script in init-postgres.sh start-postgres.sh entrypoint.sh; do
+            mv $out/bin/$script $out/bin/.$script
+            cat > $out/bin/$script <<EOF
+#!/usr/bin/env bash
+export PATH="${postgresqlPkg}/bin:\$PATH"
+exec $out/bin/.$script "\$@"
+EOF
+            chmod +x $out/bin/$script
+          done
+        '';
+      };
+    };
+}
