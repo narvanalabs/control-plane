@@ -1,0 +1,149 @@
+{
+  description = "Narvana Redis Database: {{ .AppName }}/{{ .ServiceName }}";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+    let
+      system = "{{ .System }}";
+      pkgs = nixpkgs.legacyPackages.${system};
+      
+      dbVersion = "{{ .DatabaseVersion }}";
+      
+      # Select Redis package based on version
+      redisPkg = 
+        if dbVersion == "6" then pkgs.redis
+        else if dbVersion == "7" then pkgs.redis
+        else pkgs.redis; # Default to latest available
+      
+      maxmemory = "{{ index .Config "maxmemory" }}";
+      maxmemoryPolicy = "{{ index .Config "maxmemory_policy" }}";
+      appendonly = "{{ index .Config "appendonly" }}";
+    in
+    {
+      packages.${system}.default = pkgs.stdenv.mkDerivation {
+        pname = "{{ .AppName }}-{{ .ServiceName }}";
+        version = "1.0.0";
+        src = ./.;
+
+        buildInputs = [ redisPkg ];
+
+        buildPhase = ''
+          mkdir -p $out/bin
+          mkdir -p $out/share
+          mkdir -p $out/etc
+          
+          echo "Creating Redis ${dbVersion} scripts..."
+          
+          # Create Redis configuration file
+          cat > $out/etc/redis.conf <<'CONFEOF'
+# Narvana Redis Configuration
+bind 0.0.0.0
+port 6379
+daemonize no
+loglevel notice
+
+# Persistence
+dir /app/data/redis
+appendonly ${appendonly}
+appendfilename "appendonly.aof"
+appendfsync everysec
+
+# Memory management
+maxmemory ${maxmemory}
+maxmemory-policy ${maxmemoryPolicy}
+
+# Security (password set via environment)
+# requirepass will be set at runtime
+
+# Snapshotting
+save 900 1
+save 300 10
+save 60 10000
+dbfilename dump.rdb
+CONFEOF
+          
+          # Create initialization script
+          cat > $out/bin/init-redis.sh <<'INITEOF'
+#!/usr/bin/env bash
+set -e
+
+REDIS_DATADIR="$1"
+mkdir -p "$REDIS_DATADIR"
+
+echo "Redis data directory initialized at $REDIS_DATADIR"
+INITEOF
+          
+          # Create startup script
+          cat > $out/bin/start-redis.sh <<'STARTEOF'
+#!/usr/bin/env bash
+set -e
+
+REDIS_DATADIR="''${REDIS_DATADIR:-/app/data/redis}"
+REDIS_PORT="''${REDIS_PORT:-6379}"
+REDIS_PASSWORD="''${REDIS_PASSWORD:-}"
+
+# Initialize if needed
+mkdir -p "$REDIS_DATADIR"
+
+# Build command line arguments
+REDIS_ARGS="--port $REDIS_PORT --dir $REDIS_DATADIR"
+
+if [ -n "$REDIS_PASSWORD" ]; then
+  REDIS_ARGS="$REDIS_ARGS --requirepass $REDIS_PASSWORD"
+fi
+
+# Start Redis
+echo "Starting Redis on port $REDIS_PORT..."
+exec redis-server $REDIS_ARGS \
+  --maxmemory ${maxmemory} \
+  --maxmemory-policy ${maxmemoryPolicy} \
+  --appendonly ${appendonly}
+STARTEOF
+          
+          # Create entrypoint script
+          cat > $out/bin/entrypoint.sh <<'ENTRYEOF'
+#!/usr/bin/env bash
+set -e
+
+if [ "$1" = "redis" ] || [ "$1" = "redis-server" ] || [ "$1" = "start" ] || [ -z "$1" ]; then
+  exec start-redis.sh
+else
+  exec "$@"
+fi
+ENTRYEOF
+          
+          chmod +x $out/bin/*.sh
+        '';
+
+        installPhase = ''
+          # Create wrapper that sets up environment
+          cat > $out/bin/database <<'WRAPEOF'
+#!/usr/bin/env bash
+if [ -n "$REDIS_PASSWORD" ]; then
+  export DATABASE_URL="redis://:''${REDIS_PASSWORD}@localhost:''${REDIS_PORT:-6379}"
+else
+  export DATABASE_URL="redis://localhost:''${REDIS_PORT:-6379}"
+fi
+export REDIS_DATADIR="''${REDIS_DATADIR:-/app/data/redis}"
+export REDIS_PORT="''${REDIS_PORT:-6379}"
+exec "$@"
+WRAPEOF
+          chmod +x $out/bin/database
+          
+          # Wrap each script to ensure Redis binaries are in PATH
+          for script in init-redis.sh start-redis.sh entrypoint.sh; do
+            mv $out/bin/$script $out/bin/.$script
+            cat > $out/bin/$script <<EOF
+#!/usr/bin/env bash
+export PATH="${redisPkg}/bin:\$PATH"
+exec $out/bin/.$script "\$@"
+EOF
+            chmod +x $out/bin/$script
+          done
+        '';
+      };
+    };
+}
