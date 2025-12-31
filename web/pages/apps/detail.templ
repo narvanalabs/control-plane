@@ -67,8 +67,7 @@ templ Detail(data DetailData) {
 						@dropdown.Content() {
 							@dropdown.Item(dropdown.ItemProps{
 								Attributes: templ.Attributes{
-									"data-tui-dialog-trigger": "add-service-dialog",
-									"data-set-category": "web-service",
+									"data-tui-dialog-trigger": "web-service-dialog",
 								},
 							}) {
 								<div class="flex flex-col">
@@ -78,13 +77,22 @@ templ Detail(data DetailData) {
 							}
 							@dropdown.Item(dropdown.ItemProps{
 								Attributes: templ.Attributes{
-									"data-tui-dialog-trigger": "add-service-dialog",
-									"data-set-category": "database",
+									"data-tui-dialog-trigger": "static-site-dialog",
+								},
+							}) {
+								<div class="flex flex-col">
+									<span class="font-medium">Static Site</span>
+									<span class="text-xs text-muted-foreground">HTML, React, Vue, Next.js static</span>
+								</div>
+							}
+							@dropdown.Item(dropdown.ItemProps{
+								Attributes: templ.Attributes{
+									"data-tui-dialog-trigger": "database-dialog",
 								},
 							}) {
 								<div class="flex flex-col">
 									<span class="font-medium">Database</span>
-									<span class="text-xs text-muted-foreground">Provisioned SQLite or Postgres instances</span>
+									<span class="text-xs text-muted-foreground">PostgreSQL, MySQL, MariaDB, MongoDB, Redis</span>
 								</div>
 							}
 						}
@@ -141,18 +149,53 @@ templ Detail(data DetailData) {
 							}
 							
 							// Add Service Placeholder
-							<div 
-								class="border border-dashed border-zinc-800 rounded-xl p-5 flex flex-col items-center justify-center gap-3 text-center hover:bg-zinc-900/50 transition-colors cursor-pointer"
-								data-tui-dialog-trigger="add-service-dialog"
-							>
-								<div class="size-10 rounded-full bg-zinc-900 flex items-center justify-center">
-									@icon.Plus(icon.Props{Class: "size-5 text-zinc-600"})
-								</div>
-								<div>
-									<h4 class="text-sm font-medium text-zinc-300">Add Service</h4>
-									<p class="text-[10px] text-zinc-500">Deploy a new worker or database</p>
-								</div>
-							</div>
+							@dropdown.Dropdown(dropdown.Props{ID: "add-service-card-dropdown"}) {
+								@dropdown.Trigger() {
+									<div 
+										class="border border-dashed border-zinc-800 rounded-xl p-5 flex flex-col items-center justify-center gap-3 text-center hover:bg-zinc-900/50 transition-colors cursor-pointer"
+									>
+										<div class="size-10 rounded-full bg-zinc-900 flex items-center justify-center">
+											@icon.Plus(icon.Props{Class: "size-5 text-zinc-600"})
+										</div>
+										<div>
+											<h4 class="text-sm font-medium text-zinc-300">Add Service</h4>
+											<p class="text-[10px] text-zinc-500">Deploy a new worker or database</p>
+										</div>
+									</div>
+								}
+								@dropdown.Content() {
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-tui-dialog-trigger": "web-service-dialog",
+										},
+									}) {
+										<div class="flex flex-col">
+											<span class="font-medium">Web Service</span>
+											<span class="text-xs text-muted-foreground">Backend, API, or Fullstack app</span>
+										</div>
+									}
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-tui-dialog-trigger": "static-site-dialog",
+										},
+									}) {
+										<div class="flex flex-col">
+											<span class="font-medium">Static Site</span>
+											<span class="text-xs text-muted-foreground">HTML, React, Vue, Next.js static</span>
+										</div>
+									}
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-tui-dialog-trigger": "database-dialog",
+										},
+									}) {
+										<div class="flex flex-col">
+											<span class="font-medium">Database</span>
+											<span class="text-xs text-muted-foreground">PostgreSQL, MySQL, MariaDB, MongoDB, Redis</span>
+										</div>
+									}
+								}
+							}
 						</div>
 					</div>
 				}
@@ -250,88 +293,383 @@ templ Detail(data DetailData) {
 				}
 			}
 		</div>
-		@AddServiceDialog(data)
+		@WebServiceDialog(data)
+		@StaticSiteDialog(data)
+		@DatabaseDialog(data)
 		@AppDetailScript()
 	}
 }
 
 
-templ AddServiceDialog(data DetailData) {
-	@dialog.Dialog(dialog.Props{ID: "add-service-dialog"}) {
+// WebServiceDialog renders the dialog for creating a web service
+// **Validates: Requirements 5.2, 5.4, 5.5, 5.6**
+templ WebServiceDialog(data DetailData) {
+	@dialog.Dialog(dialog.Props{ID: "web-service-dialog"}) {
 		@dialog.Content() {
 			@dialog.Header() {
-				@dialog.Title() { 
-					Add <span id="svc_category_indicator" class="text-primary capitalize">Service</span>
-				}
-				@dialog.Description() { Configure a new service for your application. }
+				@dialog.Title() { Add Web Service }
+				@dialog.Description() { Configure a backend, API, or fullstack application. }
 			}
 			<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services") } class="space-y-4">
-				<input type="hidden" name="category" id="hidden_svc_category" />
+				<input type="hidden" name="category" value="web-service" />
+				<input type="hidden" name="source_type" value="git" />
+				
 				<div class="space-y-2">
-					@label.Label(label.Props{For: "svc_name"}) { Name }
+					@label.Label(label.Props{For: "web_svc_name"}) { Name }
 					@input.Input(input.Props{
-						ID:          "svc_name",
+						ID:          "web_svc_name",
 						Name:        "name",
 						Placeholder: "web-api",
 						Attributes:  templ.Attributes{"required": true},
 					})
 				</div>
 
-				<div id="git-connection-section" class="space-y-4 border-t pt-4">
+				<div class="space-y-2">
+					@label.Label(label.Props{For: "web_svc_language"}) { Language / Framework }
+					@selectbox.SelectBox(selectbox.Props{ID: "web_svc_language"}) {
+						@selectbox.Trigger() {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Select language..."})
+						}
+						@selectbox.Content() {
+							@selectbox.Item(selectbox.ItemProps{Value: "go"}) { Go }
+							@selectbox.Item(selectbox.ItemProps{Value: "rust"}) { Rust }
+							@selectbox.Item(selectbox.ItemProps{Value: "python"}) { Python }
+							@selectbox.Item(selectbox.ItemProps{Value: "node"}) { Node.js }
+							@selectbox.Item(selectbox.ItemProps{Value: "dockerfile"}) { Dockerfile }
+						}
+					}
+					<input type="hidden" name="language" id="hidden_web_svc_language" value="" />
+				</div>
+
+				<div class="space-y-4 border-t pt-4">
 					<div class="flex items-center gap-2">
 						@icon.GitBranch(icon.Props{Class: "size-5 text-zinc-400"})
 						<span class="font-medium">Git Repository</span>
 					</div>
 
 					if data.GitHubConnected {
-						<div id="github-repo-picker" class="space-y-2">
-							@label.Label(label.Props{For: "github_repo_select"}) { Select Repository }
+						<div id="github-repo-picker-web" class="space-y-2">
+							@label.Label(label.Props{For: "github_repo_select_web"}) { Select Repository }
 							<p class="text-xs text-muted-foreground">Select from your connected GitHub account.</p>
 						</div>
 					}
 
-					<div id="manual-repo-input" class="space-y-2">
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "web_svc_repo"}) { Repository URL }
 						@input.Input(input.Props{
-							ID:          "svc_repo",
+							ID:          "web_svc_repo",
 							Name:        "repo",
 							Placeholder: "https://github.com/user/repo",
+							Attributes:  templ.Attributes{
+								"data-detect-trigger": "true",
+							},
 						})
+						<p class="text-xs text-muted-foreground">Enter a git URL to auto-detect settings</p>
+					</div>
+
+					// Auto-detected fields section (hidden by default, shown after detection)
+					<div id="web-svc-detected-fields" class="hidden space-y-4 p-3 bg-muted/50 rounded-lg border border-dashed">
+						<div class="flex items-center gap-2 text-sm text-muted-foreground">
+							@icon.Sparkles(icon.Props{Class: "size-4"})
+							<span>Auto-detected configuration</span>
+						</div>
+						<div class="grid grid-cols-2 gap-3">
+							<div class="space-y-1">
+								@label.Label(label.Props{For: "web_svc_entry_point", Class: "text-xs"}) { Entry Point }
+								@input.Input(input.Props{
+									ID:          "web_svc_entry_point",
+									Name:        "entry_point",
+									Placeholder: "main.go",
+									Class:       "h-8 text-sm",
+								})
+							</div>
+							<div class="space-y-1">
+								@label.Label(label.Props{For: "web_svc_version", Class: "text-xs"}) { Version }
+								@input.Input(input.Props{
+									ID:          "web_svc_version",
+									Name:        "version",
+									Placeholder: "1.21",
+									Class:       "h-8 text-sm",
+								})
+							</div>
+						</div>
+						<div class="space-y-1">
+							@label.Label(label.Props{For: "web_svc_build_command", Class: "text-xs"}) { Build Command }
+							@input.Input(input.Props{
+								ID:          "web_svc_build_command",
+								Name:        "build_command",
+								Placeholder: "go build -o app .",
+								Class:       "h-8 text-sm",
+							})
+						</div>
+					</div>
+
+					// Loading indicator for detection
+					<div id="web-svc-detecting" class="hidden flex items-center gap-2 text-sm text-muted-foreground">
+						<div class="size-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+						<span>Detecting repository configuration...</span>
 					</div>
 				</div>
 
-				<div id="database-connection-section" class="hidden space-y-4 border-t pt-4">
+				<div class="flex justify-end gap-2 border-t pt-4">
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+					}
+					@button.Button(button.Props{Type: "submit"}) { Add Service }
+				</div>
+			</form>
+		}
+	}
+}
+
+// StaticSiteDialog renders the dialog for creating a static site service
+// **Validates: Requirements 5.3**
+templ StaticSiteDialog(data DetailData) {
+	@dialog.Dialog(dialog.Props{ID: "static-site-dialog"}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() { Add Static Site }
+				@dialog.Description() { Deploy a static website or single-page application. }
+			}
+			<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services") } class="space-y-4">
+				<input type="hidden" name="category" value="static-site" />
+				<input type="hidden" name="source_type" value="git" />
+				
+				<div class="space-y-2">
+					@label.Label(label.Props{For: "static_svc_name"}) { Name }
+					@input.Input(input.Props{
+						ID:          "static_svc_name",
+						Name:        "name",
+						Placeholder: "marketing-site",
+						Attributes:  templ.Attributes{"required": true},
+					})
+				</div>
+
+				<div class="space-y-2">
+					@label.Label(label.Props{For: "static_svc_framework"}) { Framework }
+					@selectbox.SelectBox(selectbox.Props{ID: "static_svc_framework"}) {
+						@selectbox.Trigger() {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Select framework..."})
+						}
+						@selectbox.Content() {
+							@selectbox.Item(selectbox.ItemProps{Value: "html", Selected: true}) { Plain HTML/CSS/JS }
+							@selectbox.Item(selectbox.ItemProps{Value: "react"}) { React (Vite/CRA) }
+							@selectbox.Item(selectbox.ItemProps{Value: "vue"}) { Vue.js }
+							@selectbox.Item(selectbox.ItemProps{Value: "svelte"}) { Svelte/SvelteKit }
+							@selectbox.Item(selectbox.ItemProps{Value: "nextjs-static"}) { Next.js (Static Export) }
+							@selectbox.Item(selectbox.ItemProps{Value: "astro"}) { Astro }
+							@selectbox.Item(selectbox.ItemProps{Value: "hugo"}) { Hugo }
+							@selectbox.Item(selectbox.ItemProps{Value: "jekyll"}) { Jekyll }
+						}
+					}
+					<input type="hidden" name="static_framework" id="hidden_static_svc_framework" value="html" />
+				</div>
+
+				<div class="space-y-4 border-t pt-4">
+					<div class="flex items-center gap-2">
+						@icon.GitBranch(icon.Props{Class: "size-5 text-zinc-400"})
+						<span class="font-medium">Git Repository</span>
+					</div>
+
+					if data.GitHubConnected {
+						<div id="github-repo-picker-static" class="space-y-2">
+							@label.Label(label.Props{For: "github_repo_select_static"}) { Select Repository }
+							<p class="text-xs text-muted-foreground">Select from your connected GitHub account.</p>
+						</div>
+					}
+
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "static_svc_repo"}) { Repository URL }
+						@input.Input(input.Props{
+							ID:          "static_svc_repo",
+							Name:        "repo",
+							Placeholder: "https://github.com/user/repo",
+							Attributes:  templ.Attributes{
+								"data-detect-trigger": "true",
+							},
+						})
+					</div>
+
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "static_svc_build_command"}) { Build Command }
+						@input.Input(input.Props{
+							ID:          "static_svc_build_command",
+							Name:        "build_command",
+							Placeholder: "npm run build",
+						})
+						<p class="text-xs text-muted-foreground">Command to build your static site</p>
+					</div>
+
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "static_svc_output_dir"}) { Output Directory }
+						@input.Input(input.Props{
+							ID:          "static_svc_output_dir",
+							Name:        "output_dir",
+							Placeholder: "dist",
+						})
+						<p class="text-xs text-muted-foreground">Directory containing built static files</p>
+					</div>
+				</div>
+
+				<div class="flex justify-end gap-2 border-t pt-4">
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+					}
+					@button.Button(button.Props{Type: "submit"}) { Add Service }
+				</div>
+			</form>
+		}
+	}
+}
+
+// DatabaseDialog renders the dialog for creating a database service
+// **Validates: Requirements 5.7, 5.8**
+templ DatabaseDialog(data DetailData) {
+	@dialog.Dialog(dialog.Props{ID: "database-dialog"}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() { Add Database }
+				@dialog.Description() { Provision a managed database for your application. }
+			}
+			<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services") } class="space-y-4">
+				<input type="hidden" name="category" value="database" />
+				<input type="hidden" name="source_type" value="database" />
+				
+				<div class="space-y-2">
+					@label.Label(label.Props{For: "db_svc_name"}) { Name }
+					@input.Input(input.Props{
+						ID:          "db_svc_name",
+						Name:        "name",
+						Placeholder: "main-db",
+						Attributes:  templ.Attributes{"required": true},
+					})
+				</div>
+
+				<div class="space-y-4 border-t pt-4">
 					<div class="flex items-center gap-2">
 						@icon.Database(icon.Props{Class: "size-5 text-zinc-400"})
 						<span class="font-medium">Database Configuration</span>
 					</div>
-					<div class="space-y-4">
-						<div class="space-y-2">
-							@label.Label(label.Props{For: "db_type"}) { Database Type }
-							@selectbox.SelectBox(selectbox.Props{ID: "db_type"}) {
-								@selectbox.Trigger() {
-									@selectbox.Value(selectbox.ValueProps{Placeholder: "Select database..."})
-								}
-								@selectbox.Content() {
-									@selectbox.Item(selectbox.ItemProps{Value: "postgres", Selected: true}) { PostgreSQL }
-								}
+					
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "db_svc_type"}) { Database Type }
+						@selectbox.SelectBox(selectbox.Props{ID: "db_svc_type"}) {
+							@selectbox.Trigger() {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Select database..."})
 							}
-							<input type="hidden" name="db_type" id="hidden_db_type" value="postgres" />
-						</div>
-						<div class="space-y-2" id="db_version_section">
-							@label.Label(label.Props{For: "db_version"}) { Database Version }
-							@selectbox.SelectBox(selectbox.Props{ID: "db_version"}) {
+							@selectbox.Content() {
+								@selectbox.Item(selectbox.ItemProps{Value: "postgres", Selected: true}) { PostgreSQL }
+								@selectbox.Item(selectbox.ItemProps{Value: "mysql"}) { MySQL }
+								@selectbox.Item(selectbox.ItemProps{Value: "mariadb"}) { MariaDB }
+								@selectbox.Item(selectbox.ItemProps{Value: "mongodb"}) { MongoDB }
+								@selectbox.Item(selectbox.ItemProps{Value: "redis"}) { Redis }
+							}
+						}
+						<input type="hidden" name="db_type" id="hidden_db_svc_type" value="postgres" />
+					</div>
+					
+					<div class="space-y-2" id="db_svc_version_section">
+						@label.Label(label.Props{For: "db_svc_version"}) { Database Version }
+						// PostgreSQL versions (default)
+						<div id="db_postgres_versions">
+							@selectbox.SelectBox(selectbox.Props{ID: "db_svc_version_postgres"}) {
 								@selectbox.Trigger() {
 									@selectbox.Value(selectbox.ValueProps{Placeholder: "Select version..."})
 								}
 								@selectbox.Content() {
 									@selectbox.Item(selectbox.ItemProps{Value: "14"}) { 14 }
-									@selectbox.Item(selectbox.ItemProps{Value: "15", Selected: true}) { 15 }
-									@selectbox.Item(selectbox.ItemProps{Value: "16"}) { 16 }
+									@selectbox.Item(selectbox.ItemProps{Value: "15"}) { 15 }
+									@selectbox.Item(selectbox.ItemProps{Value: "16", Selected: true}) { 16 }
 									@selectbox.Item(selectbox.ItemProps{Value: "17"}) { 17 }
 								}
 							}
-							<input type="hidden" name="db_version" id="hidden_db_version" value="15" />
 						</div>
+						// MySQL versions
+						<div id="db_mysql_versions" class="hidden">
+							@selectbox.SelectBox(selectbox.Props{ID: "db_svc_version_mysql"}) {
+								@selectbox.Trigger() {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Select version..."})
+								}
+								@selectbox.Content() {
+									@selectbox.Item(selectbox.ItemProps{Value: "5.7"}) { 5.7 }
+									@selectbox.Item(selectbox.ItemProps{Value: "8.0", Selected: true}) { 8.0 }
+									@selectbox.Item(selectbox.ItemProps{Value: "8.4"}) { 8.4 }
+								}
+							}
+						</div>
+						// MariaDB versions
+						<div id="db_mariadb_versions" class="hidden">
+							@selectbox.SelectBox(selectbox.Props{ID: "db_svc_version_mariadb"}) {
+								@selectbox.Trigger() {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Select version..."})
+								}
+								@selectbox.Content() {
+									@selectbox.Item(selectbox.ItemProps{Value: "10.6"}) { 10.6 }
+									@selectbox.Item(selectbox.ItemProps{Value: "10.11"}) { 10.11 }
+									@selectbox.Item(selectbox.ItemProps{Value: "11", Selected: true}) { 11 }
+								}
+							}
+						</div>
+						// MongoDB versions
+						<div id="db_mongodb_versions" class="hidden">
+							@selectbox.SelectBox(selectbox.Props{ID: "db_svc_version_mongodb"}) {
+								@selectbox.Trigger() {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Select version..."})
+								}
+								@selectbox.Content() {
+									@selectbox.Item(selectbox.ItemProps{Value: "6.0"}) { 6.0 }
+									@selectbox.Item(selectbox.ItemProps{Value: "7.0", Selected: true}) { 7.0 }
+								}
+							}
+						</div>
+						// Redis versions
+						<div id="db_redis_versions" class="hidden">
+							@selectbox.SelectBox(selectbox.Props{ID: "db_svc_version_redis"}) {
+								@selectbox.Trigger() {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Select version..."})
+								}
+								@selectbox.Content() {
+									@selectbox.Item(selectbox.ItemProps{Value: "6"}) { 6 }
+									@selectbox.Item(selectbox.ItemProps{Value: "7", Selected: true}) { 7 }
+								}
+							}
+						</div>
+						<input type="hidden" name="db_version" id="hidden_db_svc_version" value="16" />
+					</div>
+					
+					// Storage size option
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "db_svc_storage_size"}) { Storage Size }
+						@selectbox.SelectBox(selectbox.Props{ID: "db_svc_storage_size"}) {
+							@selectbox.Trigger() {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Select storage size..."})
+							}
+							@selectbox.Content() {
+								@selectbox.Item(selectbox.ItemProps{Value: "1Gi"}) { 1 GB }
+								@selectbox.Item(selectbox.ItemProps{Value: "5Gi"}) { 5 GB }
+								@selectbox.Item(selectbox.ItemProps{Value: "10Gi", Selected: true}) { 10 GB }
+								@selectbox.Item(selectbox.ItemProps{Value: "20Gi"}) { 20 GB }
+								@selectbox.Item(selectbox.ItemProps{Value: "50Gi"}) { 50 GB }
+							}
+						}
+						<input type="hidden" name="db_storage_size" id="hidden_db_svc_storage_size" value="10Gi" />
+					</div>
+					
+					// Backup schedule option
+					<div class="space-y-2">
+						@label.Label(label.Props{For: "db_svc_backup_schedule"}) { Backup Schedule }
+						@selectbox.SelectBox(selectbox.Props{ID: "db_svc_backup_schedule"}) {
+							@selectbox.Trigger() {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Select backup schedule..."})
+							}
+							@selectbox.Content() {
+								@selectbox.Item(selectbox.ItemProps{Value: "none"}) { No backups }
+								@selectbox.Item(selectbox.ItemProps{Value: "0 2 * * *", Selected: true}) { Daily at 2 AM }
+								@selectbox.Item(selectbox.ItemProps{Value: "0 2 * * 0"}) { Weekly on Sunday }
+								@selectbox.Item(selectbox.ItemProps{Value: "0 */6 * * *"}) { Every 6 hours }
+							}
+						}
+						<input type="hidden" name="db_backup_schedule" id="hidden_db_svc_backup_schedule" value="0 2 * * *" />
 					</div>
 				</div>
 
@@ -349,39 +687,157 @@ templ AddServiceDialog(data DetailData) {
 templ AppDetailScript() {
 	<script>
 		document.addEventListener('DOMContentLoaded', () => {
-			document.addEventListener('click', (e) => {
-				const dropdownItem = e.target.closest('[data-set-category]');
-				if (dropdownItem) {
-					const category = dropdownItem.getAttribute('data-set-category');
-					const categoryIndicator = document.getElementById('svc_category_indicator');
-					const hiddenCategory = document.getElementById('hidden_svc_category');
-					const gitSection = document.getElementById('git-connection-section');
-					const dbSection = document.getElementById('database-connection-section');
+			// Default versions for each database type
+			const defaultVersions = {
+				'postgres': '16',
+				'mysql': '8.0',
+				'mariadb': '11',
+				'mongodb': '7.0',
+				'redis': '7'
+			};
 
-					if (categoryIndicator) categoryIndicator.textContent = category.replace('-', ' ');
-					if (hiddenCategory) hiddenCategory.value = category;
-					
-					if (category === 'database') {
-						gitSection?.classList.add('hidden');
-						dbSection?.classList.remove('hidden');
-					} else {
-						gitSection?.classList.remove('hidden');
-						dbSection?.classList.add('hidden');
+			// Function to show/hide version selectors based on database type
+			function updateVersionSelector(dbType) {
+				const versionContainers = ['postgres', 'mysql', 'mariadb', 'mongodb', 'redis'];
+				versionContainers.forEach(type => {
+					const container = document.getElementById('db_' + type + '_versions');
+					if (container) {
+						if (type === dbType) {
+							container.classList.remove('hidden');
+						} else {
+							container.classList.add('hidden');
+						}
 					}
+				});
+				// Set default version for the selected database type
+				const hiddenVersion = document.getElementById('hidden_db_svc_version');
+				if (hiddenVersion && defaultVersions[dbType]) {
+					hiddenVersion.value = defaultVersions[dbType];
 				}
-			});
+			}
 
+			// Handle selectbox changes for database dialog
 			document.addEventListener('tui-selectbox-change', (e) => {
 				const { id, value } = e.detail;
-				if (id === 'db_type') {
-					document.getElementById('hidden_db_type').value = value;
-				} else if (id === 'db_version') {
-					document.getElementById('hidden_db_version').value = value;
-				} else if (id === 'resource_tier') {
-					document.getElementById('hidden_resource_tier').value = value;
-					console.log('Resource tier changed to:', value);
+				
+				// Database type selection
+				if (id === 'db_svc_type') {
+					document.getElementById('hidden_db_svc_type').value = value;
+					updateVersionSelector(value);
+				} else if (id.startsWith('db_svc_version_')) {
+					document.getElementById('hidden_db_svc_version').value = value;
+				} else if (id === 'db_svc_storage_size') {
+					document.getElementById('hidden_db_svc_storage_size').value = value;
+				} else if (id === 'db_svc_backup_schedule') {
+					document.getElementById('hidden_db_svc_backup_schedule').value = value;
+				}
+				
+				// Web service language selection
+				if (id === 'web_svc_language') {
+					document.getElementById('hidden_web_svc_language').value = value;
+				}
+				
+				// Static site framework selection
+				if (id === 'static_svc_framework') {
+					document.getElementById('hidden_static_svc_framework').value = value;
 				}
 			});
+
+			// Auto-detection for web service git URL
+			// **Validates: Requirements 5.4, 5.5**
+			let detectTimeout = null;
+			const webRepoInput = document.getElementById('web_svc_repo');
+			if (webRepoInput) {
+				webRepoInput.addEventListener('input', (e) => {
+					const url = e.target.value.trim();
+					
+					// Clear previous timeout
+					if (detectTimeout) {
+						clearTimeout(detectTimeout);
+					}
+					
+					// Only trigger detection for valid-looking git URLs
+					if (url && (url.includes('github.com') || url.includes('gitlab.com') || url.includes('bitbucket.org') || url.endsWith('.git'))) {
+						// Debounce the detection call
+						detectTimeout = setTimeout(() => {
+							triggerDetection(url);
+						}, 800);
+					}
+				});
+			}
+
+			// Function to trigger detection API call
+			// **Validates: Requirements 5.4, 5.5**
+			async function triggerDetection(gitUrl) {
+				const detectingIndicator = document.getElementById('web-svc-detecting');
+				const detectedFields = document.getElementById('web-svc-detected-fields');
+				
+				// Show loading indicator
+				if (detectingIndicator) {
+					detectingIndicator.classList.remove('hidden');
+				}
+				if (detectedFields) {
+					detectedFields.classList.add('hidden');
+				}
+				
+				try {
+					const response = await fetch('/api/detect', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify({
+							git_url: gitUrl,
+						}),
+					});
+					
+					if (response.ok) {
+						const result = await response.json();
+						
+						// Populate detected fields
+						if (result.entry_point) {
+							const entryPointInput = document.getElementById('web_svc_entry_point');
+							if (entryPointInput) entryPointInput.value = result.entry_point;
+						}
+						if (result.version) {
+							const versionInput = document.getElementById('web_svc_version');
+							if (versionInput) versionInput.value = result.version;
+						}
+						if (result.build_command) {
+							const buildCommandInput = document.getElementById('web_svc_build_command');
+							if (buildCommandInput) buildCommandInput.value = result.build_command;
+						}
+						
+						// Update language selector based on detected strategy
+						if (result.strategy) {
+							const languageMap = {
+								'auto-go': 'go',
+								'auto-rust': 'rust',
+								'auto-python': 'python',
+								'auto-node': 'node',
+								'dockerfile': 'dockerfile',
+							};
+							const language = languageMap[result.strategy];
+							if (language) {
+								const hiddenLanguage = document.getElementById('hidden_web_svc_language');
+								if (hiddenLanguage) hiddenLanguage.value = language;
+							}
+						}
+						
+						// Show detected fields section
+						if (detectedFields) {
+							detectedFields.classList.remove('hidden');
+						}
+					}
+				} catch (error) {
+					console.error('Detection failed:', error);
+				} finally {
+					// Hide loading indicator
+					if (detectingIndicator) {
+						detectingIndicator.classList.add('hidden');
+					}
+				}
+			}
 		});
 	</script>
 }
