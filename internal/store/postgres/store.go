@@ -27,6 +27,7 @@ type PostgresStore struct {
 	github      *GitHubStore
 	githubAccounts *GitHubAccountStore
 	settings    *SettingsStore
+	domains     *domainStore
 }
 
 // Config holds PostgreSQL connection configuration.
@@ -91,6 +92,7 @@ func NewPostgresStore(cfg *Config, logger *slog.Logger) (*PostgresStore, error) 
 	s.github = &GitHubStore{db: db, logger: logger}
 	s.githubAccounts = &GitHubAccountStore{db: db, logger: logger}
 	s.settings = &SettingsStore{db: db, logger: logger}
+	s.domains = NewDomainStore(db)
 
 	logger.Info("connected to PostgreSQL database")
 	return s, nil
@@ -145,6 +147,11 @@ func (s *PostgresStore) GitHubAccounts() store.GitHubAccountStore {
 // Settings returns the SettingsStore.
 func (s *PostgresStore) Settings() store.SettingsStore {
 	return s.settings
+}
+
+// Domains returns the DomainStore.
+func (s *PostgresStore) Domains() store.DomainStore {
+	return s.domains
 }
 
 // WithTx executes the given function within a database transaction.
@@ -203,6 +210,7 @@ type txStore struct {
 	github      *GitHubStore
 	githubAccounts *GitHubAccountStore
 	settings    *SettingsStore
+	domains     *domainStore
 }
 
 func (s *txStore) Apps() store.AppStore {
@@ -273,6 +281,13 @@ func (s *txStore) Settings() store.SettingsStore {
 		s.settings = &SettingsStore{db: s.tx, logger: s.logger}
 	}
 	return s.settings
+}
+
+func (s *txStore) Domains() store.DomainStore {
+	if s.domains == nil {
+		s.domains = NewDomainStore(s.tx)
+	}
+	return s.domains
 }
 
 func (s *txStore) WithTx(ctx context.Context, fn func(store.Store) error) error {

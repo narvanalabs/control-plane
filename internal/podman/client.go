@@ -343,3 +343,10 @@ func (c *Client) RemoveImage(ctx context.Context, image string) error {
 
 	return nil
 }
+// Exec prepares a podman exec command.
+func (c *Client) Exec(containerName string, command []string) *exec.Cmd {
+	args := []string{"exec", "-it"}
+	args = append(args, containerName)
+	args = append(args, command...)
+	return exec.Command("podman", args...)
+}
