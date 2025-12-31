@@ -140,6 +140,12 @@ message CPDeployRequest {
   string artifact = 4;
   CPBuildType build_type = 5;
   CPDeploymentConfig config = 6;
+  // Version number for this deployment (used for container naming)
+  // Format: {app_name}-{service_name}-v{version}
+  // **Validates: Requirements 9.3, 9.4, 9.5**
+  int32 version = 7;
+  // App name for container naming (optional, uses app_id if not provided)
+  string app_name = 8;
 }
 
 enum CPBuildType {
