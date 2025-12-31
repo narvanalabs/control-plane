@@ -532,7 +532,7 @@ func TestSourceTypeMutualExclusivity(t *testing.T) {
 				return false
 			}
 			return validationErr.Field == "source" &&
-				validationErr.Message == "exactly one of git_repo, flake_uri, or image is required"
+				validationErr.Message == "exactly one of git_repo, flake_uri, image, or database is required"
 		},
 		genNoSourceConfig(),
 	))
@@ -949,6 +949,7 @@ func TestBuildStrategyDeterminism(t *testing.T) {
 			BuildStrategyAutoRust,
 			BuildStrategyAutoNode,
 			BuildStrategyAutoPython,
+			BuildStrategyAutoDatabase,
 			BuildStrategyDockerfile,
 			BuildStrategyNixpacks,
 			BuildStrategyAuto,
@@ -968,21 +969,22 @@ func TestBuildStrategyDeterminism(t *testing.T) {
 		func(_ int) bool {
 			strategies := ValidBuildStrategies()
 
-			// Should have exactly 8 strategies
-			if len(strategies) != 8 {
+			// Should have exactly 9 strategies
+			if len(strategies) != 9 {
 				return false
 			}
 
 			// All expected strategies should be present
 			expected := map[BuildStrategy]bool{
-				BuildStrategyFlake:      false,
-				BuildStrategyAutoGo:     false,
-				BuildStrategyAutoRust:   false,
-				BuildStrategyAutoNode:   false,
-				BuildStrategyAutoPython: false,
-				BuildStrategyDockerfile: false,
-				BuildStrategyNixpacks:   false,
-				BuildStrategyAuto:       false,
+				BuildStrategyFlake:        false,
+				BuildStrategyAutoGo:       false,
+				BuildStrategyAutoRust:     false,
+				BuildStrategyAutoNode:     false,
+				BuildStrategyAutoPython:   false,
+				BuildStrategyAutoDatabase: false,
+				BuildStrategyDockerfile:   false,
+				BuildStrategyNixpacks:     false,
+				BuildStrategyAuto:         false,
 			}
 
 			for _, s := range strategies {
