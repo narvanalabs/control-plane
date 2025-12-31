@@ -112,6 +112,10 @@ func main() {
 		r.Get("/api/user/profile", handleUserProfile)
 		r.Patch("/api/user/profile", handleUpdateUserProfile)
 
+		// Detection API proxy
+		// **Validates: Requirements 5.4, 5.5**
+		r.Post("/api/detect", handleDetectProxy)
+
 		// Server management pages
 		r.Get("/settings/server/logs", handleSettingsServerLogs)
 		r.Get("/settings/server/stats", handleSettingsServerStats)
@@ -585,16 +589,75 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	category := r.FormValue("category")
+	sourceType := r.FormValue("source_type")
+	if sourceType == "" {
+		sourceType = category // Fallback to category if source_type not set
+	}
+
 	req := api.CreateServiceRequest{
 		Name:       r.FormValue("name"),
-		SourceType: r.FormValue("category"), // The form uses 'category' for source type selection
+		SourceType: sourceType,
 		GitRepo:    r.FormValue("repo"),
 		GitRef:     r.FormValue("git_ref"),
 		FlakeURI:   r.FormValue("flake_uri"),
 		ImageRef:   r.FormValue("image_ref"),
 	}
 
-	if req.SourceType == "database" {
+	// Handle web service with language selection
+	// **Validates: Requirements 5.2, 5.4, 5.5, 5.6**
+	if category == "web-service" {
+		language := r.FormValue("language")
+		if language != "" {
+			// Map language to build strategy
+			strategyMap := map[string]api.BuildStrategy{
+				"go":         api.BuildStrategyAutoGo,
+				"rust":       api.BuildStrategyAutoRust,
+				"python":     api.BuildStrategyAutoPython,
+				"node":       api.BuildStrategyAutoNode,
+				"dockerfile": api.BuildStrategyDockerfile,
+			}
+			if strategy, ok := strategyMap[language]; ok {
+				req.BuildStrategy = strategy
+			}
+		}
+		
+		// Handle auto-detected fields
+		entryPoint := r.FormValue("entry_point")
+		buildCommand := r.FormValue("build_command")
+		version := r.FormValue("version")
+		
+		if entryPoint != "" || buildCommand != "" {
+			req.BuildConfig = &api.BuildConfig{
+				EntryPoint:   entryPoint,
+				BuildCommand: buildCommand,
+			}
+		}
+		_ = version // Version is stored in build config if needed
+	}
+
+	// Handle static site
+	// **Validates: Requirements 5.3**
+	if category == "static-site" {
+		framework := r.FormValue("static_framework")
+		buildCommand := r.FormValue("build_command")
+		outputDir := r.FormValue("output_dir")
+		
+		// Static sites use auto-node strategy by default
+		req.BuildStrategy = api.BuildStrategyAutoNode
+		
+		if buildCommand != "" || outputDir != "" {
+			req.BuildConfig = &api.BuildConfig{
+				BuildCommand: buildCommand,
+			}
+		}
+		_ = framework // Framework can be used for template selection
+		_ = outputDir // Output dir for static file serving
+	}
+
+	// Handle database service
+	// **Validates: Requirements 5.7, 5.8**
+	if category == "database" || sourceType == "database" {
 		dbType := r.FormValue("db_type")
 		dbVersion := r.FormValue("db_version")
 		
@@ -603,20 +666,32 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 			dbType = "postgres"
 		}
 		
-		// Set default version if not provided (PostgreSQL only)
+		// Set default version if not provided
 		if dbVersion == "" {
-			dbVersion = "15" // Default PostgreSQL version
+			defaultVersions := map[string]string{
+				"postgres": "16",
+				"mysql":    "8.0",
+				"mariadb":  "11",
+				"mongodb":  "7.0",
+				"redis":    "7",
+			}
+			if v, ok := defaultVersions[dbType]; ok {
+				dbVersion = v
+			} else {
+				dbVersion = "16" // Fallback to PostgreSQL default
+			}
 		}
 		
 		req.Database = &api.DatabaseConfig{
 			Type:    dbType,
 			Version: dbVersion,
 		}
+		req.SourceType = "database"
 	}
 
-	// Strategy mapping
+	// Strategy mapping (fallback for explicit strategy selection)
 	strategy := r.FormValue("strategy")
-	if strategy != "" {
+	if strategy != "" && req.BuildStrategy == "" {
 		req.BuildStrategy = api.BuildStrategy(strategy)
 	}
 
@@ -810,6 +885,35 @@ func handleUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	r.URL.Path = "/v1/user/profile"
+	proxy.ServeHTTP(w, r)
+}
+
+// handleDetectProxy proxies detection requests to the API server.
+// **Validates: Requirements 5.4, 5.5**
+func handleDetectProxy(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	if apiURL == "http://localhost:8080" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	// Rewrite path: /api/detect -> /v1/detect
+	r.URL.Path = "/v1/detect"
+	
+	slog.Info("proxying detection request", "path", r.URL.Path)
 	proxy.ServeHTTP(w, r)
 }
 
