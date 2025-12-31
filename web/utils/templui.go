@@ -2,6 +2,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -53,6 +54,12 @@ func MergeAttributes(attrs ...templ.Attributes) templ.Attributes {
 // Example: RandomID() → "id-1a2b3c"
 func RandomID() string {
 	return fmt.Sprintf("id-%s", rand.Text())
+}
+
+// ToJSON converts a value to a JSON string.
+func ToJSON(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 // ScriptVersion is a timestamp generated at app start for cache busting.

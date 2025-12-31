@@ -128,7 +128,6 @@ templ Content(props ...ContentProps) {
 	}
 	if p.Value == "" {
 		<span class="text-xs text-destructive">Error: Tab Content missing required 'Value' attribute.</span>
-		return templ.NopComponent
 	}
 	<div
 		if p.ID != "" {

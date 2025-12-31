@@ -52,9 +52,11 @@ type App struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	IconURL     string    `json:"icon_url"`
-	Services    []Service `json:"services"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Services     []Service `json:"services"`
+	ResourceTier string    `json:"resource_tier"`
+	Domains      []string  `json:"domains"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Service represents a service within an app.
@@ -64,7 +66,21 @@ type Service struct {
 	GitRepo    string `json:"git_repo,omitempty"`
 	GitRef     string `json:"git_ref,omitempty"`
 	FlakeURI   string `json:"flake_uri,omitempty"`
-	ImageRef   string `json:"image_ref,omitempty"`
+	ImageRef   string          `json:"image_ref,omitempty"`
+	Database   *DatabaseConfig `json:"database,omitempty"`
+
+	// Build & Runtime
+	BuildStrategy BuildStrategy     `json:"build_strategy,omitempty"`
+	BuildConfig   *BuildConfig      `json:"build_config,omitempty"`
+	Replicas      int               `json:"replicas"`
+	EnvVars       map[string]string `json:"env_vars,omitempty"`
+	DependsOn     []string          `json:"depends_on,omitempty"`
+}
+
+// DatabaseConfig represents a database configuration.
+type DatabaseConfig struct {
+	Type    string `json:"type"`
+	Version string `json:"version"`
 }
 
 // Deployment represents a deployment from the API.
@@ -230,8 +246,12 @@ type CreateServiceRequest struct {
 	GitRef     string         `json:"git_ref,omitempty"`
 	FlakeURI   string         `json:"flake_uri,omitempty"`
 	ImageRef   string         `json:"image_ref,omitempty"`
-	BuildStrategy BuildStrategy `json:"build_strategy,omitempty"`
-	BuildConfig   *BuildConfig  `json:"build_config,omitempty"`
+	BuildStrategy BuildStrategy   `json:"build_strategy,omitempty"`
+	BuildConfig   *BuildConfig    `json:"build_config,omitempty"`
+	Database      *DatabaseConfig `json:"database,omitempty"`
+	Replicas      int             `json:"replicas"`
+	EnvVars       map[string]string `json:"env_vars,omitempty"`
+	DependsOn     []string          `json:"depends_on,omitempty"`
 }
 
 // CreateSecretRequest is the request body for creating a secret.
@@ -330,9 +350,25 @@ func (c *Client) CreateApp(ctx context.Context, name, description, iconURL strin
 	return &app, err
 }
 
-// DeleteApp deletes an application.
+// UpdateApp updates an existing application.
+func (c *Client) UpdateApp(ctx context.Context, id string, req UpdateAppRequest) (*App, error) {
+	var app App
+	err := c.patch(ctx, "/v1/apps/"+id, req, &app)
+	return &app, err
+}
+
+// DeleteApp removes an application.
 func (c *Client) DeleteApp(ctx context.Context, id string) error {
 	return c.delete(ctx, "/v1/apps/"+id)
+}
+
+// UpdateAppRequest is the request body for updating an app.
+type UpdateAppRequest struct {
+	Name         string   `json:"name,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	IconURL      string   `json:"icon_url,omitempty"`
+	ResourceTier string   `json:"resource_tier,omitempty"`
+	Domains      []string `json:"domains,omitempty"`
 }
 
 // ============================================================================
@@ -437,6 +473,33 @@ func (c *Client) GetAppLogs(ctx context.Context, appID string) ([]Log, error) {
 		logs = []Log{}
 	}
 	return logs, err
+}
+
+// GetServiceLogs fetches logs for a specific service within an app.
+func (c *Client) GetServiceLogs(ctx context.Context, appID, serviceName string) ([]Log, error) {
+	var resp struct {
+		Logs []Log `json:"logs"`
+	}
+	err := c.Get(ctx, "/v1/apps/"+appID+"/logs?service_name="+serviceName, &resp)
+	if resp.Logs == nil {
+		resp.Logs = []Log{}
+	}
+	return resp.Logs, err
+}
+
+// GetBuildByDeployment fetches a build by its deployment ID.
+func (c *Client) GetBuildByDeployment(ctx context.Context, deploymentID string) (*Build, error) {
+	var builds []Build
+	// List builds and find the one matching the deployment ID
+	if err := c.Get(ctx, "/v1/builds", &builds); err != nil {
+		return nil, err
+	}
+	for _, b := range builds {
+		if b.DeploymentID == deploymentID {
+			return &b, nil
+		}
+	}
+	return nil, nil
 }
 
 // ============================================================================
