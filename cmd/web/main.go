@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
+	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
@@ -73,6 +74,11 @@ func main() {
 			})
 		})
 		r.Post("/apps/{appID}/services/{serviceName}/deploy", handleDeployService)
+		r.Post("/apps/{appID}/services/{serviceName}/stop", handleStopService)
+		r.Post("/apps/{appID}/services/{serviceName}/start", handleStartService)
+		r.Post("/apps/{appID}/services/{serviceName}/reload", handleReloadService)
+		r.Post("/apps/{appID}/services/{serviceName}/retry", handleRetryService)
+		r.Post("/apps/{appID}/services/{serviceName}/delete", handleDeleteServicePost)
 		r.Post("/apps/{appID}/secrets", handleCreateSecret)
 		r.Post("/apps/{appID}/secrets/{key}/delete", handleDeleteSecret)
 		r.Get("/nodes", handleNodes)
@@ -199,6 +205,30 @@ func getAuthToken(r *http.Request) string {
 		return cookie.Value
 	}
 	return ""
+}
+
+// deriveServiceStateFromDeployments derives the service state from the list of deployments.
+// If there are no deployments, the service is in the "new" state.
+func deriveServiceStateFromDeployments(deployments []api.Deployment) models.ServiceState {
+	if len(deployments) == 0 {
+		return models.ServiceStateNew
+	}
+
+	// Use the latest deployment (first in the list) to determine state
+	latestDeployment := deployments[0]
+
+	switch latestDeployment.Status {
+	case "pending", "building", "built", "scheduled", "starting":
+		return models.ServiceStateDeploying
+	case "running":
+		return models.ServiceStateRunning
+	case "stopping", "stopped":
+		return models.ServiceStateStopped
+	case "failed":
+		return models.ServiceStateFailed
+	default:
+		return models.ServiceStateNew
+	}
 }
 
 func getAPIClient(r *http.Request) *api.Client {
@@ -437,15 +467,19 @@ func handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Derive service state from latest deployment
+	serviceState := deriveServiceStateFromDeployments(deployments)
+
 	data := apps.ServiceDetailData{
-		App:         *app,
-		Service:     *service,
-		Deployments: deployments,
-		Logs:        logs,
-		BuildLogs:   buildLogs,
-		Token:       getAuthToken(r),
-		SuccessMsg:  r.URL.Query().Get("success"),
-		ErrorMsg:    r.URL.Query().Get("error"),
+		App:          *app,
+		Service:      *service,
+		Deployments:  deployments,
+		Logs:         logs,
+		BuildLogs:    buildLogs,
+		Token:        getAuthToken(r),
+		SuccessMsg:   r.URL.Query().Get("success"),
+		ErrorMsg:     r.URL.Query().Get("error"),
+		ServiceState: serviceState,
 	}
 
 	apps.ServiceDetail(data).Render(ctx, w)
@@ -936,6 +970,61 @@ func handleDeployService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Deployment+initiated", http.StatusFound)
+}
+
+func handleStopService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	if err := client.StopService(r.Context(), appID, serviceName); err != nil {
+		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Service+stopped", http.StatusFound)
+}
+
+func handleStartService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	if err := client.StartService(r.Context(), appID, serviceName); err != nil {
+		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Service+started", http.StatusFound)
+}
+
+func handleReloadService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	if err := client.ReloadService(r.Context(), appID, serviceName); err != nil {
+		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Service+reloading", http.StatusFound)
+}
+
+func handleRetryService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	if err := client.RetryService(r.Context(), appID, serviceName); err != nil {
+		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Retry+initiated", http.StatusFound)
+}
+
+func handleDeleteServicePost(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	if err := client.DeleteService(r.Context(), appID, serviceName); err != nil {
+		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/apps/"+appID+"?success=Service+deleted", http.StatusFound)
 }
 
 func handleCreateSecret(w http.ResponseWriter, r *http.Request) {
