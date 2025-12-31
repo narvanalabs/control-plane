@@ -3,40 +3,47 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/store"
+	"github.com/narvanalabs/control-plane/internal/podman"
+	"github.com/creack/pty"
+	"github.com/gorilla/websocket"
 )
 
 // ServiceHandler handles service-related HTTP requests.
 type ServiceHandler struct {
 	store  store.Store
+	podman *podman.Client
 	logger *slog.Logger
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(st store.Store, logger *slog.Logger) *ServiceHandler {
+func NewServiceHandler(st store.Store, pd *podman.Client, logger *slog.Logger) *ServiceHandler {
 	return &ServiceHandler{
 		store:  st,
+		podman: pd,
 		logger: logger,
 	}
 }
 
 // CreateServiceRequest represents the request body for creating a service.
 type CreateServiceRequest struct {
-	Name string `json:"name"`
-
-	// Source (exactly one required)
-	GitRepo     string `json:"git_repo,omitempty"`
-	GitRef      string `json:"git_ref,omitempty"`      // Default: "main"
-	FlakeOutput string `json:"flake_output,omitempty"` // Default: "packages.x86_64-linux.default"
-	FlakeURI    string `json:"flake_uri,omitempty"`
-	Image       string `json:"image,omitempty"`
+	Name        string            `json:"name"`
+	SourceType  models.SourceType `json:"source_type,omitempty"`
+	GitRepo     string            `json:"git_repo,omitempty"`
+	GitRef      string            `json:"git_ref,omitempty"`      // Default: "main"
+	FlakeOutput string            `json:"flake_output,omitempty"` // Default: "packages.x86_64-linux.default"
+	FlakeURI    string            `json:"flake_uri,omitempty"`
+	Image       string            `json:"image,omitempty"`
+	Database    *models.DatabaseConfig `json:"database,omitempty"`
 
 	// Build strategy configuration
 	BuildStrategy models.BuildStrategy `json:"build_strategy,omitempty"` // Default: "flake"
@@ -53,12 +60,13 @@ type CreateServiceRequest struct {
 
 // UpdateServiceRequest represents the request body for updating a service.
 type UpdateServiceRequest struct {
-	// Source updates (can change source type)
-	GitRepo     *string `json:"git_repo,omitempty"`
-	GitRef      *string `json:"git_ref,omitempty"`
-	FlakeOutput *string `json:"flake_output,omitempty"`
-	FlakeURI    *string `json:"flake_uri,omitempty"`
-	Image       *string `json:"image,omitempty"`
+	SourceType  *models.SourceType `json:"source_type,omitempty"`
+	GitRepo     *string            `json:"git_repo,omitempty"`
+	GitRef      *string            `json:"git_ref,omitempty"`
+	FlakeOutput *string            `json:"flake_output,omitempty"`
+	FlakeURI    *string            `json:"flake_uri,omitempty"`
+	Image       *string            `json:"image,omitempty"`
+	Database    *models.DatabaseConfig `json:"database,omitempty"`
 
 	// Build strategy updates
 	BuildStrategy *models.BuildStrategy `json:"build_strategy,omitempty"`
@@ -127,11 +135,13 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Build service config
 	service := models.ServiceConfig{
 		Name:          req.Name,
+		SourceType:    req.SourceType,
 		GitRepo:       req.GitRepo,
 		GitRef:        req.GitRef,
 		FlakeOutput:   req.FlakeOutput,
 		FlakeURI:      req.FlakeURI,
 		Image:         req.Image,
+		Database:      req.Database,
 		BuildStrategy: req.BuildStrategy,
 		BuildConfig:   req.BuildConfig,
 		Ports:         req.Ports,
@@ -159,8 +169,13 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply default build strategy if not specified
+	// Database services default to auto-database, others default to flake
 	if service.BuildStrategy == "" {
-		service.BuildStrategy = models.BuildStrategyFlake
+		if req.SourceType == models.SourceTypeDatabase {
+			service.BuildStrategy = models.BuildStrategyAutoDatabase
+		} else {
+			service.BuildStrategy = models.BuildStrategyFlake
+		}
 	}
 
 	// Validate build strategy
@@ -355,10 +370,14 @@ func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
 	service := &app.Services[serviceIndex]
 
 	// Apply updates (preserve unspecified fields)
+	if req.SourceType != nil {
+		service.SourceType = *req.SourceType
+	}
 	if req.GitRepo != nil {
 		service.GitRepo = *req.GitRepo
 		service.FlakeURI = ""
 		service.Image = ""
+		service.Database = nil
 	}
 	if req.GitRef != nil {
 		service.GitRef = *req.GitRef
@@ -370,11 +389,19 @@ func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		service.FlakeURI = *req.FlakeURI
 		service.GitRepo = ""
 		service.Image = ""
+		service.Database = nil
 	}
 	if req.Image != nil {
 		service.Image = *req.Image
 		service.GitRepo = ""
 		service.FlakeURI = ""
+		service.Database = nil
+	}
+	if req.Database != nil {
+		service.Database = req.Database
+		service.GitRepo = ""
+		service.FlakeURI = ""
+		service.Image = ""
 	}
 	if req.BuildStrategy != nil {
 		if !req.BuildStrategy.IsValid() {
@@ -565,4 +592,108 @@ func isActiveDeployment(status models.DeploymentStatus) bool {
 		status == models.DeploymentStatusBuilt ||
 		status == models.DeploymentStatusScheduled ||
 		status == models.DeploymentStatusRunning
+}
+
+// TerminalWS handles GET /v1/apps/{appID}/services/{serviceName}/terminal/ws - WebSocket terminal bridge.
+func (h *ServiceHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+
+	h.logger.Info("service terminal websocket request received", "app_id", appID, "service", serviceName)
+	
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.logger.Error("failed to upgrade websocket", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	// Container name format: narvana-<app-id>-<service-name>
+	// We'll try a few variations if needed, but this is the standard.
+	containerName := fmt.Sprintf("%s-%s", appID, serviceName)
+	
+	// Spawn shell with PTY
+	h.logger.Info("starting podman exec pty", "container", containerName)
+	c := h.podman.Exec(containerName, []string{"/bin/sh"})
+	c.Env = append(os.Environ(), 
+		"TERM=xterm-256color", 
+		"LANG=en_US.UTF-8",
+		"LC_ALL=en_US.UTF-8",
+	)
+	
+	f, err := pty.Start(c)
+	if err != nil {
+		h.logger.Error("failed to start pty", "error", err, "container", containerName)
+		// Try without appID prefix just in case some services use simple names
+		containerName = serviceName
+		c = h.podman.Exec(containerName, []string{"/bin/sh"})
+		f, err = pty.Start(c)
+		if err != nil {
+			h.logger.Error("failed to start pty (second attempt)", "error", err, "container", containerName)
+			return
+		}
+	}
+	
+	h.logger.Info("service pty started successfully", "container", containerName)
+	defer f.Close()
+
+	// Set initial size
+	_ = pty.Setsize(f, &pty.Winsize{Rows: 24, Cols: 80})
+
+	// Clean up process on exit
+	defer func() {
+		if c.Process != nil {
+			c.Process.Kill()
+		}
+	}()
+
+	// Copy PTY output to WebSocket
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := f.Read(buf)
+			if err != nil {
+				return
+			}
+			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Handle WebSocket input
+	for {
+		mt, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		if mt == websocket.TextMessage {
+			var ctrl struct {
+				Type string `json:"type"`
+				Rows uint16 `json:"rows"`
+				Cols uint16 `json:"cols"`
+			}
+			if err := json.Unmarshal(msg, &ctrl); err == nil {
+				if ctrl.Type == "resize" {
+					_ = pty.Setsize(f, &pty.Winsize{Rows: ctrl.Rows, Cols: ctrl.Cols})
+					continue
+				}
+				if ctrl.Type == "terminate" {
+					h.logger.Info("service terminal termination requested")
+					if c.Process != nil {
+						c.Process.Kill()
+					}
+					return
+				}
+			}
+		}
+
+		if mt == websocket.BinaryMessage || mt == websocket.TextMessage {
+			f.Write(msg)
+		}
+	}
 }

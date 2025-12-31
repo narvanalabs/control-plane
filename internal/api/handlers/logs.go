@@ -50,6 +50,7 @@ func (h *LogHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// If no deployment ID specified, get the most recent deployment
 	if deploymentID == "" {
+		serviceName := r.URL.Query().Get("service_name")
 		deployments, err := h.store.Deployments().List(r.Context(), appID)
 		if err != nil {
 			h.logger.Error("failed to list deployments", "error", err, "app_id", appID)
@@ -60,8 +61,23 @@ func (h *LogHandler) Get(w http.ResponseWriter, r *http.Request) {
 			WriteJSON(w, http.StatusOK, map[string][]*models.LogEntry{"logs": {}})
 			return
 		}
-		// Deployments are ordered by created_at DESC, so first is most recent
-		deploymentID = deployments[0].ID
+		
+		// If service_name is specified, find the latest for that service
+		if serviceName != "" {
+			for _, d := range deployments {
+				if d.ServiceName == serviceName {
+					deploymentID = d.ID
+					break
+				}
+			}
+			if deploymentID == "" {
+				WriteJSON(w, http.StatusOK, map[string][]*models.LogEntry{"logs": {}})
+				return
+			}
+		} else {
+			// Deployments are ordered by created_at DESC, so first is most recent
+			deploymentID = deployments[0].ID
+		}
 	}
 
 	// Get logs

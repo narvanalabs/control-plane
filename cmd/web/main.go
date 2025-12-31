@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -61,8 +62,15 @@ func main() {
 			r.Get("/", handleApps)
 			r.Post("/", handleCreateAppSubmit)
 			r.Get("/{appID}", handleAppDetail)
+			r.Post("/{appID}", handleUpdateApp)
 			r.Post("/{appID}/delete", handleDeleteApp)
-			r.Post("/{appID}/services", handleCreateService)
+			r.Route("/{appID}/services", func(r chi.Router) {
+				r.Post("/", handleCreateService)
+				r.Get("/{serviceName}", handleServiceDetail)
+				r.Post("/{serviceName}", handleUpdateService)
+				r.Delete("/{serviceName}", handleDeleteService)
+				r.Get("/{serviceName}/console/ws", handleServiceConsoleWS)
+			})
 		})
 		r.Post("/apps/{appID}/services/{serviceName}/deploy", handleDeployService)
 		r.Post("/apps/{appID}/secrets", handleCreateSecret)
@@ -362,34 +370,178 @@ func handleAppDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deployments, _ := client.ListAppDeployments(ctx, appID)
+	// For the app overview, we only need the app (which includes services)
+	// and maybe some summary data. Detailed deployments/logs are moved to service detail.
 	secrets, _ := client.ListSecrets(ctx, appID)
-	logs, _ := client.GetAppLogs(ctx, appID)
 
 	// Check GitHub connection
 	githubStatus, _ := client.GetGitHubConfig(ctx)
 
 	data := apps.DetailData{
 		App:             *app,
-		Deployments:     deployments,
 		Secrets:         secrets,
-		Logs:            logs,
 		GitHubConnected: githubStatus.Configured,
 		SuccessMsg:      r.URL.Query().Get("success"),
 		ErrorMsg:        r.URL.Query().Get("error"),
+		Token:           getAuthToken(r),
 	}
 
 	apps.Detail(data).Render(ctx, w)
 }
 
+func handleServiceDetail(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	ctx := r.Context()
+
+	app, err := client.GetApp(ctx, appID)
+	if err != nil {
+		http.Error(w, "App not found", http.StatusNotFound)
+		return
+	}
+
+	var service *api.Service
+	for _, s := range app.Services {
+		if s.Name == serviceName {
+			service = &s
+			break
+		}
+	}
+
+	if service == nil {
+		http.Error(w, "Service not found", http.StatusNotFound)
+		return
+	}
+
+	// Fetch deployments for this service
+	allDeployments, _ := client.ListAppDeployments(ctx, appID)
+	var deployments []api.Deployment
+	for _, d := range allDeployments {
+		if d.ServiceName == serviceName {
+			deployments = append(deployments, d)
+		}
+	}
+
+	// Fetch logs for this service
+	var logs []api.Log
+	var buildLogs string
+	if len(deployments) > 0 {
+		// Fetch service-level runtime logs
+		logs, _ = client.GetServiceLogs(ctx, appID, serviceName)
+		
+		// Fetch build logs for the latest deployment
+		latestDeployment := deployments[0]
+		if build, _ := client.GetBuildByDeployment(ctx, latestDeployment.ID); build != nil {
+			buildLogs = build.Logs
+		}
+	}
+
+	data := apps.ServiceDetailData{
+		App:         *app,
+		Service:     *service,
+		Deployments: deployments,
+		Logs:        logs,
+		BuildLogs:   buildLogs,
+		Token:       getAuthToken(r),
+		SuccessMsg:  r.URL.Query().Get("success"),
+		ErrorMsg:    r.URL.Query().Get("error"),
+	}
+
+	apps.ServiceDetail(data).Render(ctx, w)
+}
+
+func handleUpdateService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	ctx := r.Context()
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?error=Failed+to+parse+form", appID, serviceName), http.StatusSeeOther)
+		return
+	}
+
+	replicas := 1
+	fmt.Sscanf(r.FormValue("replicas"), "%d", &replicas)
+
+	var dependsOn []string
+	if val := r.FormValue("depends_on"); val != "" {
+		parts := strings.Split(val, ",")
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				dependsOn = append(dependsOn, trimmed)
+			}
+		}
+	}
+
+	req := api.CreateServiceRequest{
+		Name:          serviceName,
+		Replicas:      replicas,
+		BuildStrategy: api.BuildStrategy(r.FormValue("strategy")),
+		DependsOn:     dependsOn,
+	}
+
+	_, err := client.UpdateService(ctx, appID, serviceName, req)
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?error=%s", appID, serviceName, url.QueryEscape(err.Error())), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?success=Service+updated+successfully", appID, serviceName), http.StatusSeeOther)
+}
+
+func handleDeleteService(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	ctx := r.Context()
+
+	err := client.DeleteService(ctx, appID, serviceName)
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?error=%s", appID, serviceName, url.QueryEscape(err.Error())), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/apps/%s?success=Service+deleted+successfully", appID), http.StatusSeeOther)
+}
+
 func handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	client := getAPIClient(r)
-	if err := client.DeleteApp(r.Context(), appID); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+	ctx := r.Context()
+
+	err := client.DeleteApp(ctx, appID)
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s?error=%s", appID, url.QueryEscape(err.Error())), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/apps?success=App+deleted", http.StatusFound)
+
+	http.Redirect(w, r, "/apps?success=App+deleted+successfully", http.StatusSeeOther)
+}
+
+func handleUpdateApp(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	client := getAPIClient(r)
+	ctx := r.Context()
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s?error=Failed+to+parse+form", appID), http.StatusSeeOther)
+		return
+	}
+
+	req := api.UpdateAppRequest{
+		ResourceTier: r.FormValue("resource_tier"),
+	}
+
+	_, err := client.UpdateApp(ctx, appID, req)
+	if err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s?error=%s", appID, url.QueryEscape(err.Error())), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/apps/%s?success=App+updated+successfully", appID), http.StatusSeeOther)
 }
 
 func handleCreateService(w http.ResponseWriter, r *http.Request) {
@@ -401,11 +553,31 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 
 	req := api.CreateServiceRequest{
 		Name:       r.FormValue("name"),
-		SourceType: r.FormValue("source_type"),
+		SourceType: r.FormValue("category"), // The form uses 'category' for source type selection
 		GitRepo:    r.FormValue("repo"),
 		GitRef:     r.FormValue("git_ref"),
 		FlakeURI:   r.FormValue("flake_uri"),
 		ImageRef:   r.FormValue("image_ref"),
+	}
+
+	if req.SourceType == "database" {
+		dbType := r.FormValue("db_type")
+		dbVersion := r.FormValue("db_version")
+		
+		// Default to PostgreSQL if not specified
+		if dbType == "" {
+			dbType = "postgres"
+		}
+		
+		// Set default version if not provided (PostgreSQL only)
+		if dbVersion == "" {
+			dbVersion = "15" // Default PostgreSQL version
+		}
+		
+		req.Database = &api.DatabaseConfig{
+			Type:    dbType,
+			Version: dbVersion,
+		}
 	}
 
 	// Strategy mapping
@@ -415,13 +587,14 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := getAPIClient(r)
-	_, err := client.CreateService(r.Context(), appID, req)
+	service, err := client.CreateService(r.Context(), appID, req)
 	if err != nil {
 		http.Redirect(w, r, "/apps/"+appID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
 
-	http.Redirect(w, r, "/apps/"+appID+"?success=Service+created", http.StatusFound)
+	// Redirect to the service detail page
+	http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?success=Service+created", appID, service.Name), http.StatusFound)
 }
 
 func handleNodes(w http.ResponseWriter, r *http.Request) {
@@ -432,12 +605,20 @@ func handleNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogStream(w http.ResponseWriter, r *http.Request) {
-	apiURL := os.Getenv("API_URL")
+	apiURL := os.Getenv("INTERNAL_API_URL")
 	if apiURL == "" {
-		apiURL = "http://localhost:8080"
+		apiURL = os.Getenv("API_URL")
 	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	if apiURL == "http://localhost:8080" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
+	proxy.FlushInterval = -1 // Disable buffering for SSE
 	
 	// Add auth token if present
 	token := getAuthToken(r)
@@ -447,13 +628,21 @@ func handleLogStream(w http.ResponseWriter, r *http.Request) {
 	
 	// Rewrite path: /api/logs/stream?app_id=XYZ -> /v1/apps/XYZ/logs/stream
 	appID := r.URL.Query().Get("app_id")
+	serviceName := r.URL.Query().Get("service_name")
 	if appID != "" {
 		r.URL.Path = fmt.Sprintf("/v1/apps/%s/logs/stream", appID)
+		if serviceName != "" {
+			// Ensure service_name is in the query string for the backend
+			q := r.URL.Query()
+			q.Set("service_name", serviceName)
+			r.URL.RawQuery = q.Encode()
+		}
 	} else {
 		// Fallback: just strip /api/ and prefix /v1/
 		r.URL.Path = "/v1" + r.URL.Path[4:]
 	}
 	
+	slog.Info("proxying log stream", "path", r.URL.Path, "app_id", appID)
 	proxy.ServeHTTP(w, r)
 }
 
@@ -661,6 +850,83 @@ func handleServerConsoleWS(w http.ResponseWriter, r *http.Request) {
 	<-errChan
 }
 
+func handleServiceConsoleWS(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	target := fmt.Sprintf("ws://%s/v1/apps/%s/services/%s/terminal/ws", u.Host, appID, serviceName)
+	if u.Scheme == "https" {
+		target = fmt.Sprintf("wss://%s/v1/apps/%s/services/%s/terminal/ws", u.Host, appID, serviceName)
+	}
+
+	// Upgrade client connection
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	clientConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("failed to upgrade client websocket", "error", err)
+		return
+	}
+	defer clientConn.Close()
+
+	// Connect to backend
+	header := http.Header{}
+	token := getAuthToken(r)
+	if token != "" {
+		header.Set("Authorization", "Bearer "+token)
+	}
+
+	backendConn, resp, err := websocket.DefaultDialer.Dial(target, header)
+	if err != nil {
+		slog.Error("failed to dial backend websocket", "error", err, "app_id", appID, "service", serviceName)
+		if resp != nil {
+			slog.Error("backend response code", "resp_code", resp.StatusCode)
+		}
+		return
+	}
+	defer backendConn.Close()
+
+	// Bridge connections
+	errChan := make(chan error, 2)
+
+	go func() {
+		for {
+			mt, msg, err := clientConn.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if err := backendConn.WriteMessage(mt, msg); err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			mt, msg, err := backendConn.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if err := clientConn.WriteMessage(mt, msg); err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	<-errChan
+}
+
 func handleDeployService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
@@ -669,7 +935,7 @@ func handleDeployService(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/apps/"+appID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/apps/"+appID+"?success=Deployment+initiated", http.StatusFound)
+	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Deployment+initiated", http.StatusFound)
 }
 
 func handleCreateSecret(w http.ResponseWriter, r *http.Request) {

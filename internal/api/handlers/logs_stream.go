@@ -43,6 +43,7 @@ func (h *LogStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	source := r.URL.Query().Get("source") // "build" or "runtime"
 	requestedDeploymentID := r.URL.Query().Get("deployment_id")
+	serviceName := r.URL.Query().Get("service_name")
 
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -79,10 +80,11 @@ func (h *LogStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		"deployment_id": currentDeploymentID,
 	})
 
-	// Track the last log timestamp we've seen per deployment
 	lastTimestamps := make(map[string]time.Time)
-	ticker := time.NewTicker(300 * time.Millisecond) // Poll every 300ms for responsiveness
+	ticker := time.NewTicker(500 * time.Millisecond) // Slightly slower for less load
+	pingTicker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	defer pingTicker.Stop()
 
 	ctx := r.Context()
 
@@ -91,13 +93,27 @@ func (h *LogStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			h.logger.Info("log stream closed by client", "app_id", appID)
 			return
+		case <-pingTicker.C:
+			h.sendEvent(w, "ping", map[string]int64{"time": time.Now().Unix()})
 		case <-ticker.C:
+			// ...
 			// If no specific deployment requested, check for new deployments
 			if requestedDeploymentID == "" {
 				deployments, err := h.store.Deployments().List(ctx, appID)
 				if err == nil && len(deployments) > 0 {
-					latestID := deployments[0].ID
-					if latestID != currentDeploymentID {
+					var latestID string
+					if serviceName != "" {
+						for _, d := range deployments {
+							if d.ServiceName == serviceName {
+								latestID = d.ID
+								break
+							}
+						}
+					} else {
+						latestID = deployments[0].ID
+					}
+
+					if latestID != "" && latestID != currentDeploymentID {
 						// New deployment started!
 						currentDeploymentID = latestID
 						h.sendEvent(w, "new_deployment", map[string]string{
@@ -119,8 +135,9 @@ func (h *LogStreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Send each new log entry
-			for _, log := range newLogs {
+			// Send each new log entry in ASCENDING order
+			for i := len(newLogs) - 1; i >= 0; i-- {
+				log := newLogs[i]
 				h.sendEvent(w, "log", log)
 				if log.Timestamp.After(lastTs) {
 					lastTs = log.Timestamp
@@ -160,6 +177,7 @@ func (h *LogStreamHandler) fetchNewLogs(ctx context.Context, deploymentID, sourc
 	}
 
 	if err != nil {
+		h.logger.Error("error listing logs", "error", err, "deployment_id", deploymentID)
 		return nil, err
 	}
 
@@ -169,6 +187,10 @@ func (h *LogStreamHandler) fetchNewLogs(ctx context.Context, deploymentID, sourc
 		if log.Timestamp.After(since) {
 			newLogs = append(newLogs, log)
 		}
+	}
+	
+	if len(newLogs) > 0 {
+		h.logger.Info("fetched new logs", "count", len(newLogs), "deployment_id", deploymentID)
 	}
 
 	return newLogs, nil

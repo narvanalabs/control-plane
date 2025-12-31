@@ -47,9 +47,10 @@ type HealthCheckConfig struct {
 type SourceType string
 
 const (
-	SourceTypeGit   SourceType = "git"   // Git repo built via Nix flake
-	SourceTypeFlake SourceType = "flake" // Direct flake URI (e.g., nixpkgs#redis)
-	SourceTypeImage SourceType = "image" // Pre-built OCI image
+	SourceTypeGit      SourceType = "git"      // Git repo built via Nix flake
+	SourceTypeFlake    SourceType = "flake"    // Direct flake URI (e.g., nixpkgs#redis)
+	SourceTypeImage    SourceType = "image"    // Pre-built OCI image
+	SourceTypeDatabase SourceType = "database" // Internal database (SQLite, etc.)
 )
 
 // ValidationError represents a service configuration validation error.
@@ -83,6 +84,9 @@ type ServiceConfig struct {
 	// OCI image reference, build phase skipped
 	Image string `json:"image,omitempty"` // e.g., "docker.io/postgres:16"
 
+	// Database source (SourceTypeDatabase)
+	Database *DatabaseConfig `json:"database,omitempty"`
+
 	// Build strategy configuration
 	BuildStrategy BuildStrategy `json:"build_strategy,omitempty" db:"build_strategy"`
 	BuildConfig   *BuildConfig  `json:"build_config,omitempty" db:"build_config"`
@@ -92,8 +96,14 @@ type ServiceConfig struct {
 	Replicas     int                `json:"replicas"`
 	Ports        []PortMapping      `json:"ports,omitempty"`
 	HealthCheck  *HealthCheckConfig `json:"health_check,omitempty"`
-	DependsOn    []string           `json:"depends_on,omitempty"`
 	EnvVars      map[string]string  `json:"env_vars,omitempty"` // Service-level env vars (override app-level)
+	DependsOn    []string           `json:"depends_on,omitempty"`
+}
+
+// DatabaseConfig defines settings for internal database services.
+type DatabaseConfig struct {
+	Type    string `json:"type"`    // e.g., "sqlite", "postgres"
+	Version string `json:"version"` // e.g., "3", "16"
 }
 
 // GetCurrentSystem returns the Nix system string for the current platform.
@@ -138,8 +148,8 @@ func (s *ServiceConfig) Validate() error {
 		s.SourceType = SourceTypeImage
 	}
 
-	if sourceCount == 0 {
-		return &ValidationError{Field: "source", Message: "exactly one of git_repo, flake_uri, or image is required"}
+	if sourceCount == 0 && s.SourceType != SourceTypeDatabase {
+		return &ValidationError{Field: "source", Message: "exactly one of git_repo, flake_uri, image, or database is required"}
 	}
 	if sourceCount > 1 {
 		return &ValidationError{Field: "source", Message: "only one of git_repo, flake_uri, or image can be specified"}
@@ -164,6 +174,13 @@ func (s *ServiceConfig) Validate() error {
 	case SourceTypeImage:
 		if err := validateImageRef(s.Image); err != nil {
 			return &ValidationError{Field: "image", Message: err.Error()}
+		}
+	case SourceTypeDatabase:
+		if s.Database == nil {
+			return &ValidationError{Field: "database", Message: "database configuration is required"}
+		}
+		if s.Database.Type == "" {
+			return &ValidationError{Field: "database.type", Message: "database type is required"}
 		}
 	}
 

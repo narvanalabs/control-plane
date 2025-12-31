@@ -184,15 +184,15 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // determineBuildType determines the build type based on service source type.
-// Image sources use OCI, git and flake sources use pure-nix by default.
+// Image sources use OCI, git/flake/database sources use pure-nix (they generate Nix closures).
 func determineBuildType(svc *models.ServiceConfig) models.BuildType {
 	switch svc.SourceType {
 	case models.SourceTypeImage:
 		return models.BuildTypeOCI
-	case models.SourceTypeGit, models.SourceTypeFlake:
+	case models.SourceTypeGit, models.SourceTypeFlake, models.SourceTypeDatabase:
 		return models.BuildTypePureNix
 	default:
-		return models.BuildTypeOCI // Default fallback
+		return models.BuildTypePureNix // Default to pure-nix for generated flakes
 	}
 }
 
@@ -445,11 +445,32 @@ func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Requ
 	// Create and enqueue build job based on source type
 	buildJob := h.createBuildJobForService(r.Context(), deployment.ID, appID, service, gitRef, buildType, now)
 
-	if buildJob != nil && h.queue != nil {
+	if buildJob == nil {
+		h.logger.Warn("no build job created for deployment",
+			"deployment_id", deployment.ID,
+			"service_name", serviceName,
+			"source_type", service.SourceType,
+		)
+	} else if h.queue != nil {
 		if err := h.queue.Enqueue(r.Context(), buildJob); err != nil {
-			h.logger.Error("failed to enqueue build job", "error", err)
+			h.logger.Error("failed to enqueue build job",
+				"error", err,
+				"job_id", buildJob.ID,
+				"deployment_id", deployment.ID,
+			)
 			// Don't fail the request, the deployment is created
+		} else {
+			h.logger.Info("build job enqueued",
+				"job_id", buildJob.ID,
+				"deployment_id", deployment.ID,
+				"build_strategy", buildJob.BuildStrategy,
+			)
 		}
+	} else {
+		h.logger.Error("queue is nil, cannot enqueue build job",
+			"job_id", buildJob.ID,
+			"deployment_id", deployment.ID,
+		)
 	}
 
 	h.logger.Info("per-service deployment triggered",
@@ -483,20 +504,49 @@ func (h *DeploymentHandler) createBuildJobForService(ctx context.Context, deploy
 			Status:        models.BuildStatusQueued,
 			CreatedAt:     now,
 		}
-	case models.SourceTypeFlake:
-		// For flake sources, use the flake URI directly
+	case models.SourceTypeFlake, models.SourceTypeDatabase:
+		// For flake/database sources, use the flake URI directly
+		// Note: Database sources often use a predefined flake for the engine
+		url := service.FlakeURI
+		if url == "" && service.Database != nil {
+			// Fallback: generate a simple flake URI if possible or leave empty for worker to resolve
+		}
+
+		buildConfig := service.BuildConfig
+		if buildConfig == nil {
+			buildConfig = &models.BuildConfig{}
+		}
+		if service.Database != nil {
+			buildConfig.DatabaseOptions = &models.DatabaseOptions{
+				Type:    service.Database.Type,
+				Version: service.Database.Version,
+			}
+		}
+
 		buildJob = &models.BuildJob{
 			ID:            uuid.New().String(),
 			DeploymentID:  deploymentID,
 			AppID:         appID,
-			GitURL:        service.FlakeURI, // Store flake URI in GitURL field
-			GitRef:        "",               // Not applicable for flake sources
-			FlakeOutput:   "",               // Output is part of the flake URI
+			GitURL:        url, // Store flake URI in GitURL field
+			GitRef:        "",  // Not applicable for flake sources
+			FlakeOutput:   "",  // Output is part of the flake URI
 			BuildType:     buildType,
-			BuildStrategy: models.BuildStrategyFlake, // Flake sources always use flake strategy
-			BuildConfig:   service.BuildConfig,
+			BuildStrategy: service.BuildStrategy,
+			BuildConfig:   buildConfig,
 			Status:        models.BuildStatusQueued,
 			CreatedAt:     now,
+		}
+
+		// Ensure we have a valid strategy
+		if service.SourceType == models.SourceTypeDatabase {
+			// Database services always use auto-database strategy (unless explicitly overridden)
+			if buildJob.BuildStrategy == "" || url == "" {
+				buildJob.BuildStrategy = models.BuildStrategyAutoDatabase
+			}
+		} else if buildJob.BuildStrategy == "" {
+			if service.SourceType == models.SourceTypeFlake {
+				buildJob.BuildStrategy = models.BuildStrategyFlake
+			}
 		}
 	case models.SourceTypeImage:
 		// No build job needed for image sources - skip build phase
@@ -508,10 +558,30 @@ func (h *DeploymentHandler) createBuildJobForService(ctx context.Context, deploy
 	// Create the build record in the database
 	if buildJob != nil {
 		if err := h.store.Builds().Create(ctx, buildJob); err != nil {
-			h.logger.Error("failed to create build record", "error", err, "job_id", buildJob.ID)
+			h.logger.Error("failed to create build record",
+				"error", err,
+				"job_id", buildJob.ID,
+				"deployment_id", deploymentID,
+				"service_name", service.Name,
+				"source_type", service.SourceType,
+				"build_strategy", buildJob.BuildStrategy,
+			)
 			// Return nil to prevent enqueueing a job without a database record
 			return nil
 		}
+		h.logger.Info("created build job",
+			"job_id", buildJob.ID,
+			"deployment_id", deploymentID,
+			"service_name", service.Name,
+			"source_type", service.SourceType,
+			"build_strategy", buildJob.BuildStrategy,
+		)
+	} else {
+		h.logger.Warn("build job is nil, skipping creation",
+			"deployment_id", deploymentID,
+			"service_name", service.Name,
+			"source_type", service.SourceType,
+		)
 	}
 
 	return buildJob

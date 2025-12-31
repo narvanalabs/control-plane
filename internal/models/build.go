@@ -53,10 +53,11 @@ const (
 	BuildStrategyAutoGo     BuildStrategy = "auto-go"     // Generate flake for Go
 	BuildStrategyAutoRust   BuildStrategy = "auto-rust"   // Generate flake for Rust
 	BuildStrategyAutoNode   BuildStrategy = "auto-node"   // Generate flake for Node.js
-	BuildStrategyAutoPython BuildStrategy = "auto-python" // Generate flake for Python
-	BuildStrategyDockerfile BuildStrategy = "dockerfile"  // Build from Dockerfile
-	BuildStrategyNixpacks   BuildStrategy = "nixpacks"    // Use Nixpacks
-	BuildStrategyAuto       BuildStrategy = "auto"        // Auto-detect
+	BuildStrategyAutoPython   BuildStrategy = "auto-python"   // Generate flake for Python
+	BuildStrategyAutoDatabase BuildStrategy = "auto-database" // Generate flake for databases
+	BuildStrategyDockerfile   BuildStrategy = "dockerfile"    // Build from Dockerfile
+	BuildStrategyNixpacks     BuildStrategy = "nixpacks"      // Use Nixpacks
+	BuildStrategyAuto         BuildStrategy = "auto"          // Auto-detect
 )
 
 // ValidBuildStrategies returns all valid build strategy options.
@@ -67,6 +68,7 @@ func ValidBuildStrategies() []BuildStrategy {
 		BuildStrategyAutoRust,
 		BuildStrategyAutoNode,
 		BuildStrategyAutoPython,
+		BuildStrategyAutoDatabase,
 		BuildStrategyDockerfile,
 		BuildStrategyNixpacks,
 		BuildStrategyAuto,
@@ -131,6 +133,12 @@ type FastAPIOptions struct {
 	Workers   int    `json:"workers,omitempty"`    // Uvicorn workers
 }
 
+// DatabaseOptions contains database-specific build options.
+type DatabaseOptions struct {
+	Type    string `json:"type,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
 // BuildConfig contains strategy-specific configuration options.
 type BuildConfig struct {
 	// Common options
@@ -157,6 +165,7 @@ type BuildConfig struct {
 	NextJSOptions  *NextJSOptions  `json:"nextjs_options,omitempty"`
 	DjangoOptions  *DjangoOptions  `json:"django_options,omitempty"`
 	FastAPIOptions *FastAPIOptions `json:"fastapi_options,omitempty"`
+	DatabaseOptions *DatabaseOptions `json:"database_options,omitempty"`
 
 	// Advanced options
 	ExtraNixPackages []string          `json:"extra_nix_packages,omitempty"`

@@ -227,6 +227,7 @@ type MockStore struct {
 	github         *MockGitHubStore
 	githubAccounts *MockGitHubAccountStore
 	settings       *MockSettingsStore
+	domains        *MockDomainStore
 }
 
 // NewMockStore creates a new MockStore.
@@ -242,6 +243,7 @@ func NewMockStore() *MockStore {
 		github:      NewMockGitHubStore(),
 		githubAccounts: NewMockGitHubAccountStore(),
 		settings:    NewMockSettingsStore(),
+		domains:     NewMockDomainStore(),
 	}
 }
 
@@ -255,6 +257,7 @@ func (m *MockStore) Users() store.UserStore         { return m.users }
 func (m *MockStore) GitHub() store.GitHubStore      { return m.github }
 func (m *MockStore) GitHubAccounts() store.GitHubAccountStore { return m.githubAccounts }
 func (m *MockStore) Settings() store.SettingsStore      { return m.settings }
+func (m *MockStore) Domains() store.DomainStore         { return m.domains }
 func (m *MockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *MockStore) Close() error                   { return nil }
 
@@ -1393,3 +1396,60 @@ func (m *MockSettingsStore) GetAll(ctx context.Context) (map[string]string, erro
 	}
 	return res, nil
 }
+
+// MockDomainStore is a mock implementation of DomainStore for testing.
+type MockDomainStore struct {
+	mu      sync.Mutex
+	domains map[string]*models.Domain
+}
+
+func NewMockDomainStore() *MockDomainStore {
+	return &MockDomainStore{domains: make(map[string]*models.Domain)}
+}
+
+func (m *MockDomainStore) Create(ctx context.Context, domain *models.Domain) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.domains[domain.ID] = domain
+	return nil
+}
+
+func (m *MockDomainStore) Get(ctx context.Context, id string) (*models.Domain, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if domain, ok := m.domains[id]; ok {
+		return domain, nil
+	}
+	return nil, errors.New("domain not found")
+}
+
+func (m *MockDomainStore) List(ctx context.Context, appID string) ([]*models.Domain, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.Domain
+	for _, domain := range m.domains {
+		if domain.AppID == appID {
+			result = append(result, domain)
+		}
+	}
+	return result, nil
+}
+
+func (m *MockDomainStore) Delete(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.domains, id)
+	return nil
+}
+
+func (m *MockDomainStore) GetByDomain(ctx context.Context, domainName string) (*models.Domain, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, domain := range m.domains {
+		if domain.Domain == domainName {
+			return domain, nil
+		}
+	}
+	return nil, nil // Return nil if not found, consistent with store interface
+}
+

@@ -567,6 +567,10 @@ func NewWorker(cfg *WorkerConfig, s store.Store, q queue.Queue, logger *slog.Log
 		autoPythonExecutor := executor.NewAutoPythonStrategyExecutor(det, tmplEngine, nixBuilderAdapter, ociBuilderAdapter, logger)
 		registry.Register(autoPythonExecutor)
 
+		// Register auto-database executor
+		autoDatabaseExecutor := executor.NewAutoDatabaseStrategyExecutor(det, tmplEngine, nixBuilderAdapter, ociBuilderAdapter, logger)
+		registry.Register(autoDatabaseExecutor)
+
 		logger.Info("registered auto-* strategy executors")
 	}
 

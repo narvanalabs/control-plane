@@ -38,6 +38,9 @@ type TemplateData struct {
 	StartCommand    string
 	Config          models.BuildConfig
 	DetectionResult *models.DetectionResult
+	System          string
+	DatabaseType    string
+	DatabaseVersion string
 }
 
 // DefaultTemplateEngine is the default implementation of TemplateEngine.
@@ -172,6 +175,8 @@ func GetTemplateForStrategy(strategy models.BuildStrategy, config models.BuildCo
 		return "rust.nix"
 	case models.BuildStrategyAutoPython:
 		return "python.nix"
+	case models.BuildStrategyAutoDatabase:
+		return "database.nix"
 	case models.BuildStrategyDockerfile:
 		return "dockerfile.nix"
 	default:

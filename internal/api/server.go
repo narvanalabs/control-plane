@@ -15,6 +15,7 @@ import (
 	"github.com/narvanalabs/control-plane/internal/auth"
 	"github.com/narvanalabs/control-plane/internal/queue"
 	"github.com/narvanalabs/control-plane/internal/store"
+	"github.com/narvanalabs/control-plane/internal/podman"
 	"github.com/narvanalabs/control-plane/pkg/config"
 )
 
@@ -97,6 +98,7 @@ func (s *Server) setupRouter() {
 		r.Post("/detect", detectHandler.Detect)
 
 		// App routes
+		podmanClient := podman.NewClient(s.config.Worker.PodmanSocket, s.logger)
 		appHandler := handlers.NewAppHandler(s.store, s.logger)
 		r.Route("/apps", func(r chi.Router) {
 			r.Post("/", appHandler.Create)
@@ -112,7 +114,7 @@ func (s *Server) setupRouter() {
 				r.Get("/deployments", deploymentHandler.List)
 
 				// Service routes nested under apps
-				serviceHandler := handlers.NewServiceHandler(s.store, s.logger)
+				serviceHandler := handlers.NewServiceHandler(s.store, podmanClient, s.logger)
 				r.Route("/services", func(r chi.Router) {
 					r.Post("/", serviceHandler.Create)
 					r.Get("/", serviceHandler.List)
@@ -128,6 +130,8 @@ func (s *Server) setupRouter() {
 					} else {
 						r.Post("/{serviceName}/preview", previewHandler.Preview)
 					}
+					
+					r.Get("/{serviceName}/terminal/ws", serviceHandler.TerminalWS)
 				})
 
 				// Log routes nested under apps
@@ -144,6 +148,14 @@ func (s *Server) setupRouter() {
 					r.Post("/", secretHandler.Create)
 					r.Get("/", secretHandler.List)
 					r.Delete("/{key}", secretHandler.Delete)
+				})
+
+				// Domain routes nested under apps
+				domainHandler := handlers.NewDomainHandler(s.store, s.logger)
+				r.Route("/domains", func(r chi.Router) {
+					r.Post("/", domainHandler.Create)
+					r.Get("/", domainHandler.List)
+					r.Delete("/{domainID}", domainHandler.Delete)
 				})
 			})
 		})

@@ -229,7 +229,8 @@ echo ""
 
 %s
 
-cd /build/src
+# Try to change to /build/src (cloned repo) or stay in /build (generated/direct flake)
+cd /build/src 2>/dev/null || cd /build
 
 # Run the actual build
 echo "=== Running nix build ==="
@@ -237,15 +238,24 @@ echo "Building from: $(pwd)"
 # Remove /homeless-shelter before nix build - it gets recreated by nix
 rm -rf /homeless-shelter 2>/dev/null || true
 # Build with impure mode and sandbox disabled
-# vendorHash = null allows Go to download dependencies without hash verification
-BUILD_OUTPUT=$(nix build '.#default' --print-out-paths --no-link --impure --option sandbox false --option filter-syscalls false 2>&1)
-echo "$BUILD_OUTPUT"
+# Stream output in real-time while capturing for store path extraction
+# Use a temporary file to capture output for parsing
+TEMP_OUTPUT=$(mktemp)
+trap "rm -f $TEMP_OUTPUT" EXIT
+
+# Run nix build and stream output in real-time, also capture to temp file
+if ! nix build '.#default' --print-out-paths --no-link --impure --option sandbox false --option filter-syscalls false 2>&1 | tee "$TEMP_OUTPUT"; then
+  echo "ERROR: nix build failed"
+  cat "$TEMP_OUTPUT"
+  exit 1
+fi
 
 # Extract the store path (last line that starts with /nix/store/)
-STORE_PATH=$(echo "$BUILD_OUTPUT" | grep "^/nix/store/" | tail -1)
+STORE_PATH=$(grep "^/nix/store/" "$TEMP_OUTPUT" | grep -v "\.drv$" | tail -1)
 
 if [ -z "$STORE_PATH" ]; then
   echo "ERROR: Could not extract store path from build output"
+  cat "$TEMP_OUTPUT"
   exit 1
 fi
 
