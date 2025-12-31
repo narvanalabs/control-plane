@@ -361,6 +361,26 @@ func (s *DeploymentStore) ListByUser(ctx context.Context, userID string) ([]*mod
 	return s.scanDeployments(rows)
 }
 
+// GetNextVersion returns the next version number for a service.
+// Returns 1 for the first deployment, or max(version) + 1 for subsequent deployments.
+// **Validates: Requirements 9.1, 9.2**
+func (s *DeploymentStore) GetNextVersion(ctx context.Context, appID, serviceName string) (int, error) {
+	var maxVersion sql.NullInt64
+	err := s.conn().QueryRowContext(ctx, `
+		SELECT MAX(version) FROM deployments 
+		WHERE app_id = $1 AND service_name = $2
+	`, appID, serviceName).Scan(&maxVersion)
+
+	if err != nil {
+		return 0, fmt.Errorf("querying max version: %w", err)
+	}
+
+	if !maxVersion.Valid {
+		return 1, nil // First deployment
+	}
+	return int(maxVersion.Int64) + 1, nil
+}
+
 // scanDeployments scans multiple deployment rows.
 func (s *DeploymentStore) scanDeployments(rows *sql.Rows) ([]*models.Deployment, error) {
 	var deployments []*models.Deployment

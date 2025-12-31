@@ -265,3 +265,190 @@ func TestDeploymentListOrdering(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+// **Feature: platform-enhancements, Property 3: Deployment Version Monotonicity**
+// For any sequence of deployments for a service, each deployment's version SHALL be
+// exactly one greater than the previous deployment's version, starting from 1 for the first deployment.
+// **Validates: Requirements 9.1, 9.2**
+func TestDeploymentVersionMonotonicity(t *testing.T) {
+	db := setupDeploymentTestDB(t)
+	defer func() {
+		db.Exec("DELETE FROM deployments")
+		db.Exec("DELETE FROM apps")
+		db.Close()
+	}()
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	appStore := &AppStore{db: db, logger: logger}
+	deploymentStore := &DeploymentStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: First deployment for a service gets version 1
+	properties.Property("First deployment for a service gets version 1", prop.ForAll(
+		func(serviceName string) bool {
+			ctx := context.Background()
+
+			// Create a test app
+			app := &models.App{
+				ID:       uuid.New().String(),
+				OwnerID:  "test-owner",
+				Name:     "test-app-" + uuid.New().String()[:8],
+				Services: []models.ServiceConfig{},
+			}
+			if err := appStore.Create(ctx, app); err != nil {
+				t.Logf("Failed to create app: %v", err)
+				return false
+			}
+			defer func() {
+				db.Exec("DELETE FROM deployments WHERE app_id = $1", app.ID)
+				appStore.Delete(ctx, app.ID)
+			}()
+
+			// Get next version for a service with no deployments
+			version, err := deploymentStore.GetNextVersion(ctx, app.ID, serviceName)
+			if err != nil {
+				t.Logf("Failed to get next version: %v", err)
+				return false
+			}
+
+			return version == 1
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 && len(s) <= 63 }),
+	))
+
+	// Property: Each subsequent version is exactly one greater than the previous
+	properties.Property("Each subsequent version is exactly one greater than the previous", prop.ForAll(
+		func(numDeployments int, serviceName string) bool {
+			ctx := context.Background()
+
+			// Create a test app
+			app := &models.App{
+				ID:       uuid.New().String(),
+				OwnerID:  "test-owner",
+				Name:     "test-app-" + uuid.New().String()[:8],
+				Services: []models.ServiceConfig{},
+			}
+			if err := appStore.Create(ctx, app); err != nil {
+				t.Logf("Failed to create app: %v", err)
+				return false
+			}
+			defer func() {
+				db.Exec("DELETE FROM deployments WHERE app_id = $1", app.ID)
+				appStore.Delete(ctx, app.ID)
+			}()
+
+			// Create deployments and verify version increments
+			for i := 0; i < numDeployments; i++ {
+				expectedVersion := i + 1
+
+				// Get next version
+				version, err := deploymentStore.GetNextVersion(ctx, app.ID, serviceName)
+				if err != nil {
+					t.Logf("Failed to get next version: %v", err)
+					return false
+				}
+
+				if version != expectedVersion {
+					t.Logf("Expected version %d, got %d", expectedVersion, version)
+					return false
+				}
+
+				// Create deployment with this version
+				deployment := &models.Deployment{
+					ID:           uuid.New().String(),
+					AppID:        app.ID,
+					ServiceName:  serviceName,
+					Version:      version,
+					GitRef:       "main",
+					BuildType:    models.BuildTypeOCI,
+					Status:       models.DeploymentStatusPending,
+					ResourceTier: models.ResourceTierSmall,
+				}
+				if err := deploymentStore.Create(ctx, deployment); err != nil {
+					t.Logf("Failed to create deployment: %v", err)
+					return false
+				}
+			}
+
+			return true
+		},
+		gen.IntRange(1, 10),
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 && len(s) <= 63 }),
+	))
+
+	// Property: Different services have independent version sequences
+	properties.Property("Different services have independent version sequences", prop.ForAll(
+		func(numServices int) bool {
+			ctx := context.Background()
+
+			// Create a test app
+			app := &models.App{
+				ID:       uuid.New().String(),
+				OwnerID:  "test-owner",
+				Name:     "test-app-" + uuid.New().String()[:8],
+				Services: []models.ServiceConfig{},
+			}
+			if err := appStore.Create(ctx, app); err != nil {
+				t.Logf("Failed to create app: %v", err)
+				return false
+			}
+			defer func() {
+				db.Exec("DELETE FROM deployments WHERE app_id = $1", app.ID)
+				appStore.Delete(ctx, app.ID)
+			}()
+
+			// Create deployments for multiple services
+			for i := 0; i < numServices; i++ {
+				serviceName := "service-" + uuid.New().String()[:8]
+
+				// Each service should start at version 1
+				version, err := deploymentStore.GetNextVersion(ctx, app.ID, serviceName)
+				if err != nil {
+					t.Logf("Failed to get next version: %v", err)
+					return false
+				}
+
+				if version != 1 {
+					t.Logf("Expected version 1 for new service, got %d", version)
+					return false
+				}
+
+				// Create deployment
+				deployment := &models.Deployment{
+					ID:           uuid.New().String(),
+					AppID:        app.ID,
+					ServiceName:  serviceName,
+					Version:      version,
+					GitRef:       "main",
+					BuildType:    models.BuildTypeOCI,
+					Status:       models.DeploymentStatusPending,
+					ResourceTier: models.ResourceTierSmall,
+				}
+				if err := deploymentStore.Create(ctx, deployment); err != nil {
+					t.Logf("Failed to create deployment: %v", err)
+					return false
+				}
+
+				// Next version for this service should be 2
+				version2, err := deploymentStore.GetNextVersion(ctx, app.ID, serviceName)
+				if err != nil {
+					t.Logf("Failed to get next version: %v", err)
+					return false
+				}
+
+				if version2 != 2 {
+					t.Logf("Expected version 2 after first deployment, got %d", version2)
+					return false
+				}
+			}
+
+			return true
+		},
+		gen.IntRange(2, 5),
+	))
+
+	properties.TestingRun(t)
+}
