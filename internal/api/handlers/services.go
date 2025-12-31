@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
+	"github.com/narvanalabs/control-plane/internal/builder/detector"
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/internal/podman"
@@ -20,17 +22,29 @@ import (
 
 // ServiceHandler handles service-related HTTP requests.
 type ServiceHandler struct {
-	store  store.Store
-	podman *podman.Client
-	logger *slog.Logger
+	store    store.Store
+	podman   *podman.Client
+	detector detector.Detector
+	logger   *slog.Logger
 }
 
 // NewServiceHandler creates a new service handler.
 func NewServiceHandler(st store.Store, pd *podman.Client, logger *slog.Logger) *ServiceHandler {
 	return &ServiceHandler{
-		store:  st,
-		podman: pd,
-		logger: logger,
+		store:    st,
+		podman:   pd,
+		detector: detector.NewDetector(),
+		logger:   logger,
+	}
+}
+
+// NewServiceHandlerWithDetector creates a new service handler with a custom detector.
+func NewServiceHandlerWithDetector(st store.Store, pd *podman.Client, det detector.Detector, logger *slog.Logger) *ServiceHandler {
+	return &ServiceHandler{
+		store:    st,
+		podman:   pd,
+		detector: det,
+		logger:   logger,
 	}
 }
 
@@ -44,6 +58,11 @@ type CreateServiceRequest struct {
 	FlakeURI    string            `json:"flake_uri,omitempty"`
 	Image       string            `json:"image,omitempty"`
 	Database    *models.DatabaseConfig `json:"database,omitempty"`
+
+	// Language selection for auto-detection
+	// When specified, determines build strategy and build type automatically
+	// Valid values: "go", "Go", "rust", "Rust", "python", "Python", "node", "nodejs", "Node.js", "dockerfile", "Dockerfile"
+	Language string `json:"language,omitempty"`
 
 	// Build strategy configuration
 	BuildStrategy models.BuildStrategy `json:"build_strategy,omitempty"` // Default: "flake"
@@ -166,6 +185,17 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Default to port 8080 if no ports specified (common for web services)
 	if len(service.Ports) == 0 {
 		service.Ports = []models.PortMapping{{ContainerPort: 8080, Protocol: "tcp"}}
+	}
+
+	// Auto-detect build strategy and build type based on language selection
+	// **Validates: Requirements 4.1, 4.2, 4.7, 4.8**
+	if req.Language != "" {
+		strategy, _ := detector.DetermineBuildTypeFromLanguage(req.Language)
+		service.BuildStrategy = strategy
+		h.logger.Info("build strategy determined from language",
+			"language", req.Language,
+			"strategy", strategy,
+		)
 	}
 
 	// Apply default build strategy if not specified
@@ -696,4 +726,111 @@ func (h *ServiceHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 			f.Write(msg)
 		}
 	}
+}
+
+// ServiceDetectRequest represents the request body for detecting service configuration.
+type ServiceDetectRequest struct {
+	GitURL string `json:"git_url"`
+	GitRef string `json:"git_ref,omitempty"`
+}
+
+// ServiceDetectResponse represents the response for service detection.
+// **Validates: Requirements 4.3, 4.4, 4.5**
+type ServiceDetectResponse struct {
+	Strategy        models.BuildStrategy   `json:"strategy"`
+	BuildType       models.BuildType       `json:"build_type"`
+	Framework       models.Framework       `json:"framework"`
+	Version         string                 `json:"version,omitempty"`
+	EntryPoint      string                 `json:"entry_point,omitempty"`
+	EntryPoints     []string               `json:"entry_points,omitempty"`
+	BuildCommand    string                 `json:"build_command,omitempty"`
+	StartCommand    string                 `json:"start_command,omitempty"`
+	SuggestedConfig map[string]interface{} `json:"suggested_config,omitempty"`
+	Confidence      float64                `json:"confidence"`
+	Warnings        []string               `json:"warnings,omitempty"`
+}
+
+// DetectForService handles POST /v1/apps/{appID}/services/detect - detects service configuration from git URL.
+// This endpoint is called when a user enters a git URL during service creation to auto-populate fields.
+// **Validates: Requirements 4.3, 4.4, 4.5**
+func (h *ServiceHandler) DetectForService(w http.ResponseWriter, r *http.Request) {
+	var req ServiceDetectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteBadRequest(w, "Invalid request body")
+		return
+	}
+
+	// Validate git URL
+	if req.GitURL == "" {
+		WriteBadRequest(w, "git_url is required")
+		return
+	}
+
+	// Default git ref to main
+	gitRef := req.GitRef
+	if gitRef == "" {
+		gitRef = "main"
+	}
+
+	// Create a detect handler to leverage existing detection logic
+	detectHandler := NewDetectHandler(h.logger)
+
+	// Use a timeout context for detection
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	// Clone and detect
+	result, err := detectHandler.CloneAndDetect(ctx, req.GitURL, gitRef)
+	if err != nil {
+		h.logger.Error("detection failed", "error", err, "url", req.GitURL)
+		WriteError(w, http.StatusUnprocessableEntity, "detection_failed", "Failed to detect repository: "+err.Error())
+		return
+	}
+
+	// Determine build type based on strategy
+	// **Validates: Requirements 4.7, 4.8**
+	buildType := detector.DetermineBuildType(result.Strategy)
+
+	// Extract entry point and build command from suggested config
+	var entryPoint, buildCommand, startCommand string
+	if result.SuggestedConfig != nil {
+		if ep, ok := result.SuggestedConfig["entry_point"].(string); ok {
+			entryPoint = ep
+		}
+		if bc, ok := result.SuggestedConfig["build_command"].(string); ok {
+			buildCommand = bc
+		}
+		if sc, ok := result.SuggestedConfig["start_command"].(string); ok {
+			startCommand = sc
+		}
+	}
+
+	// If entry points are detected, use the first one as the default entry point
+	if entryPoint == "" && len(result.EntryPoints) > 0 {
+		entryPoint = result.EntryPoints[0]
+	}
+
+	// Build response
+	response := ServiceDetectResponse{
+		Strategy:        result.Strategy,
+		BuildType:       buildType,
+		Framework:       result.Framework,
+		Version:         result.Version,
+		EntryPoint:      entryPoint,
+		EntryPoints:     result.EntryPoints,
+		BuildCommand:    buildCommand,
+		StartCommand:    startCommand,
+		SuggestedConfig: result.SuggestedConfig,
+		Confidence:      result.Confidence,
+		Warnings:        result.Warnings,
+	}
+
+	h.logger.Info("service detection completed",
+		"url", req.GitURL,
+		"strategy", result.Strategy,
+		"build_type", buildType,
+		"framework", result.Framework,
+	)
+
+	WriteJSON(w, http.StatusOK, response)
 }
