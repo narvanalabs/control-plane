@@ -7,8 +7,36 @@ import (
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
+// OrgStore defines operations for organization management.
+type OrgStore interface {
+	// Create creates a new organization.
+	Create(ctx context.Context, org *models.Organization) error
+	// Get retrieves an organization by ID.
+	Get(ctx context.Context, id string) (*models.Organization, error)
+	// GetBySlug retrieves an organization by slug.
+	GetBySlug(ctx context.Context, slug string) (*models.Organization, error)
+	// List retrieves all organizations for a user.
+	List(ctx context.Context, userID string) ([]*models.Organization, error)
+	// Update updates an organization.
+	Update(ctx context.Context, org *models.Organization) error
+	// Delete deletes an organization (only if not the last one).
+	Delete(ctx context.Context, id string) error
+	// AddMember adds a user to an organization with a role.
+	AddMember(ctx context.Context, orgID, userID string, role models.Role) error
+	// RemoveMember removes a user from an organization.
+	RemoveMember(ctx context.Context, orgID, userID string) error
+	// GetDefault returns the default organization (first created).
+	GetDefault(ctx context.Context) (*models.Organization, error)
+	// Count returns the total number of organizations.
+	Count(ctx context.Context) (int, error)
+	// ListMembers retrieves all members of an organization.
+	ListMembers(ctx context.Context, orgID string) ([]*models.OrgMembership, error)
+}
+
 // Store is the main interface for database operations.
 type Store interface {
+	// Orgs returns the OrgStore for organization operations.
+	Orgs() OrgStore
 	// Apps returns the AppStore for application operations.
 	Apps() AppStore
 	// Deployments returns the DeploymentStore for deployment operations.
@@ -29,6 +57,8 @@ type Store interface {
 	GitHubAccounts() GitHubAccountStore
 	// Settings returns the SettingsStore for global configuration.
 	Settings() SettingsStore
+	// Domains returns the DomainStore for custom domain operations.
+	Domains() DomainStore
 
 	// WithTx executes the given function within a database transaction.
 	// If the function returns an error, the transaction is rolled back.
@@ -204,4 +234,18 @@ type SettingsStore interface {
 	Set(ctx context.Context, key, value string) error
 	// GetAll retrieves all global settings.
 	GetAll(ctx context.Context) (map[string]string, error)
+}
+
+// DomainStore defines operations for custom domain management.
+type DomainStore interface {
+	// Create creates a new domain mapping.
+	Create(ctx context.Context, domain *models.Domain) error
+	// Get retrieves a domain by ID.
+	Get(ctx context.Context, id string) (*models.Domain, error)
+	// List retrieves all domains for a given application.
+	List(ctx context.Context, appID string) ([]*models.Domain, error)
+	// Delete removes a domain mapping.
+	Delete(ctx context.Context, id string) error
+	// GetByDomain retrieves a domain mapping by the domain name itself.
+	GetByDomain(ctx context.Context, domain string) (*models.Domain, error)
 }

@@ -17,6 +17,7 @@ type PostgresStore struct {
 	logger *slog.Logger
 
 	// Sub-stores
+	orgs        *OrgStore
 	apps        *AppStore
 	deployments *DeploymentStore
 	nodes       *NodeStore
@@ -82,6 +83,7 @@ func NewPostgresStore(cfg *Config, logger *slog.Logger) (*PostgresStore, error) 
 	}
 
 	// Initialize sub-stores
+	s.orgs = &OrgStore{db: db, logger: logger}
 	s.apps = &AppStore{db: db, logger: logger}
 	s.deployments = &DeploymentStore{db: db, logger: logger}
 	s.nodes = &NodeStore{db: db, logger: logger}
@@ -98,6 +100,10 @@ func NewPostgresStore(cfg *Config, logger *slog.Logger) (*PostgresStore, error) 
 	return s, nil
 }
 
+// Orgs returns the OrgStore.
+func (s *PostgresStore) Orgs() store.OrgStore {
+	return s.orgs
+}
 
 // Apps returns the AppStore.
 func (s *PostgresStore) Apps() store.AppStore {
@@ -200,6 +206,7 @@ type txStore struct {
 	tx     *sql.Tx
 	logger *slog.Logger
 
+	orgs        *OrgStore
 	apps        *AppStore
 	deployments *DeploymentStore
 	nodes       *NodeStore
@@ -211,6 +218,13 @@ type txStore struct {
 	githubAccounts *GitHubAccountStore
 	settings    *SettingsStore
 	domains     *domainStore
+}
+
+func (s *txStore) Orgs() store.OrgStore {
+	if s.orgs == nil {
+		s.orgs = &OrgStore{tx: s.tx, logger: s.logger}
+	}
+	return s.orgs
 }
 
 func (s *txStore) Apps() store.AppStore {
