@@ -18,6 +18,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/utils"
 	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/internal/models"
 )
 
 // ServiceDetailData holds the data for the service detail page
@@ -30,6 +31,7 @@ type ServiceDetailData struct {
 	Token           string
 	SuccessMsg      string
 	ErrorMsg        string
+	ServiceState    models.ServiceState // Current state of the service
 }
 
 // ServiceDetail renders the service detail page
@@ -100,18 +102,7 @@ templ ServiceDetail(data ServiceDetailData) {
 					</div>
 				</div>
 				<div class="flex items-center gap-2">
-					<form 
-						method="POST" 
-						action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/deploy") }
-					>
-						@button.Button(button.Props{
-							Type: "submit",
-							Size: button.SizeSm,
-						}) {
-							@icon.Rocket(icon.Props{Class: "size-4 mr-1"})
-							Deploy Now
-						}
-					</form>
+					@ServiceActionButtons(data)
 				</div>
 			</div>
 			
@@ -1463,4 +1454,142 @@ templ ServiceDetailScript(appID string, serviceName string) {
 			}
 		});
 	</script>
+}
+
+// ServiceActionButtons renders the appropriate action buttons based on service state.
+// **Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6**
+templ ServiceActionButtons(data ServiceDetailData) {
+	switch data.ServiceState {
+		case models.ServiceStateNew:
+			// Service has never been deployed - show Deploy button
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/deploy") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+				}) {
+					@icon.Rocket(icon.Props{Class: "size-4 mr-1"})
+					Deploy
+				}
+			</form>
+		case models.ServiceStateDeploying:
+			// Deployment in progress - show disabled button
+			@button.Button(button.Props{
+				Size: button.SizeSm,
+				Disabled: true,
+			}) {
+				@icon.Loader(icon.Props{Class: "size-4 mr-1 animate-spin"})
+				Deploying...
+			}
+		case models.ServiceStateRunning:
+			// Service is running - show Stop, Reload, Rebuild buttons
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/stop") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+					Variant: button.VariantOutline,
+				}) {
+					@icon.Square(icon.Props{Class: "size-4 mr-1"})
+					Stop
+				}
+			</form>
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/reload") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+					Variant: button.VariantOutline,
+				}) {
+					@icon.RefreshCw(icon.Props{Class: "size-4 mr-1"})
+					Reload
+				}
+			</form>
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/deploy") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+				}) {
+					@icon.Hammer(icon.Props{Class: "size-4 mr-1"})
+					Rebuild
+				}
+			</form>
+		case models.ServiceStateStopped:
+			// Service is stopped - show Start, Rebuild buttons
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/start") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+				}) {
+					@icon.Play(icon.Props{Class: "size-4 mr-1"})
+					Start
+				}
+			</form>
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/deploy") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+					Variant: button.VariantOutline,
+				}) {
+					@icon.Hammer(icon.Props{Class: "size-4 mr-1"})
+					Rebuild
+				}
+			</form>
+		case models.ServiceStateFailed:
+			// Last deployment failed - show Retry, Rebuild buttons
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/retry") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+				}) {
+					@icon.RotateCcw(icon.Props{Class: "size-4 mr-1"})
+					Retry
+				}
+			</form>
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/deploy") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+					Variant: button.VariantOutline,
+				}) {
+					@icon.Hammer(icon.Props{Class: "size-4 mr-1"})
+					Rebuild
+				}
+			</form>
+		default:
+			// Fallback - show Deploy button
+			<form 
+				method="POST" 
+				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/deploy") }
+			>
+				@button.Button(button.Props{
+					Type: "submit",
+					Size: button.SizeSm,
+				}) {
+					@icon.Rocket(icon.Props{Class: "size-4 mr-1"})
+					Deploy
+				}
+			</form>
+	}
 }
