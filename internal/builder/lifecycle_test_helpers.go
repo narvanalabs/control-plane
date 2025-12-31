@@ -573,6 +573,22 @@ func (m *MockDeploymentStore) ListByUser(ctx context.Context, userID string) ([]
 	return result, nil
 }
 
+// GetNextVersion returns the next version number for a service.
+// Returns 1 for the first deployment, or max(version) + 1 for subsequent deployments.
+func (m *MockDeploymentStore) GetNextVersion(ctx context.Context, appID, serviceName string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	maxVersion := 0
+	for _, d := range m.deployments {
+		if d.AppID == appID && d.ServiceName == serviceName {
+			if d.Version > maxVersion {
+				maxVersion = d.Version
+			}
+		}
+	}
+	return maxVersion + 1, nil
+}
+
 // Reset clears all deployments.
 func (m *MockDeploymentStore) Reset() {
 	m.mu.Lock()
