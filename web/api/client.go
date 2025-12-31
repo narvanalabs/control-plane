@@ -405,6 +405,26 @@ func (c *Client) Deploy(ctx context.Context, appID, serviceName string) (*Deploy
 	return &deployment, err
 }
 
+// StopService stops a running service.
+func (c *Client) StopService(ctx context.Context, appID, serviceName string) error {
+	return c.post(ctx, "/v1/apps/"+appID+"/services/"+serviceName+"/stop", nil, nil)
+}
+
+// StartService starts a stopped service.
+func (c *Client) StartService(ctx context.Context, appID, serviceName string) error {
+	return c.post(ctx, "/v1/apps/"+appID+"/services/"+serviceName+"/start", nil, nil)
+}
+
+// ReloadService restarts a service without rebuilding.
+func (c *Client) ReloadService(ctx context.Context, appID, serviceName string) error {
+	return c.post(ctx, "/v1/apps/"+appID+"/services/"+serviceName+"/reload", nil, nil)
+}
+
+// RetryService retries a failed deployment.
+func (c *Client) RetryService(ctx context.Context, appID, serviceName string) error {
+	return c.post(ctx, "/v1/apps/"+appID+"/services/"+serviceName+"/retry", nil, nil)
+}
+
 // ListAppDeployments fetches all deployments for an app.
 func (c *Client) ListAppDeployments(ctx context.Context, appID string) ([]Deployment, error) {
 	var deployments []Deployment
