@@ -18,6 +18,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/utils"
 	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/tooltip"
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
@@ -838,14 +839,466 @@ templ ServiceDetail(data ServiceDetailData) {
 	}
 }
 
+// FlowStage represents a stage in the deployment pipeline
+type FlowStage struct {
+	ID          string
+	Name        string
+	Icon        string
+	Status      string // pending, active, completed, failed
+	Description string
+	Link        string
+	Details     map[string]string
+}
+
+// GetFlowStages returns the deployment pipeline stages based on current state
+func GetFlowStages(data ServiceDetailData) []FlowStage {
+	stages := []FlowStage{}
+	
+	// Stage 1: Git Source
+	gitStatus := "completed"
+	gitDesc := "Source configured"
+	gitDetails := map[string]string{}
+	if data.Service.GitRepo != "" {
+		gitDetails["Repository"] = data.Service.GitRepo
+		gitDetails["Branch"] = data.Service.GitRef
+		if gitDetails["Branch"] == "" {
+			gitDetails["Branch"] = "main"
+		}
+	} else if data.Service.SourceType == "database" {
+		gitStatus = "completed"
+		gitDesc = "Database template"
+		if data.Service.Database != nil {
+			gitDetails["Type"] = data.Service.Database.Type
+			gitDetails["Version"] = data.Service.Database.Version
+		}
+	} else {
+		gitStatus = "pending"
+		gitDesc = "No source configured"
+	}
+	stages = append(stages, FlowStage{
+		ID:          "git",
+		Name:        "Source",
+		Icon:        "git",
+		Status:      gitStatus,
+		Description: gitDesc,
+		Link:        "",
+		Details:     gitDetails,
+	})
+	
+	// Stage 2: Build
+	buildStatus := "pending"
+	buildDesc := "Not built"
+	buildDetails := map[string]string{}
+	if len(data.Deployments) > 0 {
+		latestDep := data.Deployments[0]
+		switch latestDep.Status {
+		case "pending":
+			buildStatus = "pending"
+			buildDesc = "Queued"
+		case "building":
+			buildStatus = "active"
+			buildDesc = "Building..."
+		case "built", "scheduled", "deploying", "running":
+			buildStatus = "completed"
+			buildDesc = "Build successful"
+		case "failed":
+			buildStatus = "failed"
+			buildDesc = "Build failed"
+		}
+		buildDetails["Strategy"] = string(data.Service.BuildStrategy)
+		if latestDep.GitCommit != "" {
+			buildDetails["Commit"] = latestDep.GitCommit[:8]
+		}
+	}
+	stages = append(stages, FlowStage{
+		ID:          "build",
+		Name:        "Build",
+		Icon:        "build",
+		Status:      buildStatus,
+		Description: buildDesc,
+		Link:        "/builds",
+		Details:     buildDetails,
+	})
+	
+	// Stage 3: Deploy
+	deployStatus := "pending"
+	deployDesc := "Not deployed"
+	deployDetails := map[string]string{}
+	if len(data.Deployments) > 0 {
+		latestDep := data.Deployments[0]
+		switch latestDep.Status {
+		case "pending", "building":
+			deployStatus = "pending"
+			deployDesc = "Waiting for build"
+		case "built":
+			deployStatus = "pending"
+			deployDesc = "Ready to deploy"
+		case "scheduled", "deploying":
+			deployStatus = "active"
+			deployDesc = "Deploying..."
+		case "running":
+			deployStatus = "completed"
+			deployDesc = "Deployed"
+		case "failed":
+			deployStatus = "failed"
+			deployDesc = "Deploy failed"
+		case "stopped":
+			deployStatus = "completed"
+			deployDesc = "Stopped"
+		}
+		deployDetails["Version"] = fmt.Sprintf("v%d", latestDep.Version)
+		deployDetails["Status"] = latestDep.Status
+	}
+	stages = append(stages, FlowStage{
+		ID:          "deploy",
+		Name:        "Deploy",
+		Icon:        "deploy",
+		Status:      deployStatus,
+		Description: deployDesc,
+		Link:        "/deployments",
+		Details:     deployDetails,
+	})
+	
+	// Stage 4: Node
+	nodeStatus := "pending"
+	nodeDesc := "No node assigned"
+	nodeDetails := map[string]string{}
+	if len(data.Deployments) > 0 && data.Deployments[0].NodeID != "" {
+		latestDep := data.Deployments[0]
+		if latestDep.Status == "running" {
+			nodeStatus = "completed"
+			nodeDesc = "Running on node"
+		} else if latestDep.Status == "deploying" || latestDep.Status == "scheduled" {
+			nodeStatus = "active"
+			nodeDesc = "Starting on node"
+		} else if latestDep.Status == "stopped" {
+			nodeStatus = "completed"
+			nodeDesc = "Stopped"
+		} else {
+			nodeStatus = "pending"
+			nodeDesc = "Assigned to node"
+		}
+		nodeDetails["Node ID"] = latestDep.NodeID[:12]
+	}
+	stages = append(stages, FlowStage{
+		ID:          "node",
+		Name:        "Node",
+		Icon:        "node",
+		Status:      nodeStatus,
+		Description: nodeDesc,
+		Link:        "/nodes",
+		Details:     nodeDetails,
+	})
+	
+	return stages
+}
+
+// FlowDashboard renders the visual deployment pipeline flow
+// **Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6**
 templ FlowDashboard(data ServiceDetailData) {
-	<div class="relative min-h-[600px] w-full bg-zinc-950 rounded-xl border border-zinc-900 overflow-hidden p-12">
+	{{ stages := GetFlowStages(data) }}
+	
+	// Mobile-responsive container with horizontal scroll
+	<div class="w-full overflow-x-auto pb-4 -mx-4 px-4 md:mx-0 md:px-0">
+		<div class="min-w-[600px] md:min-w-0">
+			// Main flow container - dark/light mode compatible
+			<div class="relative w-full bg-card dark:bg-zinc-950 rounded-xl border border-border dark:border-zinc-800 p-6 md:p-8">
+				// Background grid pattern - adapts to theme
+				<div class="absolute inset-0 bg-[radial-gradient(var(--tw-gradient-stops))] from-muted/50 to-transparent dark:from-zinc-800/30 dark:to-transparent opacity-50 rounded-xl"></div>
+				
+				// Flow stages container
+				<div class="relative z-10">
+					// Title
+					<div class="flex items-center justify-between mb-6">
+						<div class="flex items-center gap-2">
+							@icon.GitBranch(icon.Props{Class: "size-4 text-muted-foreground"})
+							<h3 class="text-sm font-semibold text-foreground">Deployment Pipeline</h3>
+						</div>
+						if len(data.Deployments) > 0 {
+							<div class="flex items-center gap-2">
+								@badge.Badge(badge.Props{
+									Variant: getStatusBadgeVariant(data.Deployments[0].Status),
+									Class: "text-xs",
+								}) {
+									{ data.Deployments[0].Status }
+								}
+							</div>
+						}
+					</div>
+					
+					// Flow diagram
+					<div class="flex items-center justify-between gap-2 md:gap-4">
+						for i, stage := range stages {
+							// Flow node with tooltip
+							@FlowNode(stage, data.App.ID)
+							
+							// Connector arrow (except after last node)
+							if i < len(stages) - 1 {
+								@FlowConnector(stage.Status, stages[i+1].Status)
+							}
+						}
+					</div>
+					
+					// Additional info section
+					<div class="mt-6 pt-4 border-t border-border dark:border-zinc-800">
+						<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+							if data.Service.GitRepo != "" {
+								<div class="space-y-1">
+									<span class="text-muted-foreground">Repository</span>
+									<p class="font-mono text-foreground truncate">{ data.Service.GitRepo }</p>
+								</div>
+							}
+							if len(data.Deployments) > 0 {
+								<div class="space-y-1">
+									<span class="text-muted-foreground">Latest Version</span>
+									<p class="font-medium text-foreground">v{ intToString(data.Deployments[0].Version) }</p>
+								</div>
+								<div class="space-y-1">
+									<span class="text-muted-foreground">Last Deployed</span>
+									<p class="text-foreground">{ formatTime(data.Deployments[0].CreatedAt) }</p>
+								</div>
+								if data.Deployments[0].NodeID != "" {
+									<div class="space-y-1">
+										<span class="text-muted-foreground">Running On</span>
+										<p class="font-mono text-foreground">{ data.Deployments[0].NodeID[:12] }</p>
+									</div>
+								}
+							}
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	// Legacy flow dashboard for detailed view (below the pipeline)
+	<div class="mt-6">
+		@DetailedFlowDashboard(data)
+	</div>
+}
+
+// FlowNode renders a single node in the deployment pipeline
+templ FlowNode(stage FlowStage, appID string) {
+	<div 
+		class="group relative flex-1 min-w-[100px] max-w-[180px]"
+		data-flow-stage={ stage.ID }
+	>
+		// Tooltip trigger wrapper
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				// Clickable node card
+				if stage.Link != "" {
+					<a 
+						href={ templ.SafeURL(stage.Link) }
+						class={ 
+							"block p-3 md:p-4 rounded-lg border-2 transition-all duration-200 cursor-pointer",
+							"hover:shadow-lg hover:scale-105",
+							getFlowNodeClasses(stage.Status),
+						}
+					>
+						@FlowNodeContent(stage)
+					</a>
+				} else {
+					<div 
+						class={ 
+							"p-3 md:p-4 rounded-lg border-2 transition-all duration-200",
+							getFlowNodeClasses(stage.Status),
+						}
+					>
+						@FlowNodeContent(stage)
+					</div>
+				}
+			}
+			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true}) {
+				<div class="space-y-2 min-w-[150px]">
+					<div class="font-semibold text-sm">{ stage.Name }</div>
+					<div class="text-xs opacity-80">{ stage.Description }</div>
+					if len(stage.Details) > 0 {
+						<div class="pt-2 border-t border-current/20 space-y-1">
+							for key, value := range stage.Details {
+								<div class="flex justify-between gap-4 text-xs">
+									<span class="opacity-70">{ key }:</span>
+									<span class="font-mono">{ value }</span>
+								</div>
+							}
+						</div>
+					}
+					if stage.Link != "" {
+						<div class="pt-2 text-xs opacity-70 flex items-center gap-1">
+							@icon.ExternalLink(icon.Props{Class: "size-3"})
+							Click to view details
+						</div>
+					}
+				</div>
+			}
+		}
+	</div>
+}
+
+// FlowNodeContent renders the content inside a flow node
+templ FlowNodeContent(stage FlowStage) {
+	<div class="flex flex-col items-center text-center space-y-2">
+		// Icon with status indicator
+		<div class={ "relative p-2 md:p-3 rounded-full", getFlowIconBgClasses(stage.Status) }>
+			@FlowStageIcon(stage.Icon, stage.Status)
+			// Animated pulse for active status
+			if stage.Status == "active" {
+				<div class="absolute inset-0 rounded-full animate-ping opacity-30 bg-primary"></div>
+			}
+		</div>
+		// Stage name
+		<div class="space-y-0.5">
+			<p class={ "text-xs md:text-sm font-medium", getFlowTextClasses(stage.Status) }>
+				{ stage.Name }
+			</p>
+			<p class={ "text-[10px] md:text-xs", getFlowDescClasses(stage.Status) }>
+				{ stage.Description }
+			</p>
+		</div>
+	</div>
+}
+
+// FlowStageIcon renders the appropriate icon for each stage
+templ FlowStageIcon(iconType string, status string) {
+	{{ iconClass := "size-5 md:size-6 " + getFlowIconClasses(status) }}
+	switch iconType {
+		case "git":
+			@icon.GitBranch(icon.Props{Class: iconClass})
+		case "build":
+			if status == "active" {
+				@icon.Loader(icon.Props{Class: iconClass + " animate-spin"})
+			} else {
+				@icon.Hammer(icon.Props{Class: iconClass})
+			}
+		case "deploy":
+			if status == "active" {
+				@icon.Loader(icon.Props{Class: iconClass + " animate-spin"})
+			} else {
+				@icon.Rocket(icon.Props{Class: iconClass})
+			}
+		case "node":
+			@icon.Server(icon.Props{Class: iconClass})
+		default:
+			@icon.Circle(icon.Props{Class: iconClass})
+	}
+}
+
+// FlowConnector renders the arrow/line between flow nodes
+templ FlowConnector(fromStatus string, toStatus string) {
+	<div class="flex-shrink-0 flex items-center px-1 md:px-2">
+		<div class={ "h-0.5 w-4 md:w-8 transition-colors duration-300", getConnectorClasses(fromStatus, toStatus) }></div>
+		<div class={ "w-0 h-0 border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent border-l-[6px] transition-colors duration-300", getConnectorArrowClasses(fromStatus, toStatus) }></div>
+	</div>
+}
+
+// Helper functions for flow node styling
+func getFlowNodeClasses(status string) string {
+	switch status {
+	case "completed":
+		return "bg-emerald-500/10 dark:bg-emerald-500/10 border-emerald-500/50 dark:border-emerald-500/30"
+	case "active":
+		return "bg-primary/10 dark:bg-primary/10 border-primary/50 dark:border-primary/30 shadow-md shadow-primary/20"
+	case "failed":
+		return "bg-destructive/10 dark:bg-destructive/10 border-destructive/50 dark:border-destructive/30"
+	default: // pending
+		return "bg-muted/50 dark:bg-zinc-900/50 border-border dark:border-zinc-700"
+	}
+}
+
+func getFlowIconBgClasses(status string) string {
+	switch status {
+	case "completed":
+		return "bg-emerald-500/20 dark:bg-emerald-500/20"
+	case "active":
+		return "bg-primary/20 dark:bg-primary/20"
+	case "failed":
+		return "bg-destructive/20 dark:bg-destructive/20"
+	default:
+		return "bg-muted dark:bg-zinc-800"
+	}
+}
+
+func getFlowIconClasses(status string) string {
+	switch status {
+	case "completed":
+		return "text-emerald-600 dark:text-emerald-400"
+	case "active":
+		return "text-primary"
+	case "failed":
+		return "text-destructive"
+	default:
+		return "text-muted-foreground"
+	}
+}
+
+func getFlowTextClasses(status string) string {
+	switch status {
+	case "completed":
+		return "text-emerald-700 dark:text-emerald-400"
+	case "active":
+		return "text-primary"
+	case "failed":
+		return "text-destructive"
+	default:
+		return "text-muted-foreground"
+	}
+}
+
+func getFlowDescClasses(status string) string {
+	switch status {
+	case "completed":
+		return "text-emerald-600/70 dark:text-emerald-400/70"
+	case "active":
+		return "text-primary/70"
+	case "failed":
+		return "text-destructive/70"
+	default:
+		return "text-muted-foreground/70"
+	}
+}
+
+func getConnectorClasses(fromStatus string, toStatus string) string {
+	if fromStatus == "completed" {
+		return "bg-emerald-500/50 dark:bg-emerald-500/30"
+	}
+	if fromStatus == "active" {
+		return "bg-primary/50 dark:bg-primary/30 animate-pulse"
+	}
+	return "bg-border dark:bg-zinc-700"
+}
+
+func getConnectorArrowClasses(fromStatus string, toStatus string) string {
+	if fromStatus == "completed" {
+		return "border-l-emerald-500/50 dark:border-l-emerald-500/30"
+	}
+	if fromStatus == "active" {
+		return "border-l-primary/50 dark:border-l-primary/30"
+	}
+	return "border-l-border dark:border-l-zinc-700"
+}
+
+func getStatusBadgeVariant(status string) badge.Variant {
+	switch status {
+	case "running":
+		return badge.VariantDefault // Primary color for success
+	case "building", "deploying", "scheduled":
+		return badge.VariantSecondary
+	case "failed":
+		return badge.VariantDestructive
+	default:
+		return badge.VariantOutline
+	}
+}
+
+// DetailedFlowDashboard renders the detailed service architecture view (legacy)
+templ DetailedFlowDashboard(data ServiceDetailData) {
+	<div class="relative min-h-[500px] w-full bg-card dark:bg-zinc-950 rounded-xl border border-border dark:border-zinc-900 overflow-hidden p-6 md:p-12">
 		// Dark background grid
-		<div class="absolute inset-0 bg-[radial-gradient(#27272a_1px,transparent_1px)] [background-size:24px_24px] opacity-20"></div>
+		<div class="absolute inset-0 bg-[radial-gradient(var(--tw-gradient-stops))] from-muted/30 to-transparent dark:from-zinc-800/20 dark:to-transparent opacity-50"></div>
 		
-		<div class="relative flex items-center justify-between gap-12 h-full z-10">
+		<div class="relative flex flex-col md:flex-row items-stretch md:items-center justify-between gap-6 md:gap-12 h-full z-10">
 			// Left: Networking & Domains / Storage & Persistence
-			<div class="w-[300px] space-y-4">
+			<div class="w-full md:w-[300px] space-y-4">
 				@NetworkingCard(data.Service, data.App)
 			</div>
 
@@ -855,13 +1308,13 @@ templ FlowDashboard(data ServiceDetailData) {
 			</div>
 
 			// Right: Resources (DB, Cache, etc.)
-			<div class="w-[300px] space-y-4">
+			<div class="w-full md:w-[300px] space-y-4">
 				@ResourcesCard(data)
 			</div>
 		</div>
 
 		// SVG Connections Layer
-		<svg class="absolute inset-0 w-full h-full pointer-events-none z-0" id="flow-connections"></svg>
+		<svg class="absolute inset-0 w-full h-full pointer-events-none z-0 hidden md:block" id="flow-connections"></svg>
 	</div>
 }
 
