@@ -122,6 +122,12 @@ func (s *Server) setupRouter() {
 					r.Patch("/{serviceName}", serviceHandler.Update)
 					r.Delete("/{serviceName}", serviceHandler.Delete)
 					r.Post("/{serviceName}/deploy", deploymentHandler.CreateForService)
+					
+					// Service lifecycle actions
+					r.Post("/{serviceName}/stop", serviceHandler.StopService)
+					r.Post("/{serviceName}/start", serviceHandler.StartService)
+					r.Post("/{serviceName}/reload", serviceHandler.ReloadService)
+					r.Post("/{serviceName}/retry", serviceHandler.RetryService)
 
 					// Preview endpoint for build preview
 					previewHandler, err := handlers.NewPreviewHandler(s.store, s.logger)
