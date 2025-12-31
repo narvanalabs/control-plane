@@ -71,11 +71,18 @@ migrate-up: db-start
 		echo "Error: Run 'nix develop' first"; \
 		exit 1; \
 	fi
-	@for f in migrations/*.sql; do \
-		echo "Applying $$f..."; \
-		psql -f "$$f" || exit 1; \
-	done
-	@echo "Migrations complete"
+	@if [ -f "migrations/000_consolidated_schema.sql" ]; then \
+		echo "Applying consolidated schema..."; \
+		psql $$DATABASE_URL -f migrations/000_consolidated_schema.sql || exit 1; \
+		echo "Consolidated schema applied"; \
+	else \
+		echo "No consolidated schema found, applying individual migrations..."; \
+		for f in migrations/*.sql; do \
+			echo "Applying $$f..."; \
+			psql $$DATABASE_URL -f "$$f" || exit 1; \
+		done; \
+		echo "Migrations complete"; \
+	fi
 
 migrate-down:
 	@echo "Manual rollback required - check migrations/ for down scripts"
