@@ -1,0 +1,151 @@
+{
+  description = "Narvana MariaDB Database: {{ .AppName }}/{{ .ServiceName }}";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+    let
+      system = "{{ .System }}";
+      pkgs = nixpkgs.legacyPackages.${system};
+      
+      dbVersion = "{{ .DatabaseVersion }}";
+      
+      # Select MariaDB package based on version
+      mariadbPkg = 
+        if dbVersion == "10.6" then pkgs.mariadb_106
+        else if dbVersion == "10.11" then pkgs.mariadb_1011
+        else if dbVersion == "11" then pkgs.mariadb_110
+        else pkgs.mariadb_110; # Default to 11
+      
+      maxConnections = "{{ index .Config "max_connections" }}";
+      innodbBufferPoolSize = "{{ index .Config "innodb_buffer_pool_size" }}";
+    in
+    {
+      packages.${system}.default = pkgs.stdenv.mkDerivation {
+        pname = "{{ .AppName }}-{{ .ServiceName }}";
+        version = "1.0.0";
+        src = ./.;
+
+        buildInputs = [ mariadbPkg ];
+
+        buildPhase = ''
+          mkdir -p $out/bin
+          mkdir -p $out/share
+          
+          echo "Creating MariaDB ${dbVersion} scripts..."
+          
+          # Create initialization script
+          cat > $out/bin/init-mariadb.sh <<'INITEOF'
+#!/usr/bin/env bash
+set -e
+
+MARIADB_DATADIR="$1"
+MARIADB_PORT="''${MARIADB_PORT:-3306}"
+DB_NAME="''${DB_NAME:-narvana}"
+DB_USER="''${DB_USER:-narvana}"
+DB_PASSWORD="''${DB_PASSWORD:-narvana}"
+MARIADB_ROOT_PASSWORD="''${MARIADB_ROOT_PASSWORD:-root}"
+
+if [ ! -d "$MARIADB_DATADIR/mysql" ]; then
+  echo "Initializing MariaDB data directory..."
+  mysql_install_db --datadir="$MARIADB_DATADIR" --auth-root-authentication-method=normal
+  
+  echo "MariaDB data directory initialized"
+fi
+
+# Start MariaDB temporarily for setup
+mariadbd --datadir="$MARIADB_DATADIR" --port="$MARIADB_PORT" --socket=/tmp/mariadb.sock &
+MARIADB_PID=$!
+sleep 5
+
+# Set root password and create database/user
+mariadb -u root --socket=/tmp/mariadb.sock <<SQL
+ALTER USER 'root'@'localhost' IDENTIFIED BY '$MARIADB_ROOT_PASSWORD';
+CREATE DATABASE IF NOT EXISTS $DB_NAME;
+CREATE USER IF NOT EXISTS '$DB_USER'@'%' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'%';
+FLUSH PRIVILEGES;
+
+USE $DB_NAME;
+CREATE TABLE IF NOT EXISTS _narvana_meta (
+  \`key\` VARCHAR(255) PRIMARY KEY,
+  value TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+INSERT INTO _narvana_meta (\`key\`, value) VALUES ('db_type', 'mariadb') ON DUPLICATE KEY UPDATE value=value;
+INSERT INTO _narvana_meta (\`key\`, value) VALUES ('db_version', '${dbVersion}') ON DUPLICATE KEY UPDATE value=value;
+SQL
+
+# Stop MariaDB
+kill $MARIADB_PID
+wait $MARIADB_PID 2>/dev/null || true
+
+echo "MariaDB initialization complete"
+INITEOF
+          
+          # Create startup script
+          cat > $out/bin/start-mariadb.sh <<'STARTEOF'
+#!/usr/bin/env bash
+set -e
+
+MARIADB_DATADIR="''${MARIADB_DATADIR:-/app/data/mariadb}"
+MARIADB_PORT="''${MARIADB_PORT:-3306}"
+
+# Initialize if needed
+if [ ! -d "$MARIADB_DATADIR/mysql" ]; then
+  echo "Initializing MariaDB..."
+  init-mariadb.sh "$MARIADB_DATADIR"
+fi
+
+# Start MariaDB
+echo "Starting MariaDB on port $MARIADB_PORT..."
+exec mariadbd \
+  --datadir="$MARIADB_DATADIR" \
+  --port="$MARIADB_PORT" \
+  --bind-address=0.0.0.0 \
+  --max-connections=${maxConnections} \
+  --innodb-buffer-pool-size=${innodbBufferPoolSize}
+STARTEOF
+          
+          # Create entrypoint script
+          cat > $out/bin/entrypoint.sh <<'ENTRYEOF'
+#!/usr/bin/env bash
+set -e
+
+if [ "$1" = "mariadb" ] || [ "$1" = "mariadbd" ] || [ "$1" = "start" ] || [ -z "$1" ]; then
+  exec start-mariadb.sh
+else
+  exec "$@"
+fi
+ENTRYEOF
+          
+          chmod +x $out/bin/*.sh
+        '';
+
+        installPhase = ''
+          # Create wrapper that sets up environment
+          cat > $out/bin/database <<'WRAPEOF'
+#!/usr/bin/env bash
+export DATABASE_URL="mysql://''${DB_USER:-narvana}:''${DB_PASSWORD:-narvana}@localhost:''${MARIADB_PORT:-3306}/''${DB_NAME:-narvana}"
+export MARIADB_DATADIR="''${MARIADB_DATADIR:-/app/data/mariadb}"
+export MARIADB_PORT="''${MARIADB_PORT:-3306}"
+exec "$@"
+WRAPEOF
+          chmod +x $out/bin/database
+          
+          # Wrap each script to ensure MariaDB binaries are in PATH
+          for script in init-mariadb.sh start-mariadb.sh entrypoint.sh; do
+            mv $out/bin/$script $out/bin/.$script
+            cat > $out/bin/$script <<EOF
+#!/usr/bin/env bash
+export PATH="${mariadbPkg}/bin:\$PATH"
+exec $out/bin/.$script "\$@"
+EOF
+            chmod +x $out/bin/$script
+          done
+        '';
+      };
+    };
+}
