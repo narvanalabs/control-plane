@@ -834,3 +834,349 @@ func (h *ServiceHandler) DetectForService(w http.ResponseWriter, r *http.Request
 
 	WriteJSON(w, http.StatusOK, response)
 }
+
+
+// StopService handles POST /v1/apps/{appID}/services/{serviceName}/stop - stops a running service.
+// **Validates: Requirements 7.7**
+func (h *ServiceHandler) StopService(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteNotFound(w, "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	var service *models.ServiceConfig
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			service = &app.Services[i]
+			break
+		}
+	}
+
+	if service == nil {
+		WriteNotFound(w, "Service not found")
+		return
+	}
+
+	// Find the latest running deployment for this service
+	deployments, err := h.store.Deployments().List(r.Context(), appID)
+	if err != nil {
+		h.logger.Error("failed to list deployments", "error", err)
+		WriteInternalError(w, "Failed to list deployments")
+		return
+	}
+
+	var runningDeployment *models.Deployment
+	for _, d := range deployments {
+		if d.ServiceName == serviceName && d.Status == models.DeploymentStatusRunning {
+			runningDeployment = d
+			break
+		}
+	}
+
+	if runningDeployment == nil {
+		WriteBadRequest(w, "No running deployment found for this service")
+		return
+	}
+
+	// Update deployment status to stopping, then stopped
+	runningDeployment.Status = models.DeploymentStatusStopped
+	runningDeployment.UpdatedAt = time.Now()
+
+	if err := h.store.Deployments().Update(r.Context(), runningDeployment); err != nil {
+		h.logger.Error("failed to update deployment status", "error", err)
+		WriteInternalError(w, "Failed to stop service")
+		return
+	}
+
+	h.logger.Info("service stopped", "app_id", appID, "service_name", serviceName, "deployment_id", runningDeployment.ID)
+	WriteJSON(w, http.StatusOK, map[string]string{"status": "stopped", "deployment_id": runningDeployment.ID})
+}
+
+// StartService handles POST /v1/apps/{appID}/services/{serviceName}/start - starts a stopped service.
+// **Validates: Requirements 7.7**
+func (h *ServiceHandler) StartService(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteNotFound(w, "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	var service *models.ServiceConfig
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			service = &app.Services[i]
+			break
+		}
+	}
+
+	if service == nil {
+		WriteNotFound(w, "Service not found")
+		return
+	}
+
+	// Find the latest stopped deployment for this service
+	deployments, err := h.store.Deployments().List(r.Context(), appID)
+	if err != nil {
+		h.logger.Error("failed to list deployments", "error", err)
+		WriteInternalError(w, "Failed to list deployments")
+		return
+	}
+
+	var stoppedDeployment *models.Deployment
+	for _, d := range deployments {
+		if d.ServiceName == serviceName && d.Status == models.DeploymentStatusStopped {
+			stoppedDeployment = d
+			break
+		}
+	}
+
+	if stoppedDeployment == nil {
+		WriteBadRequest(w, "No stopped deployment found for this service")
+		return
+	}
+
+	// Update deployment status to running
+	stoppedDeployment.Status = models.DeploymentStatusRunning
+	stoppedDeployment.UpdatedAt = time.Now()
+
+	if err := h.store.Deployments().Update(r.Context(), stoppedDeployment); err != nil {
+		h.logger.Error("failed to update deployment status", "error", err)
+		WriteInternalError(w, "Failed to start service")
+		return
+	}
+
+	h.logger.Info("service started", "app_id", appID, "service_name", serviceName, "deployment_id", stoppedDeployment.ID)
+	WriteJSON(w, http.StatusOK, map[string]string{"status": "running", "deployment_id": stoppedDeployment.ID})
+}
+
+// ReloadService handles POST /v1/apps/{appID}/services/{serviceName}/reload - restarts a service without rebuilding.
+// **Validates: Requirements 7.8**
+func (h *ServiceHandler) ReloadService(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteNotFound(w, "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	var service *models.ServiceConfig
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			service = &app.Services[i]
+			break
+		}
+	}
+
+	if service == nil {
+		WriteNotFound(w, "Service not found")
+		return
+	}
+
+	// Find the latest running deployment for this service
+	deployments, err := h.store.Deployments().List(r.Context(), appID)
+	if err != nil {
+		h.logger.Error("failed to list deployments", "error", err)
+		WriteInternalError(w, "Failed to list deployments")
+		return
+	}
+
+	var runningDeployment *models.Deployment
+	for _, d := range deployments {
+		if d.ServiceName == serviceName && d.Status == models.DeploymentStatusRunning {
+			runningDeployment = d
+			break
+		}
+	}
+
+	if runningDeployment == nil {
+		WriteBadRequest(w, "No running deployment found for this service")
+		return
+	}
+
+	// For reload, we mark the deployment as restarting (using starting status)
+	// The scheduler will handle the actual restart
+	runningDeployment.Status = models.DeploymentStatusStarting
+	runningDeployment.UpdatedAt = time.Now()
+
+	if err := h.store.Deployments().Update(r.Context(), runningDeployment); err != nil {
+		h.logger.Error("failed to update deployment status", "error", err)
+		WriteInternalError(w, "Failed to reload service")
+		return
+	}
+
+	h.logger.Info("service reload initiated", "app_id", appID, "service_name", serviceName, "deployment_id", runningDeployment.ID)
+	WriteJSON(w, http.StatusOK, map[string]string{"status": "reloading", "deployment_id": runningDeployment.ID})
+}
+
+// RetryService handles POST /v1/apps/{appID}/services/{serviceName}/retry - retries a failed deployment.
+// **Validates: Requirements 7.6**
+func (h *ServiceHandler) RetryService(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteNotFound(w, "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	var service *models.ServiceConfig
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			service = &app.Services[i]
+			break
+		}
+	}
+
+	if service == nil {
+		WriteNotFound(w, "Service not found")
+		return
+	}
+
+	// Find the latest failed deployment for this service
+	deployments, err := h.store.Deployments().List(r.Context(), appID)
+	if err != nil {
+		h.logger.Error("failed to list deployments", "error", err)
+		WriteInternalError(w, "Failed to list deployments")
+		return
+	}
+
+	var failedDeployment *models.Deployment
+	for _, d := range deployments {
+		if d.ServiceName == serviceName && d.Status == models.DeploymentStatusFailed {
+			failedDeployment = d
+			break
+		}
+	}
+
+	if failedDeployment == nil {
+		WriteBadRequest(w, "No failed deployment found for this service")
+		return
+	}
+
+	// Reset the deployment status to pending to retry
+	failedDeployment.Status = models.DeploymentStatusPending
+	failedDeployment.UpdatedAt = time.Now()
+
+	if err := h.store.Deployments().Update(r.Context(), failedDeployment); err != nil {
+		h.logger.Error("failed to update deployment status", "error", err)
+		WriteInternalError(w, "Failed to retry service")
+		return
+	}
+
+	h.logger.Info("service retry initiated", "app_id", appID, "service_name", serviceName, "deployment_id", failedDeployment.ID)
+	WriteJSON(w, http.StatusOK, map[string]string{"status": "retrying", "deployment_id": failedDeployment.ID})
+}
