@@ -1638,3 +1638,13 @@ func (m *MockDomainStore) GetByDomain(ctx context.Context, domainName string) (*
 	return nil, nil // Return nil if not found, consistent with store interface
 }
 
+func (m *MockDomainStore) ListAll(ctx context.Context) ([]*models.Domain, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.Domain
+	for _, domain := range m.domains {
+		result = append(result, domain)
+	}
+	return result, nil
+}
+
