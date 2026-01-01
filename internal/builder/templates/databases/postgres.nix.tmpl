@@ -94,33 +94,33 @@ echo "PostgreSQL initialization complete"
 INITEOF
           
           # Create startup script
-          cat > $out/bin/start-postgres.sh <<'STARTEOF'
+          cat > $out/bin/start-postgres.sh <<STARTEOF
 #!/usr/bin/env bash
 set -e
 
-PGDATA="''${PGDATA:-/app/data/pgdata}"
-PGPORT="''${PGPORT:-5432}"
+PGDATA="\''${PGDATA:-/app/data/pgdata}"
+PGPORT="\''${PGPORT:-5432}"
 
 # Initialize if needed
-if [ ! -f "$PGDATA/PG_VERSION" ]; then
+if [ ! -f "\$PGDATA/PG_VERSION" ]; then
   echo "Initializing PostgreSQL..."
-  init-postgres.sh "$PGDATA"
+  $out/bin/init-postgres.sh "\$PGDATA"
 fi
 
 # Start PostgreSQL
-echo "Starting PostgreSQL on port $PGPORT..."
-exec postgres -D "$PGDATA" -p "$PGPORT"
+echo "Starting PostgreSQL on port \$PGPORT..."
+exec postgres -D "\$PGDATA" -p "\$PGPORT"
 STARTEOF
           
           # Create entrypoint script
-          cat > $out/bin/entrypoint.sh <<'ENTRYEOF'
+          cat > $out/bin/entrypoint.sh <<ENTRYEOF
 #!/usr/bin/env bash
 set -e
 
-if [ "$1" = "postgres" ] || [ "$1" = "start" ] || [ -z "$1" ]; then
-  exec start-postgres.sh
+if [ "\$1" = "postgres" ] || [ "\$1" = "start" ] || [ -z "\$1" ]; then
+  exec $out/bin/start-postgres.sh
 else
-  exec "$@"
+  exec "\$@"
 fi
 ENTRYEOF
           
