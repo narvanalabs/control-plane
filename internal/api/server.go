@@ -198,6 +198,14 @@ func (s *Server) setupRouter() {
 			})
 		})
 
+		// Global domain routes (list all domains across apps)
+		globalDomainHandler := handlers.NewDomainHandler(s.store, s.logger)
+		r.Route("/domains", func(r chi.Router) {
+			r.Get("/", globalDomainHandler.ListAll)
+			r.Post("/", globalDomainHandler.CreateGlobal)
+			r.Delete("/{domainID}", globalDomainHandler.DeleteGlobal)
+		})
+
 		// Node routes
 		nodeHandler := handlers.NewNodeHandler(s.store, s.logger)
 		r.Route("/nodes", func(r chi.Router) {
