@@ -51,7 +51,55 @@ func (m *serviceMockStore) Builds() store.BuildStore {
 }
 
 func (m *serviceMockStore) Secrets() store.SecretStore {
+	return &mockSecretStore{}
+}
+
+// mockSecretStore implements store.SecretStore for testing
+type mockSecretStore struct {
+	secrets map[string]map[string][]byte
+}
+
+func (m *mockSecretStore) Set(ctx context.Context, appID, key string, encryptedValue []byte) error {
+	if m.secrets == nil {
+		m.secrets = make(map[string]map[string][]byte)
+	}
+	if m.secrets[appID] == nil {
+		m.secrets[appID] = make(map[string][]byte)
+	}
+	m.secrets[appID][key] = encryptedValue
 	return nil
+}
+
+func (m *mockSecretStore) Get(ctx context.Context, appID, key string) ([]byte, error) {
+	if m.secrets == nil || m.secrets[appID] == nil {
+		return nil, nil
+	}
+	return m.secrets[appID][key], nil
+}
+
+func (m *mockSecretStore) List(ctx context.Context, appID string) ([]string, error) {
+	if m.secrets == nil || m.secrets[appID] == nil {
+		return []string{}, nil
+	}
+	keys := make([]string, 0, len(m.secrets[appID]))
+	for k := range m.secrets[appID] {
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+func (m *mockSecretStore) Delete(ctx context.Context, appID, key string) error {
+	if m.secrets != nil && m.secrets[appID] != nil {
+		delete(m.secrets[appID], key)
+	}
+	return nil
+}
+
+func (m *mockSecretStore) GetAll(ctx context.Context, appID string) (map[string][]byte, error) {
+	if m.secrets == nil || m.secrets[appID] == nil {
+		return map[string][]byte{}, nil
+	}
+	return m.secrets[appID], nil
 }
 
 func (m *serviceMockStore) Logs() store.LogStore {
@@ -125,7 +173,7 @@ func TestServiceNameUniqueness(t *testing.T) {
 		func(userID, serviceName, gitRepo string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create an app first
 			appID := uuid.New().String()
@@ -212,7 +260,7 @@ func TestGitURLValidation(t *testing.T) {
 		func(userID, serviceName, invalidGitURL string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create an app first
 			appID := uuid.New().String()
@@ -284,7 +332,7 @@ func TestFlakeURIValidation(t *testing.T) {
 		func(userID, serviceName, invalidFlakeURI string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create an app first
 			appID := uuid.New().String()
@@ -347,7 +395,7 @@ func TestServiceUpdatePreservesFields(t *testing.T) {
 		func(userID, serviceName, gitRepo, newGitRef string, replicas int) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create an app with a service
 			appID := uuid.New().String()
@@ -438,7 +486,7 @@ func TestDependencyDeletionPrevention(t *testing.T) {
 		func(userID string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create an app with two services where one depends on the other
 			appID := uuid.New().String()
@@ -509,7 +557,7 @@ func TestEmptyServicesArray(t *testing.T) {
 		func(userID string) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create an app with no services
 			appID := uuid.New().String()
@@ -568,7 +616,7 @@ func TestServiceListingCompleteness(t *testing.T) {
 		func(userID string, serviceCount int) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create services
 			services := make([]models.ServiceConfig, serviceCount)
@@ -668,7 +716,7 @@ func TestServiceCRUDRoundTrip(t *testing.T) {
 		func(userID, serviceName, gitRepo string, replicas int) bool {
 			// Create a mock store
 			st := newServiceMockStore()
-			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+			handler := NewServiceHandler(st, (*podman.Client)(nil), nil, logger)
 
 			// Create an app first
 			appID := uuid.New().String()

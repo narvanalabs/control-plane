@@ -8,12 +8,15 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/builder/detector"
+	"github.com/narvanalabs/control-plane/internal/builder/templates/databases"
 	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/secrets"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/internal/podman"
 	"github.com/creack/pty"
@@ -22,29 +25,32 @@ import (
 
 // ServiceHandler handles service-related HTTP requests.
 type ServiceHandler struct {
-	store    store.Store
-	podman   *podman.Client
-	detector detector.Detector
-	logger   *slog.Logger
+	store       store.Store
+	podman      *podman.Client
+	detector    detector.Detector
+	sopsService *secrets.SOPSService
+	logger      *slog.Logger
 }
 
 // NewServiceHandler creates a new service handler.
-func NewServiceHandler(st store.Store, pd *podman.Client, logger *slog.Logger) *ServiceHandler {
+func NewServiceHandler(st store.Store, pd *podman.Client, sopsService *secrets.SOPSService, logger *slog.Logger) *ServiceHandler {
 	return &ServiceHandler{
-		store:    st,
-		podman:   pd,
-		detector: detector.NewDetector(),
-		logger:   logger,
+		store:       st,
+		podman:      pd,
+		detector:    detector.NewDetector(),
+		sopsService: sopsService,
+		logger:      logger,
 	}
 }
 
 // NewServiceHandlerWithDetector creates a new service handler with a custom detector.
-func NewServiceHandlerWithDetector(st store.Store, pd *podman.Client, det detector.Detector, logger *slog.Logger) *ServiceHandler {
+func NewServiceHandlerWithDetector(st store.Store, pd *podman.Client, det detector.Detector, sopsService *secrets.SOPSService, logger *slog.Logger) *ServiceHandler {
 	return &ServiceHandler{
-		store:    st,
-		podman:   pd,
-		detector: det,
-		logger:   logger,
+		store:       st,
+		podman:      pd,
+		detector:    det,
+		sopsService: sopsService,
+		logger:      logger,
 	}
 }
 
@@ -236,6 +242,16 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+
+	// Auto-generate database credentials for database services
+	if service.SourceType == models.SourceTypeDatabase && service.Database != nil {
+		if err := h.generateDatabaseCredentials(r.Context(), appID, service.Name, service.Database.Type); err != nil {
+			h.logger.Error("failed to generate database credentials", "error", err, "app_id", appID, "service_name", service.Name)
+			WriteInternalError(w, "Failed to generate database credentials")
+			return
+		}
+		h.logger.Info("database credentials generated", "app_id", appID, "service_name", service.Name, "db_type", service.Database.Type)
 	}
 
 	// Add service to app
@@ -641,12 +657,33 @@ func (h *ServiceHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Container name format: narvana-<app-id>-<service-name>
-	// We'll try a few variations if needed, but this is the standard.
-	containerName := fmt.Sprintf("%s-%s", appID, serviceName)
+	// Find the latest running deployment to get the deployment ID
+	ctx := r.Context()
+	deployments, err := h.store.Deployments().List(ctx, appID)
+	if err != nil {
+		h.logger.Error("failed to list deployments", "error", err)
+		return
+	}
+
+	var runningDeployment *models.Deployment
+	for _, d := range deployments {
+		if d.ServiceName == serviceName && d.Status == models.DeploymentStatusRunning {
+			runningDeployment = d
+			break
+		}
+	}
+
+	if runningDeployment == nil {
+		h.logger.Error("no running deployment found", "app_id", appID, "service", serviceName)
+		return
+	}
+
+	// Container name format: narvana-<deployment-id>
+	// This matches the node-agent's naming convention
+	containerName := fmt.Sprintf("narvana-%s", runningDeployment.ID)
 	
 	// Spawn shell with PTY
-	h.logger.Info("starting podman exec pty", "container", containerName)
+	h.logger.Info("starting podman exec pty", "container", containerName, "deployment_id", runningDeployment.ID)
 	c := h.podman.Exec(containerName, []string{"/bin/sh"})
 	c.Env = append(os.Environ(), 
 		"TERM=xterm-256color", 
@@ -657,8 +694,9 @@ func (h *ServiceHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 	f, err := pty.Start(c)
 	if err != nil {
 		h.logger.Error("failed to start pty", "error", err, "container", containerName)
-		// Try without appID prefix just in case some services use simple names
-		containerName = serviceName
+		// Try legacy format as fallback
+		containerName = fmt.Sprintf("%s-%s", appID, serviceName)
+		h.logger.Info("trying legacy container name", "container", containerName)
 		c = h.podman.Exec(containerName, []string{"/bin/sh"})
 		f, err = pty.Start(c)
 		if err != nil {
@@ -1179,4 +1217,45 @@ func (h *ServiceHandler) RetryService(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("service retry initiated", "app_id", appID, "service_name", serviceName, "deployment_id", failedDeployment.ID)
 	WriteJSON(w, http.StatusOK, map[string]string{"status": "retrying", "deployment_id": failedDeployment.ID})
+}
+
+// generateDatabaseCredentials generates and stores database credentials for a database service.
+// This is called automatically when a database service is created.
+func (h *ServiceHandler) generateDatabaseCredentials(ctx context.Context, appID, serviceName, dbType string) error {
+	// Generate credentials using the database registry
+	creds, err := databases.GenerateCredentials(databases.DatabaseType(dbType), serviceName)
+	if err != nil {
+		return fmt.Errorf("generating credentials: %w", err)
+	}
+
+	// Get the secret keys and values
+	secretsMap := creds.GetSecretKeys(databases.DatabaseType(dbType), serviceName)
+
+	// Store each secret
+	for key, value := range secretsMap {
+		var encryptedValue []byte
+
+		// Encrypt the value if SOPS is configured
+		if h.sopsService != nil && h.sopsService.CanEncrypt() {
+			encryptedValue, err = h.sopsService.Encrypt(ctx, []byte(value))
+			if err != nil {
+				h.logger.Error("failed to encrypt secret with SOPS", "error", err, "key", key)
+				// Fall back to storing plaintext
+				encryptedValue = []byte(value)
+			}
+		} else {
+			// No encryption configured, store as plaintext
+			h.logger.Warn("SOPS not configured, storing database secret without encryption", "key", key)
+			encryptedValue = []byte(value)
+		}
+
+		// Store the secret
+		if err := h.store.Secrets().Set(ctx, appID, strings.ToUpper(key), encryptedValue); err != nil {
+			return fmt.Errorf("storing secret %s: %w", key, err)
+		}
+
+		h.logger.Debug("database secret stored", "app_id", appID, "key", key)
+	}
+
+	return nil
 }
