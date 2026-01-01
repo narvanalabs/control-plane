@@ -651,6 +651,97 @@ func (c *Client) UpdateSettings(ctx context.Context, settings map[string]string)
 }
 
 // ============================================================================
+// User Management Methods
+// ============================================================================
+
+// UserInfo represents a user in the system.
+type UserInfo struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+	Role      string `json:"role"`
+	InvitedBy string `json:"invited_by,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// ListUsers fetches all users (admin only).
+func (c *Client) ListUsers(ctx context.Context) ([]UserInfo, error) {
+	var users []UserInfo
+	err := c.Get(ctx, "/v1/users", &users)
+	if users == nil {
+		users = []UserInfo{}
+	}
+	return users, err
+}
+
+// DeleteUser removes a user (admin only).
+func (c *Client) DeleteUser(ctx context.Context, userID string) error {
+	return c.delete(ctx, "/v1/users/"+userID)
+}
+
+// ============================================================================
+// Invitation Methods
+// ============================================================================
+
+// Invitation represents an invitation to join the platform.
+type Invitation struct {
+	ID         string `json:"id"`
+	Email      string `json:"email"`
+	Token      string `json:"token,omitempty"`
+	InvitedBy  string `json:"invited_by"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	ExpiresAt  string `json:"expires_at"`
+	AcceptedAt string `json:"accepted_at,omitempty"`
+	CreatedAt  string `json:"created_at"`
+}
+
+// CreateInvitation creates a new invitation (admin only).
+func (c *Client) CreateInvitation(ctx context.Context, email, role string) (*Invitation, error) {
+	req := map[string]string{
+		"email": email,
+		"role":  role,
+	}
+	var invitation Invitation
+	err := c.post(ctx, "/v1/invitations", req, &invitation)
+	return &invitation, err
+}
+
+// ListInvitations fetches all invitations (admin only).
+func (c *Client) ListInvitations(ctx context.Context) ([]Invitation, error) {
+	var invitations []Invitation
+	err := c.Get(ctx, "/v1/invitations", &invitations)
+	if invitations == nil {
+		invitations = []Invitation{}
+	}
+	return invitations, err
+}
+
+// RevokeInvitation revokes an invitation (admin only).
+func (c *Client) RevokeInvitation(ctx context.Context, invitationID string) error {
+	return c.delete(ctx, "/v1/invitations/"+invitationID)
+}
+
+// GetInvitationByToken fetches invitation details by token (public).
+func (c *Client) GetInvitationByToken(ctx context.Context, token string) (*Invitation, error) {
+	var invitation Invitation
+	err := c.Get(ctx, "/auth/invite/"+token, &invitation)
+	return &invitation, err
+}
+
+// AcceptInvitation accepts an invitation and creates a user (public).
+func (c *Client) AcceptInvitation(ctx context.Context, token, password string) (*AuthResponse, error) {
+	req := map[string]string{
+		"token":    token,
+		"password": password,
+	}
+	var resp AuthResponse
+	err := c.post(ctx, "/auth/invite/accept", req, &resp)
+	return &resp, err
+}
+
+// ============================================================================
 // Dashboard Methods
 // ============================================================================
 
