@@ -108,7 +108,14 @@ func (h *SecretHandler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// List handles GET /v1/apps/:appID/secrets - lists secret keys for an app.
+// SecretResponse represents a secret in the API response.
+type SecretResponse struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// List handles GET /v1/apps/:appID/secrets - lists secrets for an app.
+// Returns decrypted values for display in the UI.
 func (h *SecretHandler) List(w http.ResponseWriter, r *http.Request) {
 	// Use resolved app ID from middleware (handles both UUID and name lookup)
 	appID := middleware.GetResolvedAppID(r.Context())
@@ -120,18 +127,34 @@ func (h *SecretHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys, err := h.store.Secrets().List(r.Context(), appID)
+	// Get all secrets with their encrypted values
+	encryptedSecrets, err := h.store.Secrets().GetAll(r.Context(), appID)
 	if err != nil {
 		h.logger.Error("failed to list secrets", "error", err, "app_id", appID)
 		WriteInternalError(w, "Failed to list secrets")
 		return
 	}
 
-	if keys == nil {
-		keys = []string{}
+	secrets := make([]SecretResponse, 0, len(encryptedSecrets))
+	for key, encryptedValue := range encryptedSecrets {
+		var value string
+		// Decrypt the value if SOPS is configured and can decrypt
+		if h.sopsService != nil && h.sopsService.CanDecrypt() {
+			decrypted, err := h.sopsService.Decrypt(r.Context(), encryptedValue)
+			if err != nil {
+				h.logger.Warn("failed to decrypt secret, returning as-is", "key", key, "error", err)
+				value = string(encryptedValue)
+			} else {
+				value = string(decrypted)
+			}
+		} else {
+			// No encryption configured or no private key, value is stored as plaintext
+			value = string(encryptedValue)
+		}
+		secrets = append(secrets, SecretResponse{Key: key, Value: value})
 	}
 
-	WriteJSON(w, http.StatusOK, map[string][]string{"keys": keys})
+	WriteJSON(w, http.StatusOK, map[string][]SecretResponse{"secrets": secrets})
 }
 
 // Delete handles DELETE /v1/apps/:appID/secrets/:key - deletes a secret.
