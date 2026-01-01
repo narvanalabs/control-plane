@@ -176,17 +176,22 @@ func (s *Service) Connect(ctx context.Context, appID, serviceName string, conn *
 		return nil, ErrServiceNotRunning
 	}
 
-	// Generate container name
-	containerName := GenerateContainerName(appID, serviceName, runningDeployment.Version)
+	// Generate container name using the node-agent's naming convention
+	// Node-agent uses: narvana-{deploymentID}
+	containerName := fmt.Sprintf("narvana-%s", runningDeployment.ID)
 
 	// Create the terminal session
 	session, err := s.createSession(ctx, containerName, conn)
 	if err != nil {
-		// Try alternative container name format
-		containerName = fmt.Sprintf("%s-%s", appID, serviceName)
+		// Try alternative container name formats for backwards compatibility
+		containerName = GenerateContainerName(appID, serviceName, runningDeployment.Version)
 		session, err = s.createSession(ctx, containerName, conn)
 		if err != nil {
-			return nil, fmt.Errorf("creating session: %w", err)
+			containerName = fmt.Sprintf("%s-%s", appID, serviceName)
+			session, err = s.createSession(ctx, containerName, conn)
+			if err != nil {
+				return nil, fmt.Errorf("creating session: %w", err)
+			}
 		}
 	}
 
