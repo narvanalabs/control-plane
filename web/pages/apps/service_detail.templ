@@ -119,6 +119,14 @@ templ ServiceDetail(data ServiceDetailData) {
 					@tabs.Trigger(tabs.TriggerProps{Value: "logs", IsActive: data.SuccessMsg != ""}) {
 						Logs
 					}
+					// Terminal tab - only shown for running services
+					// **Validates: Requirements 23.1**
+					if data.ServiceState == models.ServiceStateRunning {
+						@tabs.Trigger(tabs.TriggerProps{Value: "terminal"}) {
+							@icon.Terminal(icon.Props{Class: "size-4 mr-1.5"})
+							Terminal
+						}
+					}
 					@tabs.Trigger(tabs.TriggerProps{Value: "settings"}) {
 						Settings
 					}
@@ -624,6 +632,16 @@ templ ServiceDetail(data ServiceDetailData) {
 							}
 						}
 					</div>
+				}
+				
+				// Terminal Tab - Interactive shell for running services
+				// **Validates: Requirements 23.1, 23.2, 23.3, 23.4, 23.5**
+				if data.ServiceState == models.ServiceStateRunning {
+					@tabs.Content(tabs.ContentProps{Value: "terminal"}) {
+						<div class="pt-4">
+							@TerminalPanel(data)
+						</div>
+					}
 				}
 				
 				// Settings Tab
@@ -2149,4 +2167,348 @@ templ ServiceActionButtons(data ServiceDetailData) {
 				}
 			</form>
 	}
+}
+
+// TerminalPanel renders the web terminal interface for a running service.
+// **Validates: Requirements 23.1, 23.2, 23.3, 23.4, 23.5**
+templ TerminalPanel(data ServiceDetailData) {
+	<div class="space-y-4">
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					<div>
+						@card.Title() { 
+							@icon.Terminal(icon.Props{Class: "size-5 mr-2 inline"})
+							Service Terminal 
+						}
+						@card.Description() { 
+							Interactive shell session for { data.Service.Name }
+						}
+					</div>
+					<div class="flex items-center gap-2">
+						@badge.Badge(badge.Props{ID: "terminal-status", Variant: badge.VariantOutline, Class: "h-6"}) {
+							<span id="terminal-status-dot" class="mr-1.5 size-2 rounded-full bg-zinc-500"></span>
+							<span id="terminal-status-text">Connecting...</span>
+						}
+					</div>
+				</div>
+			}
+			@card.Content() {
+				// Terminal container with theme-aware styling
+				// **Validates: Requirements 23.3, 23.4**
+				<div class="rounded-lg border border-border dark:border-zinc-800 overflow-hidden">
+					// Terminal header bar
+					<div class="flex items-center justify-between px-3 py-2 bg-muted/50 dark:bg-zinc-900/50 border-b border-border dark:border-zinc-800">
+						<div class="flex items-center gap-2">
+							<div class="flex items-center gap-1.5">
+								<div class="size-3 rounded-full bg-red-500/30 border border-red-500/50"></div>
+								<div class="size-3 rounded-full bg-amber-500/30 border border-amber-500/50"></div>
+								<div class="size-3 rounded-full bg-emerald-500/30 border border-emerald-500/50"></div>
+							</div>
+							<span class="ml-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+								sh — { data.Service.Name }
+							</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@button.Button(button.Props{
+								ID:      "terminal-reconnect-btn",
+								Variant: button.VariantGhost,
+								Size:    button.SizeIcon,
+								Class:   "h-7 w-7 hidden",
+								Attributes: templ.Attributes{"title": "Reconnect"},
+							}) {
+								@icon.RefreshCw(icon.Props{Size: 14})
+							}
+						</div>
+					</div>
+					// xterm.js terminal container
+					<div 
+						id="service-terminal" 
+						class="h-[500px] w-full"
+						data-app-id={ data.App.ID }
+						data-service-name={ data.Service.Name }
+					></div>
+				</div>
+				
+				// Quick commands bar
+				<div class="mt-4 flex flex-wrap items-center gap-2">
+					<span class="text-xs text-muted-foreground font-medium uppercase">Quick commands:</span>
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "h-7 text-xs terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "ps aux\n"}}) { 
+						ps aux 
+					}
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "h-7 text-xs terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "ls -la\n"}}) { 
+						ls -la 
+					}
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "h-7 text-xs terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "env\n"}}) { 
+						env 
+					}
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "h-7 text-xs terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "df -h\n"}}) { 
+						df -h 
+					}
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "h-7 text-xs terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "free -m\n"}}) { 
+						free -m 
+					}
+				</div>
+			}
+		}
+		
+		// Terminal initialization script
+		// **Validates: Requirements 23.3, 23.4, 23.5**
+		@TerminalScript(data.App.ID, data.Service.Name)
+	</div>
+}
+
+// TerminalScript renders the JavaScript for initializing and managing the terminal.
+// **Validates: Requirements 23.3, 23.4, 23.5**
+templ TerminalScript(appID string, serviceName string) {
+	<script>
+		(function() {
+			const terminalContainer = document.getElementById('service-terminal');
+			if (!terminalContainer) return;
+			
+			const appId = terminalContainer.dataset.appId;
+			const svcName = terminalContainer.dataset.serviceName;
+			
+			let term = null;
+			let fitAddon = null;
+			let ws = null;
+			let reconnectAttempts = 0;
+			const maxReconnectAttempts = 5;
+			const baseReconnectDelay = 1000;
+			
+			// Theme detection for xterm.js
+			// **Validates: Requirements 23.3, 23.4**
+			function getTerminalTheme() {
+				const isDark = document.documentElement.classList.contains('dark') || 
+					window.matchMedia('(prefers-color-scheme: dark)').matches;
+				
+				if (isDark) {
+					return {
+						background: '#09090b',
+						foreground: '#d4d4d8',
+						cursor: '#71717a',
+						cursorAccent: '#09090b',
+						selectionBackground: '#27272a',
+						selectionForeground: '#fafafa',
+						black: '#09090b',
+						red: '#ef4444',
+						green: '#22c55e',
+						yellow: '#f59e0b',
+						blue: '#3b82f6',
+						magenta: '#a855f7',
+						cyan: '#06b6d4',
+						white: '#fafafa',
+						brightBlack: '#71717a',
+						brightRed: '#f87171',
+						brightGreen: '#4ade80',
+						brightYellow: '#fbbf24',
+						brightBlue: '#60a5fa',
+						brightMagenta: '#c084fc',
+						brightCyan: '#22d3ee',
+						brightWhite: '#ffffff'
+					};
+				} else {
+					return {
+						background: '#fafafa',
+						foreground: '#18181b',
+						cursor: '#71717a',
+						cursorAccent: '#fafafa',
+						selectionBackground: '#e4e4e7',
+						selectionForeground: '#18181b',
+						black: '#18181b',
+						red: '#dc2626',
+						green: '#16a34a',
+						yellow: '#ca8a04',
+						blue: '#2563eb',
+						magenta: '#9333ea',
+						cyan: '#0891b2',
+						white: '#fafafa',
+						brightBlack: '#52525b',
+						brightRed: '#ef4444',
+						brightGreen: '#22c55e',
+						brightYellow: '#eab308',
+						brightBlue: '#3b82f6',
+						brightMagenta: '#a855f7',
+						brightCyan: '#06b6d4',
+						brightWhite: '#ffffff'
+					};
+				}
+			}
+			
+			function updateStatus(status, message) {
+				const dot = document.getElementById('terminal-status-dot');
+				const text = document.getElementById('terminal-status-text');
+				const reconnectBtn = document.getElementById('terminal-reconnect-btn');
+				
+				if (dot && text) {
+					switch (status) {
+						case 'connected':
+							dot.className = 'mr-1.5 size-2 rounded-full bg-emerald-500';
+							text.textContent = 'Connected';
+							if (reconnectBtn) reconnectBtn.classList.add('hidden');
+							break;
+						case 'connecting':
+							dot.className = 'mr-1.5 size-2 rounded-full bg-amber-500 animate-pulse';
+							text.textContent = message || 'Connecting...';
+							if (reconnectBtn) reconnectBtn.classList.add('hidden');
+							break;
+						case 'disconnected':
+							dot.className = 'mr-1.5 size-2 rounded-full bg-red-500';
+							text.textContent = message || 'Disconnected';
+							if (reconnectBtn) reconnectBtn.classList.remove('hidden');
+							break;
+						case 'error':
+							dot.className = 'mr-1.5 size-2 rounded-full bg-red-500';
+							text.textContent = message || 'Error';
+							if (reconnectBtn) reconnectBtn.classList.remove('hidden');
+							break;
+					}
+				}
+			}
+			
+			function initTerminal() {
+				if (term) return;
+				
+				term = new Terminal({
+					cursorBlink: true,
+					cursorStyle: 'underline',
+					theme: getTerminalTheme(),
+					fontSize: 14,
+					lineHeight: 1.2,
+					fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
+					scrollback: 5000,
+					convertEol: true
+				});
+				
+				fitAddon = new FitAddon.FitAddon();
+				term.loadAddon(fitAddon);
+				term.open(terminalContainer);
+				fitAddon.fit();
+				
+				// Handle terminal input
+				term.onData(data => {
+					if (ws && ws.readyState === WebSocket.OPEN) {
+						ws.send(data);
+					}
+				});
+				
+				// Handle window resize
+				window.addEventListener('resize', () => {
+					if (fitAddon) {
+						fitAddon.fit();
+						sendResize();
+					}
+				});
+				
+				// Watch for theme changes
+				// **Validates: Requirements 23.4**
+				const observer = new MutationObserver(() => {
+					if (term) {
+						term.options.theme = getTerminalTheme();
+					}
+				});
+				observer.observe(document.documentElement, { 
+					attributes: true, 
+					attributeFilter: ['class'] 
+				});
+				
+				// Also listen for system theme changes
+				window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+					if (term) {
+						term.options.theme = getTerminalTheme();
+					}
+				});
+			}
+			
+			function sendResize() {
+				if (ws && ws.readyState === WebSocket.OPEN && term) {
+					ws.send(JSON.stringify({
+						type: 'resize',
+						rows: term.rows,
+						cols: term.cols
+					}));
+				}
+			}
+			
+			function connect() {
+				if (ws && ws.readyState === WebSocket.OPEN) return;
+				
+				updateStatus('connecting');
+				
+				const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+				const wsUrl = `${protocol}//${window.location.host}/api/v1/apps/${appId}/services/${svcName}/terminal/ws`;
+				
+				ws = new WebSocket(wsUrl);
+				ws.binaryType = 'arraybuffer';
+				
+				ws.onopen = () => {
+					reconnectAttempts = 0;
+					updateStatus('connected');
+					if (term) {
+						term.focus();
+						sendResize();
+					}
+				};
+				
+				ws.onmessage = (event) => {
+					if (term) {
+						term.write(new Uint8Array(event.data));
+					}
+				};
+				
+				// **Validates: Requirements 23.5** - Reconnection handling
+				ws.onclose = (event) => {
+					updateStatus('disconnected', 'Connection closed');
+					if (term) {
+						term.write('\r\n\x1b[31mTerminal connection closed.\x1b[0m\r\n');
+					}
+					
+					// Auto-reconnect with exponential backoff
+					if (reconnectAttempts < maxReconnectAttempts) {
+						const delay = baseReconnectDelay * Math.pow(2, reconnectAttempts);
+						reconnectAttempts++;
+						updateStatus('connecting', `Reconnecting in ${delay/1000}s...`);
+						setTimeout(connect, delay);
+					}
+				};
+				
+				ws.onerror = (error) => {
+					console.error('WebSocket error:', error);
+					updateStatus('error', 'Connection error');
+				};
+			}
+			
+			// Initialize terminal and connect
+			initTerminal();
+			connect();
+			
+			// Quick command buttons
+			document.querySelectorAll('.terminal-quick-cmd').forEach(btn => {
+				btn.addEventListener('click', () => {
+					const cmd = btn.getAttribute('data-cmd');
+					if (ws && ws.readyState === WebSocket.OPEN) {
+						ws.send(cmd);
+					}
+					if (term) term.focus();
+				});
+			});
+			
+			// Reconnect button
+			const reconnectBtn = document.getElementById('terminal-reconnect-btn');
+			if (reconnectBtn) {
+				reconnectBtn.addEventListener('click', () => {
+					reconnectAttempts = 0;
+					connect();
+				});
+			}
+			
+			// Cleanup on page unload
+			window.addEventListener('beforeunload', () => {
+				if (ws) {
+					ws.send(JSON.stringify({ type: 'terminate' }));
+					ws.close();
+				}
+			});
+		})();
+	</script>
 }
