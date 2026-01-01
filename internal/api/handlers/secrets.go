@@ -1,38 +1,31 @@
 package handlers
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
+	"github.com/narvanalabs/control-plane/internal/secrets"
 	"github.com/narvanalabs/control-plane/internal/store"
 )
 
 // SecretHandler handles secret-related HTTP requests.
 type SecretHandler struct {
-	store         store.Store
-	encryptionKey []byte
-	logger        *slog.Logger
+	store       store.Store
+	sopsService *secrets.SOPSService
+	logger      *slog.Logger
 }
 
 // NewSecretHandler creates a new secret handler.
-func NewSecretHandler(st store.Store, logger *slog.Logger) *SecretHandler {
+func NewSecretHandler(st store.Store, sopsService *secrets.SOPSService, logger *slog.Logger) *SecretHandler {
 	return &SecretHandler{
-		store:  st,
-		logger: logger,
+		store:       st,
+		sopsService: sopsService,
+		logger:      logger,
 	}
-}
-
-// SetEncryptionKey sets the encryption key for secrets.
-func (h *SecretHandler) SetEncryptionKey(key []byte) {
-	h.encryptionKey = key
 }
 
 // CreateSecretRequest represents the request body for creating a secret.
@@ -85,12 +78,20 @@ func (h *SecretHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Encrypt the value
-	encryptedValue, err := h.encrypt([]byte(req.Value))
-	if err != nil {
-		h.logger.Error("failed to encrypt secret", "error", err)
-		WriteInternalError(w, "Failed to encrypt secret")
-		return
+	// Encrypt the value using SOPS
+	var encryptedValue []byte
+	var err error
+	if h.sopsService != nil && h.sopsService.CanEncrypt() {
+		encryptedValue, err = h.sopsService.Encrypt(r.Context(), []byte(req.Value))
+		if err != nil {
+			h.logger.Error("failed to encrypt secret with SOPS", "error", err)
+			WriteInternalError(w, "Failed to encrypt secret")
+			return
+		}
+	} else {
+		// Fallback: store plaintext if SOPS is not configured (for testing/development)
+		h.logger.Warn("SOPS not configured, storing secret without encryption")
+		encryptedValue = []byte(req.Value)
 	}
 
 	// Store the secret
@@ -159,29 +160,4 @@ func (h *SecretHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("secret deleted", "app_id", appID, "key", key)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// encrypt encrypts data using AES-GCM.
-func (h *SecretHandler) encrypt(plaintext []byte) ([]byte, error) {
-	if len(h.encryptionKey) == 0 {
-		// If no encryption key is set, return plaintext (for testing)
-		return plaintext, nil
-	}
-
-	block, err := aes.NewCipher(h.encryptionKey)
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-
-	return gcm.Seal(nonce, nonce, plaintext, nil), nil
 }
