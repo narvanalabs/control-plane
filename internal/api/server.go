@@ -86,6 +86,7 @@ func (s *Server) setupRouter() {
 	invitationsPublicHandler := handlers.NewInvitationsHandler(s.store, s.auth, s.logger)
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/setup", authHandler.SetupCheck)
+		r.Get("/can-register", authHandler.CanRegister)
 		r.Post("/register", authHandler.Register)
 		r.Post("/login", authHandler.Login)
 		r.Post("/device/start", authHandler.DeviceAuthStart)
@@ -136,7 +137,7 @@ func (s *Server) setupRouter() {
 				r.Get("/deployments", deploymentHandler.List)
 
 				// Service routes nested under apps
-				serviceHandler := handlers.NewServiceHandler(s.store, podmanClient, s.logger)
+				serviceHandler := handlers.NewServiceHandler(s.store, podmanClient, s.sopsService, s.logger)
 				r.Route("/services", func(r chi.Router) {
 					r.Post("/", serviceHandler.Create)
 					r.Get("/", serviceHandler.List)
@@ -252,6 +253,19 @@ func (s *Server) setupRouter() {
 		r.Route("/user", func(r chi.Router) {
 			r.Get("/profile", userHandler.GetProfile)
 			r.Patch("/profile", userHandler.UpdateProfile)
+		})
+
+		// Organization routes
+		orgHandler := handlers.NewOrgHandler(s.store, s.logger)
+		r.Route("/orgs", func(r chi.Router) {
+			r.Post("/", orgHandler.Create)
+			r.Get("/", orgHandler.List)
+			r.Get("/slug/{slug}", orgHandler.GetBySlug)
+			r.Route("/{orgID}", func(r chi.Router) {
+				r.Get("/", orgHandler.Get)
+				r.Patch("/", orgHandler.Update)
+				r.Delete("/", orgHandler.Delete)
+			})
 		})
 
 		// Users management routes (admin only)
