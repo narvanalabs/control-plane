@@ -18,6 +18,7 @@ import (
 type AuthHandler struct {
 	store       store.Store
 	authService *auth.Service
+	rbacService *auth.RBACService
 	logger      *slog.Logger
 	
 	// Device auth state (in-memory for simplicity)
@@ -37,6 +38,7 @@ func NewAuthHandler(st store.Store, authSvc *auth.Service, logger *slog.Logger) 
 	return &AuthHandler{
 		store:       st,
 		authService: authSvc,
+		rbacService: auth.NewRBACService(st, logger),
 		logger:      logger,
 		deviceCodes: make(map[string]*deviceAuthState),
 	}
@@ -85,15 +87,22 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	
 	ctx := r.Context()
 	
-	// Check if this is the first user (admin)
-	users, err := h.store.Users().List(ctx)
+	// Check if public registration is allowed (no owner exists)
+	canRegister, err := h.rbacService.CanRegister(ctx)
 	if err != nil {
-		h.logger.Error("failed to check users", "error", err)
+		h.logger.Error("failed to check registration status", "error", err)
 		WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 	
-	isAdmin := len(users) == 0
+	if !canRegister {
+		// Owner exists, public registration is disabled
+		WriteJSON(w, http.StatusForbidden, map[string]string{
+			"error": "registration_disabled",
+			"message": "Public registration is disabled. Please contact an administrator for an invitation.",
+		})
+		return
+	}
 	
 	// Check if email already exists
 	existing, _ := h.store.Users().GetByEmail(ctx, req.Email)
@@ -102,8 +111,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Create user
-	user, err := h.store.Users().Create(ctx, req.Email, req.Password, isAdmin)
+	// First user becomes owner, subsequent users become members
+	// (but this path is only reached when no owner exists)
+	role := store.RoleOwner
+	
+	// Create user with role
+	user, err := h.store.Users().CreateWithRole(ctx, req.Email, req.Password, role, "")
 	if err != nil {
 		h.logger.Error("failed to create user", "error", err)
 		WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
@@ -119,10 +132,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	WriteJSON(w, http.StatusCreated, map[string]interface{}{
-		"user_id": user.ID,
-		"email":   user.Email,
-		"token":   token,
-		"is_admin": isAdmin,
+		"user_id":  user.ID,
+		"email":    user.Email,
+		"token":    token,
+		"role":     user.Role,
+		"is_admin": user.Role == store.RoleOwner,
 	})
 }
 
