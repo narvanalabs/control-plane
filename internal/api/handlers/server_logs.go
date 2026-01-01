@@ -47,6 +47,15 @@ func (h *ServerLogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	since := r.URL.Query().Get("since")
 	level := r.URL.Query().Get("level")
 
+	// Check if systemd services exist (production mode)
+	// Try to check if narvana-api service exists
+	checkCmd := exec.Command("systemctl", "is-active", "narvana-api")
+	if err := checkCmd.Run(); err != nil {
+		// Systemd services not available, use dev mode
+		h.streamDevLogs(w, r, service, lines, level)
+		return
+	}
+
 	journalArgs := []string{"-f", "--output", "short-iso"}
 
 	if lines != "" {
@@ -114,6 +123,86 @@ func (h *ServerLogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info("server log stream ended")
+}
+
+// streamDevLogs streams logs in development mode using journalctl for current user session
+func (h *ServerLogsHandler) streamDevLogs(w http.ResponseWriter, r *http.Request, service, lines, level string) {
+	h.sendEvent(w, "connected", map[string]string{"status": "streaming (dev mode)"})
+	
+	// Send initial message
+	h.sendEvent(w, "log", map[string]interface{}{
+		"timestamp": time.Now(),
+		"level":     "info",
+		"message":   "[dev] Server log streaming started",
+	})
+	
+	// In dev mode, try to tail journalctl for the current user session
+	// This captures logs from processes started in the current session
+	journalArgs := []string{"-f", "--output", "short-iso", "--user"}
+	
+	if lines != "" {
+		journalArgs = append(journalArgs, "-n", lines)
+	} else {
+		journalArgs = append(journalArgs, "-n", "100")
+	}
+	
+	cmd := exec.CommandContext(r.Context(), "journalctl", journalArgs...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		h.logger.Error("failed to get stdout pipe for journalctl", "error", err)
+		// Fallback to heartbeat mode
+		h.streamHeartbeat(w, r)
+		return
+	}
+	
+	if err := cmd.Start(); err != nil {
+		h.logger.Error("failed to start journalctl --user", "error", err)
+		// Fallback to heartbeat mode
+		h.streamHeartbeat(w, r)
+		return
+	}
+	
+	defer func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}()
+	
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		logEntry := map[string]interface{}{
+			"timestamp": time.Now(),
+			"level":     "info",
+			"message":   line,
+		}
+		h.sendEvent(w, "log", logEntry)
+	}
+}
+
+// streamHeartbeat keeps the connection alive when no log source is available
+func (h *ServerLogsHandler) streamHeartbeat(w http.ResponseWriter, r *http.Request) {
+	h.sendEvent(w, "log", map[string]interface{}{
+		"timestamp": time.Now(),
+		"level":     "info",
+		"message":   "[dev] No log source available. Logs will appear when services are running as systemd units.",
+	})
+	
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			h.sendEvent(w, "log", map[string]interface{}{
+				"timestamp": time.Now(),
+				"level":     "debug",
+				"message":   "[heartbeat] Connection alive",
+			})
+		}
+	}
 }
 
 // Download handles GET /v1/server/logs/download - downloads logs as a file.
@@ -274,7 +363,7 @@ func (h *ServerLogsHandler) sendEvent(w http.ResponseWriter, event string, data 
 		return
 	}
 
-	fmt.Fprintf(w, "event: %s\n", event)
+	// Use default message event format for compatibility with EventSource.onmessage
 	fmt.Fprintf(w, "data: %s\n\n", jsonData)
 
 	if flusher, ok := w.(http.Flusher); ok {
