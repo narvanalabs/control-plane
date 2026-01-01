@@ -278,6 +278,8 @@ type DomainStore interface {
 	Get(ctx context.Context, id string) (*models.Domain, error)
 	// List retrieves all domains for a given application.
 	List(ctx context.Context, appID string) ([]*models.Domain, error)
+	// ListAll retrieves all domains across all applications.
+	ListAll(ctx context.Context) ([]*models.Domain, error)
 	// Delete removes a domain mapping.
 	Delete(ctx context.Context, id string) error
 	// GetByDomain retrieves a domain mapping by the domain name itself.
