@@ -332,6 +332,65 @@ templ Server(data ServerData) {
 				let fitAddon = null;
 				let ws = null;
 
+				// Theme detection for xterm.js
+				// **Validates: Requirements 23.4, 1.8**
+				function getTerminalTheme() {
+					const isDark = document.documentElement.classList.contains('dark') || 
+						window.matchMedia('(prefers-color-scheme: dark)').matches;
+					
+					if (isDark) {
+						return {
+							background: '#09090b',
+							foreground: '#d4d4d8',
+							cursor: '#71717a',
+							cursorAccent: '#09090b',
+							selectionBackground: '#27272a',
+							selectionForeground: '#fafafa',
+							black: '#09090b',
+							red: '#ef4444',
+							green: '#22c55e',
+							yellow: '#f59e0b',
+							blue: '#3b82f6',
+							magenta: '#a855f7',
+							cyan: '#06b6d4',
+							white: '#fafafa',
+							brightBlack: '#71717a',
+							brightRed: '#f87171',
+							brightGreen: '#4ade80',
+							brightYellow: '#fbbf24',
+							brightBlue: '#60a5fa',
+							brightMagenta: '#c084fc',
+							brightCyan: '#22d3ee',
+							brightWhite: '#ffffff'
+						};
+					} else {
+						return {
+							background: '#fafafa',
+							foreground: '#18181b',
+							cursor: '#71717a',
+							cursorAccent: '#fafafa',
+							selectionBackground: '#e4e4e7',
+							selectionForeground: '#18181b',
+							black: '#18181b',
+							red: '#dc2626',
+							green: '#16a34a',
+							yellow: '#ca8a04',
+							blue: '#2563eb',
+							magenta: '#9333ea',
+							cyan: '#0891b2',
+							white: '#fafafa',
+							brightBlack: '#52525b',
+							brightRed: '#ef4444',
+							brightGreen: '#22c55e',
+							brightYellow: '#eab308',
+							brightBlue: '#3b82f6',
+							brightMagenta: '#a855f7',
+							brightCyan: '#06b6d4',
+							brightWhite: '#ffffff'
+						};
+					}
+				}
+
 				const termTrigger = document.querySelector('[data-tui-dialog-trigger="terminal-dialog"]');
 				const termContent = document.querySelector('[data-tui-dialog-content][data-dialog-instance="terminal-dialog"]');
 
@@ -343,28 +402,7 @@ templ Server(data ServerData) {
 								term = new Terminal({
 									cursorBlink: true,
 									cursorStyle: 'underline',
-									theme: {
-										background: '#09090b',
-										foreground: '#d4d4d8',
-										cursor: '#71717a',
-										selectionBackground: '#27272a',
-										black: '#09090b',
-										red: '#ef4444',
-										green: '#22c55e',
-										yellow: '#f59e0b',
-										blue: '#3b82f6',
-										magenta: '#a855f7',
-										cyan: '#06b6d4',
-										white: '#fafafa',
-										brightBlack: '#71717a',
-										brightRed: '#f87171',
-										brightGreen: '#4ade80',
-										brightYellow: '#fbbf24',
-										brightBlue: '#60a5fa',
-										brightMagenta: '#c084fc',
-										brightCyan: '#22d3ee',
-										brightWhite: '#ffffff'
-									},
+									theme: getTerminalTheme(),
 									fontSize: 14,
 									lineHeight: 1.2,
 									fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
@@ -392,6 +430,25 @@ templ Server(data ServerData) {
 											rows: term.rows,
 											cols: term.cols
 										}));
+									}
+								});
+
+								// Watch for theme changes
+								// **Validates: Requirements 1.8**
+								const observer = new MutationObserver(() => {
+									if (term) {
+										term.options.theme = getTerminalTheme();
+									}
+								});
+								observer.observe(document.documentElement, { 
+									attributes: true, 
+									attributeFilter: ['class'] 
+								});
+								
+								// Also listen for system theme changes
+								window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+									if (term) {
+										term.options.theme = getTerminalTheme();
 									}
 								});
 
