@@ -59,6 +59,8 @@ type Store interface {
 	Settings() SettingsStore
 	// Domains returns the DomainStore for custom domain operations.
 	Domains() DomainStore
+	// Invitations returns the InvitationStore for invitation operations.
+	Invitations() InvitationStore
 
 	// WithTx executes the given function within a database transaction.
 	// If the function returns an error, the transaction is rolled back.
@@ -69,13 +71,25 @@ type Store interface {
 	Close() error
 }
 
+// Role represents a user's role in the system.
+type Role string
+
+const (
+	// RoleOwner has full access and can invite users.
+	RoleOwner Role = "owner"
+	// RoleMember has standard access without admin functions.
+	RoleMember Role = "member"
+)
+
 // User represents a user in the system.
 type User struct {
 	ID        string `json:"id"`
 	Email     string `json:"email"`
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatar_url,omitempty"`
-	IsAdmin   bool   `json:"is_admin"`
+	Role      Role   `json:"role"`
+	InvitedBy string `json:"invited_by,omitempty"`
+	IsAdmin   bool   `json:"is_admin"` // Deprecated: use Role instead
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -83,6 +97,8 @@ type User struct {
 type UserStore interface {
 	// Create creates a new user with hashed password.
 	Create(ctx context.Context, email, password string, isAdmin bool) (*User, error)
+	// CreateWithRole creates a new user with hashed password and specified role.
+	CreateWithRole(ctx context.Context, email, password string, role Role, invitedBy string) (*User, error)
 	// GetByEmail retrieves a user by email.
 	GetByEmail(ctx context.Context, email string) (*User, error)
 	// GetByID retrieves a user by ID.
@@ -93,6 +109,12 @@ type UserStore interface {
 	Update(ctx context.Context, user *User) error
 	// List retrieves all users.
 	List(ctx context.Context) ([]*User, error)
+	// Delete removes a user by ID.
+	Delete(ctx context.Context, id string) error
+	// CountByRole returns the number of users with a specific role.
+	CountByRole(ctx context.Context, role Role) (int, error)
+	// GetFirstOwner returns the first user with owner role, if any.
+	GetFirstOwner(ctx context.Context) (*User, error)
 }
 
 // GitHubStore defines operations for GitHub App management.
@@ -202,6 +224,14 @@ type BuildStore interface {
 	ListByUser(ctx context.Context, userID string) ([]*models.BuildJob, error)
 	// ListPending retrieves all pending build jobs.
 	ListPending(ctx context.Context) ([]*models.BuildJob, error)
+	// ListRunning retrieves all builds with status 'running'.
+	// Used for startup recovery to identify interrupted builds.
+	// **Validates: Requirements 15.1, 15.2**
+	ListRunning(ctx context.Context) ([]*models.BuildJob, error)
+	// ListQueued retrieves all builds with status 'queued'.
+	// Used for startup recovery to resume pending builds.
+	// **Validates: Requirements 15.1**
+	ListQueued(ctx context.Context) ([]*models.BuildJob, error)
 }
 
 // SecretStore defines operations for secret management.
@@ -252,4 +282,22 @@ type DomainStore interface {
 	Delete(ctx context.Context, id string) error
 	// GetByDomain retrieves a domain mapping by the domain name itself.
 	GetByDomain(ctx context.Context, domain string) (*models.Domain, error)
+}
+
+// InvitationStore defines operations for invitation management.
+type InvitationStore interface {
+	// Create creates a new invitation.
+	Create(ctx context.Context, invitation *models.Invitation) error
+	// Get retrieves an invitation by ID.
+	Get(ctx context.Context, id string) (*models.Invitation, error)
+	// GetByToken retrieves an invitation by its token.
+	GetByToken(ctx context.Context, token string) (*models.Invitation, error)
+	// GetByEmail retrieves a pending invitation by email.
+	GetByEmail(ctx context.Context, email string) (*models.Invitation, error)
+	// List retrieves all invitations.
+	List(ctx context.Context) ([]*models.Invitation, error)
+	// Update updates an invitation.
+	Update(ctx context.Context, invitation *models.Invitation) error
+	// Delete removes an invitation.
+	Delete(ctx context.Context, id string) error
 }
