@@ -20,8 +20,8 @@ func NewDomainStore(db queryable) *domainStore {
 
 func (s *domainStore) Create(ctx context.Context, domain *models.Domain) error {
 	query := `
-		INSERT INTO domains (app_id, service, domain, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO domains (app_id, service, domain, is_wildcard, verified, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at
 	`
 	now := time.Now().UTC()
@@ -29,6 +29,8 @@ func (s *domainStore) Create(ctx context.Context, domain *models.Domain) error {
 		domain.AppID,
 		domain.Service,
 		domain.Domain,
+		domain.IsWildcard,
+		domain.Verified,
 		now,
 		now,
 	).Scan(&domain.ID, &domain.CreatedAt)
@@ -43,7 +45,7 @@ func (s *domainStore) Create(ctx context.Context, domain *models.Domain) error {
 
 func (s *domainStore) Get(ctx context.Context, id string) (*models.Domain, error) {
 	query := `
-		SELECT id, app_id, service, domain, created_at, updated_at
+		SELECT id, app_id, service, domain, is_wildcard, verified, created_at, updated_at
 		FROM domains
 		WHERE id = $1
 	`
@@ -53,6 +55,8 @@ func (s *domainStore) Get(ctx context.Context, id string) (*models.Domain, error
 		&domain.AppID,
 		&domain.Service,
 		&domain.Domain,
+		&domain.IsWildcard,
+		&domain.Verified,
 		&domain.CreatedAt,
 		&domain.UpdatedAt,
 	)
@@ -69,7 +73,7 @@ func (s *domainStore) Get(ctx context.Context, id string) (*models.Domain, error
 
 func (s *domainStore) List(ctx context.Context, appID string) ([]*models.Domain, error) {
 	query := `
-		SELECT id, app_id, service, domain, created_at, updated_at
+		SELECT id, app_id, service, domain, is_wildcard, verified, created_at, updated_at
 		FROM domains
 		WHERE app_id = $1
 		ORDER BY created_at DESC
@@ -88,6 +92,8 @@ func (s *domainStore) List(ctx context.Context, appID string) ([]*models.Domain,
 			&domain.AppID,
 			&domain.Service,
 			&domain.Domain,
+			&domain.IsWildcard,
+			&domain.Verified,
 			&domain.CreatedAt,
 			&domain.UpdatedAt,
 		); err != nil {
@@ -119,7 +125,7 @@ func (s *domainStore) Delete(ctx context.Context, id string) error {
 
 func (s *domainStore) GetByDomain(ctx context.Context, domainName string) (*models.Domain, error) {
 	query := `
-		SELECT id, app_id, service, domain, created_at, updated_at
+		SELECT id, app_id, service, domain, is_wildcard, verified, created_at, updated_at
 		FROM domains
 		WHERE domain = $1
 	`
@@ -129,6 +135,8 @@ func (s *domainStore) GetByDomain(ctx context.Context, domainName string) (*mode
 		&domain.AppID,
 		&domain.Service,
 		&domain.Domain,
+		&domain.IsWildcard,
+		&domain.Verified,
 		&domain.CreatedAt,
 		&domain.UpdatedAt,
 	)
@@ -141,4 +149,37 @@ func (s *domainStore) GetByDomain(ctx context.Context, domainName string) (*mode
 	}
 
 	return domain, nil
+}
+
+func (s *domainStore) ListAll(ctx context.Context) ([]*models.Domain, error) {
+	query := `
+		SELECT id, app_id, service, domain, is_wildcard, verified, created_at, updated_at
+		FROM domains
+		ORDER BY created_at DESC
+	`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("querying all domains: %w", err)
+	}
+	defer rows.Close()
+
+	var domains []*models.Domain
+	for rows.Next() {
+		domain := &models.Domain{}
+		if err := rows.Scan(
+			&domain.ID,
+			&domain.AppID,
+			&domain.Service,
+			&domain.Domain,
+			&domain.IsWildcard,
+			&domain.Verified,
+			&domain.CreatedAt,
+			&domain.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning domain: %w", err)
+		}
+		domains = append(domains, domain)
+	}
+
+	return domains, nil
 }
