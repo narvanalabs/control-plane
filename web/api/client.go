@@ -73,6 +73,7 @@ type Service struct {
 	BuildStrategy BuildStrategy     `json:"build_strategy,omitempty"`
 	BuildConfig   *BuildConfig      `json:"build_config,omitempty"`
 	Replicas      int               `json:"replicas"`
+	Port          int               `json:"port,omitempty"`          // Container port the app listens on
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	DependsOn     []string          `json:"depends_on,omitempty"`
 }
@@ -327,6 +328,87 @@ func (c *Client) Register(ctx context.Context, email, password string) (*AuthRes
 	var resp AuthResponse
 	err := c.post(ctx, "/auth/register", req, &resp)
 	return &resp, err
+}
+
+// CanRegister checks if public registration is allowed (no owner exists yet).
+func (c *Client) CanRegister(ctx context.Context) (bool, error) {
+	var resp struct {
+		CanRegister bool `json:"can_register"`
+	}
+	err := c.Get(ctx, "/auth/can-register", &resp)
+	return resp.CanRegister, err
+}
+
+// ============================================================================
+// Organization Methods
+// ============================================================================
+
+// Organization represents an organization from the API.
+type Organization struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	IconURL     string `json:"icon_url"`
+}
+
+// ListOrgs fetches all organizations for the current user.
+func (c *Client) ListOrgs(ctx context.Context) ([]Organization, error) {
+	var orgs []Organization
+	err := c.Get(ctx, "/v1/orgs", &orgs)
+	if orgs == nil {
+		orgs = []Organization{}
+	}
+	return orgs, err
+}
+
+// GetOrg fetches an organization by ID.
+func (c *Client) GetOrg(ctx context.Context, orgID string) (*Organization, error) {
+	var org Organization
+	err := c.Get(ctx, "/v1/orgs/"+orgID, &org)
+	return &org, err
+}
+
+// GetOrgBySlug fetches an organization by slug.
+func (c *Client) GetOrgBySlug(ctx context.Context, slug string) (*Organization, error) {
+	var org Organization
+	err := c.Get(ctx, "/v1/orgs/slug/"+slug, &org)
+	return &org, err
+}
+
+// CreateOrgRequest is the request body for creating an organization.
+type CreateOrgRequest struct {
+	Name        string `json:"name"`
+	Slug        string `json:"slug,omitempty"`
+	Description string `json:"description,omitempty"`
+	IconURL     string `json:"icon_url,omitempty"`
+}
+
+// CreateOrg creates a new organization.
+func (c *Client) CreateOrg(ctx context.Context, req CreateOrgRequest) (*Organization, error) {
+	var org Organization
+	err := c.post(ctx, "/v1/orgs", req, &org)
+	return &org, err
+}
+
+// UpdateOrgRequest is the request body for updating an organization.
+type UpdateOrgRequest struct {
+	Name        string `json:"name,omitempty"`
+	Slug        string `json:"slug,omitempty"`
+	Description string `json:"description,omitempty"`
+	IconURL     string `json:"icon_url,omitempty"`
+}
+
+// UpdateOrg updates an organization.
+func (c *Client) UpdateOrg(ctx context.Context, orgID string, req UpdateOrgRequest) (*Organization, error) {
+	var org Organization
+	err := c.patch(ctx, "/v1/orgs/"+orgID, req, &org)
+	return &org, err
+}
+
+// DeleteOrg deletes an organization.
+func (c *Client) DeleteOrg(ctx context.Context, orgID string) error {
+	return c.delete(ctx, "/v1/orgs/"+orgID)
 }
 
 // ============================================================================
