@@ -407,3 +407,47 @@ func (s *BuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, error
 
 	return s.scanBuilds(rows)
 }
+
+// ListRunning retrieves all builds with status 'running'.
+// Used for startup recovery to identify interrupted builds.
+// **Validates: Requirements 15.1, 15.2**
+func (s *BuildStore) ListRunning(ctx context.Context) ([]*models.BuildJob, error) {
+	query := `
+		SELECT id, deployment_id, app_id, git_url, git_ref, 
+			flake_output, build_type, status, created_at, started_at, finished_at,
+			build_strategy, timeout_seconds, retry_count, retry_as_oci,
+			generated_flake, flake_lock, vendor_hash
+		FROM builds
+		WHERE status = 'running'
+		ORDER BY created_at ASC`
+
+	rows, err := s.conn().QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("querying running builds: %w", err)
+	}
+	defer rows.Close()
+
+	return s.scanBuilds(rows)
+}
+
+// ListQueued retrieves all builds with status 'queued'.
+// Used for startup recovery to resume pending builds.
+// **Validates: Requirements 15.1**
+func (s *BuildStore) ListQueued(ctx context.Context) ([]*models.BuildJob, error) {
+	query := `
+		SELECT id, deployment_id, app_id, git_url, git_ref, 
+			flake_output, build_type, status, created_at, started_at, finished_at,
+			build_strategy, timeout_seconds, retry_count, retry_as_oci,
+			generated_flake, flake_lock, vendor_hash
+		FROM builds
+		WHERE status = 'queued'
+		ORDER BY created_at ASC`
+
+	rows, err := s.conn().QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("querying queued builds: %w", err)
+	}
+	defer rows.Close()
+
+	return s.scanBuilds(rows)
+}
