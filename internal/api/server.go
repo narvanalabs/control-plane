@@ -14,6 +14,7 @@ import (
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/auth"
 	"github.com/narvanalabs/control-plane/internal/queue"
+	"github.com/narvanalabs/control-plane/internal/secrets"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/internal/podman"
 	"github.com/narvanalabs/control-plane/pkg/config"
@@ -21,13 +22,14 @@ import (
 
 // Server represents the HTTP API server.
 type Server struct {
-	router     chi.Router
-	httpServer *http.Server
-	store      store.Store
-	queue      queue.Queue
-	auth       *auth.Service
-	config     *config.Config
-	logger     *slog.Logger
+	router      chi.Router
+	httpServer  *http.Server
+	store       store.Store
+	queue       queue.Queue
+	auth        *auth.Service
+	sopsService *secrets.SOPSService
+	config      *config.Config
+	logger      *slog.Logger
 }
 
 // NewServer creates a new API server with the given dependencies.
@@ -42,6 +44,22 @@ func NewServer(cfg *config.Config, st store.Store, q queue.Queue, authSvc *auth.
 		auth:   authSvc,
 		config: cfg,
 		logger: logger,
+	}
+
+	// Initialize SOPS service if configured
+	if cfg.SOPS.AgePublicKey != "" || cfg.SOPS.AgePrivateKey != "" {
+		sopsService, err := secrets.NewSOPSService(&secrets.Config{
+			AgePublicKey:  cfg.SOPS.AgePublicKey,
+			AgePrivateKey: cfg.SOPS.AgePrivateKey,
+		}, logger)
+		if err != nil {
+			logger.Error("failed to initialize SOPS service", "error", err)
+		} else {
+			s.sopsService = sopsService
+			logger.Info("SOPS service initialized", "can_encrypt", sopsService.CanEncrypt(), "can_decrypt", sopsService.CanDecrypt())
+		}
+	} else {
+		logger.Warn("SOPS not configured, secrets will be stored without encryption")
 	}
 
 	s.setupRouter()
@@ -65,6 +83,7 @@ func (s *Server) setupRouter() {
 
 	// Auth routes (no auth required)
 	authHandler := handlers.NewAuthHandler(s.store, s.auth, s.logger)
+	invitationsPublicHandler := handlers.NewInvitationsHandler(s.store, s.auth, s.logger)
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/setup", authHandler.SetupCheck)
 		r.Post("/register", authHandler.Register)
@@ -72,6 +91,9 @@ func (s *Server) setupRouter() {
 		r.Post("/device/start", authHandler.DeviceAuthStart)
 		r.Get("/device/poll", authHandler.DeviceAuthPoll)
 		r.Post("/device/approve", authHandler.DeviceAuthApprove)
+		// Invitation acceptance (public)
+		r.Get("/invite/{token}", invitationsPublicHandler.GetByToken)
+		r.Post("/invite/accept", invitationsPublicHandler.Accept)
 	})
 
 	// GitHub callbacks (public)
@@ -149,7 +171,7 @@ func (s *Server) setupRouter() {
 				r.Get("/logs/stream", logStreamHandler.Stream)
 
 				// Secret routes nested under apps
-				secretHandler := handlers.NewSecretHandler(s.store, s.logger)
+				secretHandler := handlers.NewSecretHandler(s.store, s.sopsService, s.logger)
 				r.Route("/secrets", func(r chi.Router) {
 					r.Post("/", secretHandler.Create)
 					r.Get("/", secretHandler.List)
@@ -222,6 +244,21 @@ func (s *Server) setupRouter() {
 		r.Route("/user", func(r chi.Router) {
 			r.Get("/profile", userHandler.GetProfile)
 			r.Patch("/profile", userHandler.UpdateProfile)
+		})
+
+		// Users management routes (admin only)
+		usersHandler := handlers.NewUsersHandler(s.store, s.logger)
+		r.Route("/users", func(r chi.Router) {
+			r.Get("/", usersHandler.List)
+			r.Delete("/{userID}", usersHandler.Delete)
+		})
+
+		// Invitations routes (admin only)
+		invitationsHandler := handlers.NewInvitationsHandler(s.store, s.auth, s.logger)
+		r.Route("/invitations", func(r chi.Router) {
+			r.Post("/", invitationsHandler.Create)
+			r.Get("/", invitationsHandler.List)
+			r.Delete("/{invitationID}", invitationsHandler.Revoke)
 		})
 
 		// Server management routes
