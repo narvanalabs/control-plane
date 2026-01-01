@@ -32,6 +32,19 @@ type Config struct {
 
 	// Worker configuration
 	Worker WorkerConfig
+
+	// SOPS configuration for secrets encryption
+	SOPS SOPSConfig
+}
+
+// SOPSConfig holds SOPS-Nix secrets encryption configuration.
+type SOPSConfig struct {
+	// AgePublicKey is the age public key for encryption (required for API server).
+	// Format: age1... (Bech32 encoded)
+	AgePublicKey string
+	// AgePrivateKey is the age private key for decryption (required for node agents).
+	// Format: AGE-SECRET-KEY-1... (Bech32 encoded)
+	AgePrivateKey string
 }
 
 // SchedulerConfig holds scheduler-specific configuration.
@@ -71,6 +84,10 @@ func Load() (*Config, error) {
 			PodmanSocket:   getEnv("PODMAN_SOCKET", "unix:///run/user/1000/podman/podman.sock"),
 			BuildTimeout:   getDurationEnv("BUILD_TIMEOUT", 30*time.Minute),
 			MaxConcurrency: getIntEnv("WORKER_MAX_CONCURRENCY", 4),
+		},
+		SOPS: SOPSConfig{
+			AgePublicKey:  getEnv("SOPS_AGE_PUBLIC_KEY", ""),
+			AgePrivateKey: getEnv("SOPS_AGE_PRIVATE_KEY", ""),
 		},
 	}
 
@@ -115,6 +132,10 @@ func LoadWithDefaults() *Config {
 			PodmanSocket:   getEnv("PODMAN_SOCKET", "unix:///run/user/1000/podman/podman.sock"),
 			BuildTimeout:   getDurationEnv("BUILD_TIMEOUT", 30*time.Minute),
 			MaxConcurrency: getIntEnv("WORKER_MAX_CONCURRENCY", 4),
+		},
+		SOPS: SOPSConfig{
+			AgePublicKey:  getEnv("SOPS_AGE_PUBLIC_KEY", ""),
+			AgePrivateKey: getEnv("SOPS_AGE_PRIVATE_KEY", ""),
 		},
 	}
 }
