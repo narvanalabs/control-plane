@@ -78,6 +78,10 @@ func (m *serviceMockStore) Domains() store.DomainStore {
 	return nil
 }
 
+func (m *serviceMockStore) Invitations() store.InvitationStore {
+	return nil
+}
+
 func (m *serviceMockStore) Orgs() store.OrgStore {
 	return nil
 }
