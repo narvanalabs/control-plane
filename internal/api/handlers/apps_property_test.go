@@ -330,3 +330,148 @@ func setupTestRouter(st store.Store, logger *slog.Logger) chi.Router {
 	})
 	return r
 }
+
+// **Feature: platform-enhancements, Property 12: Application CRUD Round-Trip**
+// *For any* valid application data, creating an application and then retrieving it by ID
+// SHALL return equivalent data.
+// **Validates: Requirements 21.1, 21.2**
+func TestAppCRUDRoundTripHandler(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+	logger := slog.Default()
+
+	properties.Property("App CRUD round-trip preserves data via handlers", prop.ForAll(
+		func(userID, appName, description string) bool {
+			// Create a mock store
+			st := newMockStore()
+			r := setupTestRouter(st, logger)
+
+			// CREATE: Create the app
+			reqBody := CreateAppRequest{
+				Name:        appName,
+				Description: description,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			req := httptest.NewRequest("POST", "/v1/apps", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusCreated {
+				t.Logf("Create failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			var createdApp models.App
+			if err := json.NewDecoder(rr.Body).Decode(&createdApp); err != nil {
+				t.Logf("Failed to decode created app: %v", err)
+				return false
+			}
+
+			// Verify created app has correct data
+			if createdApp.Name != appName {
+				t.Logf("Name mismatch: got %s, want %s", createdApp.Name, appName)
+				return false
+			}
+			if createdApp.Description != description {
+				t.Logf("Description mismatch: got %s, want %s", createdApp.Description, description)
+				return false
+			}
+			if createdApp.OwnerID != userID {
+				t.Logf("OwnerID mismatch: got %s, want %s", createdApp.OwnerID, userID)
+				return false
+			}
+
+			// READ: Retrieve the app by ID
+			req = httptest.NewRequest("GET", "/v1/apps/"+createdApp.ID, nil)
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Logf("Get failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			var retrievedApp models.App
+			if err := json.NewDecoder(rr.Body).Decode(&retrievedApp); err != nil {
+				t.Logf("Failed to decode retrieved app: %v", err)
+				return false
+			}
+
+			// Verify retrieved app matches created app
+			if retrievedApp.ID != createdApp.ID {
+				t.Logf("ID mismatch: got %s, want %s", retrievedApp.ID, createdApp.ID)
+				return false
+			}
+			if retrievedApp.Name != createdApp.Name {
+				t.Logf("Name mismatch after get: got %s, want %s", retrievedApp.Name, createdApp.Name)
+				return false
+			}
+			if retrievedApp.Description != createdApp.Description {
+				t.Logf("Description mismatch after get: got %s, want %s", retrievedApp.Description, createdApp.Description)
+				return false
+			}
+			if retrievedApp.OwnerID != createdApp.OwnerID {
+				t.Logf("OwnerID mismatch after get: got %s, want %s", retrievedApp.OwnerID, createdApp.OwnerID)
+				return false
+			}
+
+			// DELETE: Delete the app
+			req = httptest.NewRequest("DELETE", "/v1/apps/"+createdApp.ID, nil)
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNoContent {
+				t.Logf("Delete failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			// Verify app is no longer in list
+			req = httptest.NewRequest("GET", "/v1/apps", nil)
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Logf("List after delete failed with status %d", rr.Code)
+				return false
+			}
+
+			var listedApps []*models.App
+			if err := json.NewDecoder(rr.Body).Decode(&listedApps); err != nil {
+				t.Logf("Failed to decode listed apps: %v", err)
+				return false
+			}
+
+			// Deleted app should not appear in list
+			for _, app := range listedApps {
+				if app.ID == createdApp.ID {
+					t.Logf("Deleted app still appears in list")
+					return false
+				}
+			}
+
+			return true
+		},
+		genUserID(),
+		genAppName(),
+		gen.AlphaString(), // description
+	))
+
+	properties.TestingRun(t)
+}
