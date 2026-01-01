@@ -422,9 +422,10 @@ func TestServiceUpdatePreservesFields(t *testing.T) {
 }
 
 // **Feature: service-git-repos, Property 7: Dependency Deletion Prevention**
+// **Feature: platform-enhancements, Property 14: Service Deletion Dependency Check**
 // *For any* service that is listed in another service's depends_on,
 // attempting to delete it SHALL be rejected with a dependency error.
-// **Validates: Requirements 4.2**
+// **Validates: Requirements 4.2, 22.5**
 func TestDependencyDeletionPrevention(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
 	parameters.MinSuccessfulTests = 100
@@ -646,6 +647,210 @@ func TestServiceListingCompleteness(t *testing.T) {
 		},
 		genUserID(),
 		gen.IntRange(1, 5), // service count
+	))
+
+	properties.TestingRun(t)
+}
+
+// **Feature: platform-enhancements, Property 13: Service CRUD Round-Trip**
+// *For any* valid service configuration, creating a service and then retrieving it
+// SHALL return equivalent configuration.
+// **Validates: Requirements 22.1, 22.2**
+func TestServiceCRUDRoundTrip(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+	logger := slog.Default()
+
+	properties.Property("Service CRUD round-trip preserves data", prop.ForAll(
+		func(userID, serviceName, gitRepo string, replicas int) bool {
+			// Create a mock store
+			st := newServiceMockStore()
+			handler := NewServiceHandler(st, (*podman.Client)(nil), logger)
+
+			// Create an app first
+			appID := uuid.New().String()
+			now := time.Now()
+			app := &models.App{
+				ID:        appID,
+				OwnerID:   userID,
+				Name:      "test-app",
+				Services:  []models.ServiceConfig{},
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+			st.appStore.Create(context.Background(), app)
+
+			// Create router for testing
+			r := chi.NewRouter()
+			r.Route("/v1/apps/{appID}/services", func(r chi.Router) {
+				r.Post("/", handler.Create)
+				r.Route("/{serviceName}", func(r chi.Router) {
+					r.Get("/", handler.Get)
+					r.Patch("/", handler.Update)
+					r.Delete("/", handler.Delete)
+				})
+			})
+
+			// CREATE: Create a service
+			reqBody := CreateServiceRequest{
+				Name:         serviceName,
+				GitRepo:      gitRepo,
+				ResourceTier: models.ResourceTierMedium,
+				Replicas:     replicas,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			req := httptest.NewRequest("POST", "/v1/apps/"+appID+"/services", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusCreated {
+				t.Logf("Create failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			var createdService models.ServiceConfig
+			if err := json.NewDecoder(rr.Body).Decode(&createdService); err != nil {
+				t.Logf("Failed to decode created service: %v", err)
+				return false
+			}
+
+			// Verify created service has correct data
+			if createdService.Name != serviceName {
+				t.Logf("Name mismatch: got %s, want %s", createdService.Name, serviceName)
+				return false
+			}
+			if createdService.GitRepo != gitRepo {
+				t.Logf("GitRepo mismatch: got %s, want %s", createdService.GitRepo, gitRepo)
+				return false
+			}
+			if createdService.ResourceTier != models.ResourceTierMedium {
+				t.Logf("ResourceTier mismatch: got %s, want %s", createdService.ResourceTier, models.ResourceTierMedium)
+				return false
+			}
+			if createdService.Replicas != replicas {
+				t.Logf("Replicas mismatch: got %d, want %d", createdService.Replicas, replicas)
+				return false
+			}
+
+			// READ: Retrieve the service
+			req = httptest.NewRequest("GET", "/v1/apps/"+appID+"/services/"+serviceName, nil)
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Logf("Get failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			var retrievedService models.ServiceConfig
+			if err := json.NewDecoder(rr.Body).Decode(&retrievedService); err != nil {
+				t.Logf("Failed to decode retrieved service: %v", err)
+				return false
+			}
+
+			// Verify retrieved service matches created service
+			if retrievedService.Name != createdService.Name {
+				t.Logf("Name mismatch after get: got %s, want %s", retrievedService.Name, createdService.Name)
+				return false
+			}
+			if retrievedService.GitRepo != createdService.GitRepo {
+				t.Logf("GitRepo mismatch after get: got %s, want %s", retrievedService.GitRepo, createdService.GitRepo)
+				return false
+			}
+			if retrievedService.ResourceTier != createdService.ResourceTier {
+				t.Logf("ResourceTier mismatch after get: got %s, want %s", retrievedService.ResourceTier, createdService.ResourceTier)
+				return false
+			}
+			if retrievedService.Replicas != createdService.Replicas {
+				t.Logf("Replicas mismatch after get: got %d, want %d", retrievedService.Replicas, createdService.Replicas)
+				return false
+			}
+
+			// UPDATE: Update the service replicas
+			newReplicas := replicas + 1
+			updateBody := map[string]interface{}{
+				"replicas": newReplicas,
+			}
+			body, _ = json.Marshal(updateBody)
+
+			req = httptest.NewRequest("PATCH", "/v1/apps/"+appID+"/services/"+serviceName, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Logf("Update failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			var updatedService models.ServiceConfig
+			if err := json.NewDecoder(rr.Body).Decode(&updatedService); err != nil {
+				t.Logf("Failed to decode updated service: %v", err)
+				return false
+			}
+
+			// Verify update was applied
+			if updatedService.Replicas != newReplicas {
+				t.Logf("Replicas not updated: got %d, want %d", updatedService.Replicas, newReplicas)
+				return false
+			}
+
+			// Verify other fields were preserved
+			if updatedService.Name != serviceName {
+				t.Logf("Name changed during update: got %s, want %s", updatedService.Name, serviceName)
+				return false
+			}
+			if updatedService.GitRepo != gitRepo {
+				t.Logf("GitRepo changed during update: got %s, want %s", updatedService.GitRepo, gitRepo)
+				return false
+			}
+
+			// DELETE: Delete the service
+			req = httptest.NewRequest("DELETE", "/v1/apps/"+appID+"/services/"+serviceName, nil)
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNoContent {
+				t.Logf("Delete failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			// Verify service is deleted (get should return 404)
+			req = httptest.NewRequest("GET", "/v1/apps/"+appID+"/services/"+serviceName, nil)
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNotFound {
+				t.Logf("Service still exists after delete, got status %d", rr.Code)
+				return false
+			}
+
+			return true
+		},
+		genUserID(),
+		genServiceName(),
+		genGitRepo(),
+		gen.IntRange(1, 5), // replicas
 	))
 
 	properties.TestingRun(t)
