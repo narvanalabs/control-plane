@@ -1,0 +1,108 @@
+package auth
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/alert"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+)
+
+// AcceptInviteData holds the data for the invitation acceptance page.
+type AcceptInviteData struct {
+	Token     string
+	Email     string
+	IsValid   bool
+	IsExpired bool
+	Error     string
+}
+
+// AcceptInvite renders the invitation acceptance page.
+templ AcceptInvite(data AcceptInviteData) {
+	@layouts.Base("Accept Invitation") {
+		<div class="flex min-h-screen items-center justify-center bg-background">
+			<div class="w-full max-w-md px-4">
+				// Logo/Brand
+				<div class="mb-8 text-center">
+					@icon.LayoutPanelLeft(icon.Props{Class: "size-12 mx-auto mb-4 text-primary"})
+					<h1 class="text-2xl font-bold">Narvana</h1>
+					<p class="text-muted-foreground">
+						if data.IsValid {
+							Set up your account to join the platform
+						} else if data.IsExpired {
+							This invitation has expired
+						} else {
+							This invitation is no longer valid
+						}
+					</p>
+				</div>
+				
+				@card.Card() {
+					@card.Content(card.ContentProps{Class: "pt-6"}) {
+						if data.Error != "" {
+							@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Class: "mb-4"}) {
+								@alert.Description() { { data.Error } }
+							}
+						}
+						if data.IsValid {
+							<form method="POST" action="/invite/accept" class="space-y-4">
+								<input type="hidden" name="token" value={ data.Token }/>
+								@form.Item() {
+									@label.Label(label.Props{For: "email"}) { Email }
+									@input.Input(input.Props{
+										ID:       "email",
+										Name:     "email",
+										Type:     input.TypeEmail,
+										Value:    data.Email,
+										Disabled: true,
+									})
+									@form.Description() { This is the email address you were invited with. }
+								}
+								@form.Item() {
+									@label.Label(label.Props{For: "password"}) { Password }
+									@input.Input(input.Props{
+										ID:          "password",
+										Name:        "password",
+										Type:        input.TypePassword,
+										Placeholder: "Create a password",
+										Attributes:  templ.Attributes{"required": true},
+									})
+									@form.Description() { Must be at least 8 characters. }
+								}
+								@form.Item() {
+									@label.Label(label.Props{For: "confirm_password"}) { Confirm Password }
+									@input.Input(input.Props{
+										ID:          "confirm_password",
+										Name:        "confirm_password",
+										Type:        input.TypePassword,
+										Placeholder: "Confirm your password",
+										Attributes:  templ.Attributes{"required": true},
+									})
+								}
+								@button.Button(button.Props{Type: "submit", Class: "w-full"}) {
+									Create Account
+								}
+							</form>
+						} else {
+							<div class="text-center py-4">
+								<p class="text-muted-foreground mb-4">
+									if data.IsExpired {
+										Please contact your administrator to request a new invitation.
+									} else {
+										This invitation may have already been used or revoked.
+									}
+								</p>
+								<a href="/login" class="text-primary hover:underline">
+									Go to Login
+								</a>
+							</div>
+						}
+					}
+				}
+			</div>
+		</div>
+	}
+}

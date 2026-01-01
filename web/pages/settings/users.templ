@@ -1,0 +1,248 @@
+package settings
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/table"
+	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/selectbox"
+	"github.com/narvanalabs/control-plane/web/api"
+	"time"
+)
+
+// UsersData holds the data for the users management page.
+type UsersData struct {
+	Users       []api.UserInfo
+	Invitations []api.Invitation
+	CurrentUser *api.UserInfo
+	SuccessMsg  string
+	ErrorMsg    string
+}
+
+// Users renders the users management page.
+templ Users(data UsersData) {
+	@layouts.PageWithSidebar("Users", "/settings/users") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<div>
+					<h1 class="text-2xl font-bold">Users</h1>
+					<p class="text-muted-foreground">Manage users and invitations for your platform</p>
+				</div>
+				@dialog.Dialog(dialog.Props{ID: "invite-dialog"}) {
+					@dialog.Trigger(dialog.TriggerProps{For: "invite-dialog"}) {
+						@button.Button(button.Props{}) {
+							@icon.UserPlus(icon.Props{Class: "size-4 mr-2"})
+							Invite User
+						}
+					}
+					@dialog.Content(dialog.ContentProps{}) {
+						@dialog.Header() {
+							@dialog.Title() { Invite New User }
+							@dialog.Description() { Send an invitation email to add a new user to the platform. }
+						}
+						<form method="POST" action="/settings/users/invite" class="space-y-4">
+							@form.Item() {
+								@label.Label(label.Props{For: "email"}) { Email Address }
+								@input.Input(input.Props{
+									ID:          "email",
+									Name:        "email",
+									Type:        input.TypeEmail,
+									Placeholder: "user@example.com",
+									Attributes:  templ.Attributes{"required": true},
+								})
+							}
+							@form.Item() {
+								@label.Label(label.Props{For: "role"}) { Role }
+								@selectbox.SelectBox(selectbox.Props{ID: "role"}) {
+									@selectbox.Trigger(selectbox.TriggerProps{Name: "role"}) {
+										@selectbox.Value(selectbox.ValueProps{Placeholder: "Select a role"})
+									}
+									@selectbox.Content() {
+										@selectbox.Item(selectbox.ItemProps{Value: "member"}) { Member }
+										@selectbox.Item(selectbox.ItemProps{Value: "owner"}) { Owner }
+									}
+								}
+								@form.Description() { Members can view and deploy apps. Owners have full administrative access. }
+							}
+							@dialog.Footer() {
+								@dialog.Close(dialog.CloseProps{For: "invite-dialog"}) {
+									@button.Button(button.Props{Variant: button.VariantOutline, Type: "button"}) {
+										Cancel
+									}
+								}
+								@button.Button(button.Props{Type: "submit"}) {
+									Send Invitation
+								}
+							}
+						</form>
+					}
+				}
+			</div>
+
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Team Members }
+					@card.Description() { Users who have access to this platform. }
+				}
+				@card.Content() {
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { User }
+								@table.Head() { Role }
+								@table.Head() { Joined }
+								@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
+							}
+						}
+						@table.Body() {
+							for _, user := range data.Users {
+								@table.Row() {
+									@table.Cell() {
+										<div class="flex items-center gap-3">
+											<div class="size-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
+												if len(user.Name) > 0 {
+													{ string(user.Name[0]) }
+												} else if len(user.Email) > 0 {
+													{ string(user.Email[0]) }
+												}
+											</div>
+											<div>
+												<p class="font-medium">
+													if user.Name != "" {
+														{ user.Name }
+													} else {
+														{ user.Email }
+													}
+												</p>
+												<p class="text-sm text-muted-foreground">{ user.Email }</p>
+											</div>
+										</div>
+									}
+									@table.Cell() {
+										if user.Role == "owner" {
+											@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { Owner }
+										} else {
+											@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { Member }
+										}
+									}
+									@table.Cell() {
+										<span class="text-sm text-muted-foreground">
+											{ formatTimestamp(user.CreatedAt) }
+										</span>
+									}
+									@table.Cell(table.CellProps{Class: "text-right"}) {
+										if data.CurrentUser != nil && user.ID != data.CurrentUser.ID {
+											<form method="POST" action="/settings/users/delete" class="inline">
+												<input type="hidden" name="user_id" value={ user.ID }/>
+												@button.Button(button.Props{
+													Variant: button.VariantGhost,
+													Size:    button.SizeSm,
+													Class:   "text-destructive hover:text-destructive",
+													Type:    "submit",
+													Attributes: templ.Attributes{
+														"onclick": "return confirm('Are you sure you want to remove this user?')",
+													},
+												}) {
+													@icon.Trash2(icon.Props{Class: "size-4"})
+												}
+											</form>
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Pending Invitations }
+					@card.Description() { Invitations that have been sent but not yet accepted. }
+				}
+				@card.Content() {
+					if len(data.Invitations) == 0 {
+						<div class="text-center py-8 text-muted-foreground">
+							<p>No pending invitations</p>
+						</div>
+					} else {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() { Email }
+									@table.Head() { Role }
+									@table.Head() { Status }
+									@table.Head() { Expires }
+									@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
+								}
+							}
+							@table.Body() {
+								for _, inv := range data.Invitations {
+									@table.Row() {
+										@table.Cell() {
+											<span class="font-medium">{ inv.Email }</span>
+										}
+										@table.Cell() {
+											if inv.Role == "owner" {
+												@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { Owner }
+											} else {
+												@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { Member }
+											}
+										}
+										@table.Cell() {
+											if inv.Status == "pending" {
+												@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { Pending }
+											} else if inv.Status == "accepted" {
+												@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { Accepted }
+											} else if inv.Status == "expired" {
+												@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { Expired }
+											} else {
+												@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { inv.Status } }
+											}
+										}
+										@table.Cell() {
+											<span class="text-sm text-muted-foreground">{ inv.ExpiresAt }</span>
+										}
+										@table.Cell(table.CellProps{Class: "text-right"}) {
+											if inv.Status == "pending" {
+												<form method="POST" action="/settings/users/revoke" class="inline">
+													<input type="hidden" name="invitation_id" value={ inv.ID }/>
+													@button.Button(button.Props{
+														Variant: button.VariantGhost,
+														Size:    button.SizeSm,
+														Class:   "text-destructive hover:text-destructive",
+														Type:    "submit",
+														Attributes: templ.Attributes{
+															"onclick": "return confirm('Are you sure you want to revoke this invitation?')",
+														},
+													}) {
+														Revoke
+													}
+												</form>
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		</div>
+	}
+}
+
+func formatTimestamp(ts int64) string {
+	if ts == 0 {
+		return "Unknown"
+	}
+	t := time.Unix(ts, 0)
+	return t.Format("Jan 2, 2006")
+}

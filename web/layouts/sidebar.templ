@@ -231,12 +231,12 @@ templ SidebarLayout(activePath string) {
 								<span>Settings</span>
 							}
 						}
-						if user.IsAdmin {
+						if user.Role == store.RoleOwner {
 							@sidebar.MenuItem() {
 								@sidebar.MenuButton(sidebar.MenuButtonProps{
-									Href:     "/users",
+									Href:     "/settings/users",
 									Tooltip:  "Users",
-									IsActive: isActive(activePath, "/users"),
+									IsActive: isActive(activePath, "/settings/users"),
 								}) {
 									@icon.Users(icon.Props{Class: "size-4"})
 									<span>Users</span>
