@@ -2,10 +2,14 @@ package nodes
 
 import (
 	"fmt"
+	"time"
 	
 	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/alert"
 	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/button"
 	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/progress"
 	"github.com/narvanalabs/control-plane/web/api"
@@ -13,25 +17,107 @@ import (
 
 // ListData holds the data for the nodes list page
 type ListData struct {
-	Nodes []api.Node
+	Nodes  []api.Node
+	APIURL string // The API URL for node registration
 }
 
 // List renders the nodes list page
 templ List(data ListData) {
 	@layouts.PageWithSidebar("Nodes", "/nodes") {
 		<div class="space-y-6">
-			<div>
-				<h1 class="text-2xl font-bold">Nodes</h1>
-				<p class="text-muted-foreground">Monitor compute nodes in your cluster</p>
+			<div class="flex items-center justify-between">
+				<div>
+					<h1 class="text-2xl font-bold">Nodes</h1>
+					<p class="text-muted-foreground">Monitor compute nodes in your cluster</p>
+				</div>
+				@dialog.Dialog(dialog.Props{ID: "add-node-dialog"}) {
+					@dialog.Trigger() {
+						@button.Button(button.Props{}) {
+							@icon.Plus(icon.Props{Class: "size-4"})
+							Add Node
+						}
+					}
+					@dialog.Content(dialog.ContentProps{Class: "max-w-2xl"}) {
+						@dialog.Header() {
+							@dialog.Title() {
+								Add a New Node
+							}
+							@dialog.Description() {
+								Follow these instructions to register a new compute node with the Narvana platform.
+							}
+						}
+						<div class="space-y-4">
+							@alert.Alert() {
+								@icon.Info(icon.Props{Class: "size-4"})
+								@alert.Title() {
+									Prerequisites
+								}
+								@alert.Description() {
+									<ul class="list-disc list-inside space-y-1">
+										<li>A Linux server with Nix installed</li>
+										<li>Network access to the Narvana API</li>
+										<li>Podman installed for container runtime</li>
+									</ul>
+								}
+							}
+							<div class="space-y-2">
+								<h4 class="font-medium">Step 1: Install the Node Agent</h4>
+								<p class="text-sm text-muted-foreground">
+									Download and install the Narvana node agent on your server:
+								</p>
+								<div class="bg-muted rounded-md p-3 font-mono text-sm overflow-x-auto">
+									<code>curl -sSL { data.APIURL }/install/agent.sh | sh</code>
+								</div>
+							</div>
+							<div class="space-y-2">
+								<h4 class="font-medium">Step 2: Configure the Agent</h4>
+								<p class="text-sm text-muted-foreground">
+									Run the following command to register the node with the control plane:
+								</p>
+								<div class="bg-muted rounded-md p-3 font-mono text-sm overflow-x-auto">
+									<code>narvana-agent register --api-url { data.APIURL }</code>
+								</div>
+							</div>
+							<div class="space-y-2">
+								<h4 class="font-medium">Step 3: Start the Agent</h4>
+								<p class="text-sm text-muted-foreground">
+									Start the node agent service:
+								</p>
+								<div class="bg-muted rounded-md p-3 font-mono text-sm overflow-x-auto">
+									<code>sudo systemctl enable --now narvana-agent</code>
+								</div>
+							</div>
+							<div class="pt-2 text-sm text-muted-foreground">
+								<p>
+									Once the agent is running, the node will appear in this list automatically.
+									The agent sends heartbeats every 10 seconds to report its status.
+								</p>
+							</div>
+						</div>
+						@dialog.Footer() {
+							@dialog.Close() {
+								@button.Button(button.Props{Variant: button.VariantOutline}) {
+									Close
+								}
+							}
+						}
+					}
+				}
 			</div>
 			
 			if len(data.Nodes) == 0 {
 				<div class="flex flex-col items-center justify-center rounded-lg border border-dashed p-12">
 					@icon.Server(icon.Props{Class: "size-12 text-muted-foreground mb-4"})
 					<h3 class="text-lg font-medium">No nodes registered</h3>
-					<p class="text-muted-foreground text-center mt-1">
+					<p class="text-muted-foreground text-center mt-1 mb-4">
 						Register a node to start deploying services
 					</p>
+					@dialog.Trigger(dialog.TriggerProps{For: "add-node-dialog"}) {
+						@button.Button(button.Props{}) {
+							@icon.Plus(icon.Props{Class: "size-4"})
+							Add Your First Node
+						}
+					}
 				</div>
 			} else {
 				<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -66,14 +152,46 @@ templ NodeCard(node api.Node) {
 		}
 		@card.Content() {
 			<div class="space-y-4">
-				<div class="text-sm text-muted-foreground font-mono">
-					{ node.Address }
+				<div class="space-y-1">
+					<div class="flex items-center gap-2 text-sm">
+						@icon.Globe(icon.Props{Class: "size-3.5 text-muted-foreground"})
+						<span class="text-muted-foreground">IP Address:</span>
+						<span class="font-mono">{ node.Address }</span>
+					</div>
+					<div class="flex items-center gap-2 text-sm">
+						@icon.Hash(icon.Props{Class: "size-3.5 text-muted-foreground"})
+						<span class="text-muted-foreground">Node ID:</span>
+						<span class="font-mono text-xs truncate max-w-[150px]" title={ node.ID }>{ node.ID }</span>
+					</div>
 				</div>
 				
 				if node.Healthy && node.Resources != nil {
 					<div class="space-y-3">
-						@ResourceBar("CPU", calcPercent(node.Resources.CPUTotal, node.Resources.CPUAvailable))
-						@ResourceBar("Memory", calcMemPercent(node.Resources.MemoryTotal, node.Resources.MemoryAvailable))
+						@ResourceBar("CPU", calcPercent(node.Resources.CPUTotal, node.Resources.CPUAvailable), fmt.Sprintf("%.1f / %.1f cores", node.Resources.CPUTotal - node.Resources.CPUAvailable, node.Resources.CPUTotal))
+						@ResourceBar("Memory", calcMemPercent(node.Resources.MemoryTotal, node.Resources.MemoryAvailable), fmt.Sprintf("%s / %s", formatBytes(node.Resources.MemoryTotal - node.Resources.MemoryAvailable), formatBytes(node.Resources.MemoryTotal)))
+					</div>
+				}
+				
+				if !node.Healthy {
+					<div class="rounded-md bg-destructive/10 p-3 space-y-2">
+						<div class="flex items-center gap-2 text-sm font-medium text-destructive">
+							@icon.TriangleAlert(icon.Props{Class: "size-4"})
+							Node Unhealthy
+						</div>
+						<div class="text-xs text-muted-foreground space-y-1">
+							<div class="flex items-center gap-2">
+								@icon.Clock(icon.Props{Class: "size-3"})
+								<span>Last heartbeat: { formatLastHeartbeat(node.LastHeartbeat) }</span>
+							</div>
+							<p class="text-destructive/80">
+								The node has not sent a heartbeat recently. Check if the node agent is running.
+							</p>
+						</div>
+					</div>
+				} else {
+					<div class="text-xs text-muted-foreground flex items-center gap-1">
+						@icon.Clock(icon.Props{Class: "size-3"})
+						<span>Last heartbeat: { formatLastHeartbeat(node.LastHeartbeat) }</span>
 					</div>
 				}
 			</div>
@@ -82,13 +200,14 @@ templ NodeCard(node api.Node) {
 }
 
 // ResourceBar renders a resource usage bar
-templ ResourceBar(label string, percent int) {
+templ ResourceBar(label string, percent int, detail string) {
 	<div class="space-y-1">
 		<div class="flex justify-between text-xs">
 			<span>{ label }</span>
-			<span>{ fmt.Sprintf("%d%%", percent) }</span>
+			<span title={ detail }>{ fmt.Sprintf("%d%%", percent) }</span>
 		</div>
 		@progress.Progress(progress.Props{Value: percent, Max: 100})
+		<div class="text-xs text-muted-foreground">{ detail }</div>
 	</div>
 }
 
@@ -104,4 +223,51 @@ func calcMemPercent(total, available int64) int {
 		return 0
 	}
 	return int(((float64(total) - float64(available)) / float64(total)) * 100)
+}
+
+func formatBytes(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+func formatLastHeartbeat(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	diff := time.Since(t)
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		mins := int(diff.Minutes())
+		if mins == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", mins)
+	case diff < 24*time.Hour:
+		hours := int(diff.Hours())
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	default:
+		days := int(diff.Hours() / 24)
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	}
 }
