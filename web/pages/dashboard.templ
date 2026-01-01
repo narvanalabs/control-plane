@@ -7,6 +7,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/card"
 	"github.com/narvanalabs/control-plane/web/components/icon"
 	"github.com/narvanalabs/control-plane/web/components/badge"
+	"github.com/narvanalabs/control-plane/web/components/button"
 	"github.com/narvanalabs/control-plane/web/components/table"
 	"github.com/narvanalabs/control-plane/web/api"
 )
@@ -29,6 +30,18 @@ templ Dashboard(data DashboardData) {
 				<h1 class="text-2xl font-bold">Dashboard</h1>
 				<p class="text-muted-foreground">Overview of your Narvana Control Plane</p>
 			</div>
+			
+			// Empty State CTAs - Show when no apps or no nodes
+			if data.TotalApps == 0 || data.HealthyNodes == 0 {
+				<div class="grid gap-4 md:grid-cols-2">
+					if data.TotalApps == 0 {
+						@EmptyStateApps()
+					}
+					if data.HealthyNodes == 0 {
+						@EmptyStateNodes()
+					}
+				</div>
+			}
 			
 			// Stats Cards
 			<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -108,6 +121,48 @@ templ Dashboard(data DashboardData) {
 				}
 			</div>
 		</div>
+	}
+}
+
+// EmptyStateApps renders the empty state CTA for creating the first app
+templ EmptyStateApps() {
+	@card.Card(card.Props{Class: "border-dashed border-2 bg-muted/30"}) {
+		@card.Content(card.ContentProps{Class: "py-8"}) {
+			<div class="flex flex-col items-center justify-center text-center">
+				<div class="rounded-full bg-primary/10 p-4 mb-4">
+					@icon.Box(icon.Props{Class: "size-8 text-primary"})
+				</div>
+				<h3 class="text-lg font-semibold">Create your first app</h3>
+				<p class="text-muted-foreground mt-1 mb-4 text-sm max-w-xs">
+					Get started by creating an application to deploy your services.
+				</p>
+				@button.Button(button.Props{Href: "/apps"}) {
+					@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+					Create App
+				}
+			</div>
+		}
+	}
+}
+
+// EmptyStateNodes renders the empty state CTA for registering the first node
+templ EmptyStateNodes() {
+	@card.Card(card.Props{Class: "border-dashed border-2 bg-muted/30"}) {
+		@card.Content(card.ContentProps{Class: "py-8"}) {
+			<div class="flex flex-col items-center justify-center text-center">
+				<div class="rounded-full bg-primary/10 p-4 mb-4">
+					@icon.Server(icon.Props{Class: "size-8 text-primary"})
+				</div>
+				<h3 class="text-lg font-semibold">Register your first node</h3>
+				<p class="text-muted-foreground mt-1 mb-4 text-sm max-w-xs">
+					Add a compute node to start deploying your applications.
+				</p>
+				@button.Button(button.Props{Href: "/nodes"}) {
+					@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+					Add Node
+				}
+			</div>
+		}
 	}
 }
 
