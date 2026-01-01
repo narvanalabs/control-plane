@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 	
+	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/components/badge"
 )
 
@@ -64,4 +65,80 @@ func getLogLevelClass(level string) string {
 	default:
 		return "text-zinc-400"
 	}
+}
+
+// getServicePort returns the port for a service with appropriate defaults.
+// For databases, returns the standard port for that database type.
+// For web services, defaults to 8080.
+func getServicePort(svc api.Service) int {
+	if svc.Port > 0 {
+		return svc.Port
+	}
+	// Database-specific defaults
+	if svc.SourceType == "database" && svc.Database != nil {
+		switch svc.Database.Type {
+		case "postgres", "postgresql":
+			return 5432
+		case "mysql", "mariadb":
+			return 3306
+		case "redis":
+			return 6379
+		case "mongodb", "mongo":
+			return 27017
+		case "sqlite":
+			return 0 // SQLite doesn't use a port
+		}
+	}
+	return 8080
+}
+
+// isDatabaseService returns true if the service is a database
+func isDatabaseService(svc api.Service) bool {
+	return svc.SourceType == "database" && svc.Database != nil
+}
+
+// getDependentServices returns a list of services that depend on the given service name
+func getDependentServices(app api.App, serviceName string) []string {
+	var dependents []string
+	for _, svc := range app.Services {
+		for _, dep := range svc.DependsOn {
+			if dep == serviceName {
+				dependents = append(dependents, svc.Name)
+				break
+			}
+		}
+	}
+	return dependents
+}
+
+// getDatabaseURLPrefix returns the prefix of a database URL (protocol://user:)
+// Used to display the URL with the password masked
+func getDatabaseURLPrefix(svc api.Service) string {
+	if svc.Database == nil {
+		return "postgresql://" + svc.Name + ":"
+	}
+	user := svc.Name
+	switch svc.Database.Type {
+	case "mysql", "mariadb":
+		return "mysql://" + user + ":"
+	case "mongodb", "mongo":
+		return "mongodb://" + user + ":"
+	case "redis":
+		return "redis://:"
+	default:
+		return "postgresql://" + user + ":"
+	}
+}
+
+// getDatabaseURLSuffix returns the suffix of a database URL (@host:port/dbname)
+// Used to display the URL with the password masked
+func getDatabaseURLSuffix(svc api.Service, appID string) string {
+	host := appID + "-" + svc.Name + ".narvana.local"
+	port := getServicePort(svc)
+	dbName := svc.Name
+	
+	if svc.Database != nil && svc.Database.Type == "redis" {
+		return fmt.Sprintf("@%s:%d", host, port)
+	}
+	return fmt.Sprintf("@%s:%d/%s", host, port, dbName)
 }

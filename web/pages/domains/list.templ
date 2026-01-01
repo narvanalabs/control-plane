@@ -11,7 +11,11 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/button"
 	"github.com/narvanalabs/control-plane/web/components/card"
 	"github.com/narvanalabs/control-plane/web/components/dialog"
+	"github.com/narvanalabs/control-plane/web/components/form"
 	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/selectbox"
 	"github.com/narvanalabs/control-plane/web/components/table"
 	"github.com/narvanalabs/control-plane/web/api"
 )
@@ -54,45 +58,38 @@ templ List(data ListData) {
 							}
 						}
 						<form method="POST" action="/domains" class="space-y-4">
-							<div class="space-y-2">
-								<label class="text-sm font-medium" for="domain">Domain</label>
-								<input
-									type="text"
-									id="domain"
-									name="domain"
-									placeholder="example.com or *.example.com"
-									class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-									required
-								/>
-								<p class="text-xs text-muted-foreground">
-									Use *.domain.com for wildcard domains
-								</p>
-							</div>
-							<div class="space-y-2">
-								<label class="text-sm font-medium" for="app_id">Application</label>
-								<select
-									id="app_id"
-									name="app_id"
-									class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-									required
-								>
-									<option value="">Select an application</option>
-									for _, app := range data.Apps {
-										<option value={ app.ID }>{ app.Name }</option>
+							@form.Item() {
+								@label.Label(label.Props{For: "domain"}) { Domain }
+								@input.Input(input.Props{
+									ID:          "domain",
+									Name:        "domain",
+									Placeholder: "example.com or *.example.com",
+									Attributes:  templ.Attributes{"required": true},
+								})
+								@form.Description() { Use *.domain.com for wildcard domains }
+							}
+							@form.Item() {
+								@label.Label(label.Props{For: "app_id"}) { Application }
+								@selectbox.SelectBox(selectbox.Props{ID: "app_id"}) {
+									@selectbox.Trigger(selectbox.TriggerProps{Name: "app_id"}) {
+										@selectbox.Value(selectbox.ValueProps{Placeholder: "Select an application"})
 									}
-								</select>
-							</div>
-							<div class="space-y-2">
-								<label class="text-sm font-medium" for="service">Service</label>
-								<input
-									type="text"
-									id="service"
-									name="service"
-									placeholder="web, api, etc."
-									class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-									required
-								/>
-							</div>
+									@selectbox.Content() {
+										for _, app := range data.Apps {
+											@selectbox.Item(selectbox.ItemProps{Value: app.ID}) { { app.Name } }
+										}
+									}
+								}
+							}
+							@form.Item() {
+								@label.Label(label.Props{For: "service"}) { Service }
+								@input.Input(input.Props{
+									ID:          "service",
+									Name:        "service",
+									Placeholder: "web, api, etc.",
+									Attributes:  templ.Attributes{"required": true},
+								})
+							}
 							@dialog.Footer() {
 								@dialog.Close() {
 									@button.Button(button.Props{Variant: button.VariantOutline, Type: "button"}) {

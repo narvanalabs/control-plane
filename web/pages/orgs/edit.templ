@@ -1,0 +1,139 @@
+package orgs
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
+	"github.com/narvanalabs/control-plane/web/components/textarea"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/api"
+)
+
+// EditOrgData holds data for the edit organization page
+type EditOrgData struct {
+	Org        api.Organization
+	Error      string
+	SuccessMsg string
+	CanDelete  bool // false if this is the last organization
+}
+
+// Edit renders the edit organization page
+templ Edit(data EditOrgData) {
+	@layouts.PageWithSidebar("Edit Organization", "/") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.Error})
+		<div class="max-w-2xl mx-auto space-y-6">
+			@breadcrumb.Breadcrumb() {
+				@breadcrumb.List() {
+					@breadcrumb.Item() {
+						@breadcrumb.Link(breadcrumb.LinkProps{Href: "/"}) {
+							Dashboard
+						}
+					}
+					@breadcrumb.Separator()
+					@breadcrumb.Item() {
+						@breadcrumb.Page() {
+							Edit Organization
+						}
+					}
+				}
+			}
+			
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Edit Organization }
+					@card.Description() { Update your organization settings. }
+				}
+				@card.Content() {
+					<form method="POST" action={ templ.SafeURL("/orgs/" + data.Org.ID) } class="space-y-4">
+						@form.Item() {
+							@label.Label(label.Props{For: "name"}) { Name }
+							@input.Input(input.Props{
+								ID:          "name",
+								Name:        "name",
+								Value:       data.Org.Name,
+								Placeholder: "My Organization",
+								Attributes:  templ.Attributes{"required": true},
+							})
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "slug"}) { Slug }
+							@input.Input(input.Props{
+								ID:          "slug",
+								Name:        "slug",
+								Value:       data.Org.Slug,
+								Placeholder: "my-organization",
+							})
+							<p class="text-xs text-muted-foreground">URL-friendly identifier.</p>
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "description"}) { Description }
+							@textarea.Textarea(textarea.Props{
+								ID:          "description",
+								Name:        "description",
+								Placeholder: "A brief description of your organization...",
+								Rows:        3,
+							}) {
+								{ data.Org.Description }
+							}
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "icon_url"}) { Icon URL (optional) }
+							@input.Input(input.Props{
+								ID:          "icon_url",
+								Name:        "icon_url",
+								Value:       data.Org.IconURL,
+								Placeholder: "https://example.com/icon.png",
+							})
+						}
+						
+						<div class="flex justify-end gap-3 pt-4">
+							@button.Button(button.Props{Variant: button.VariantOutline, Href: "/"}) {
+								Cancel
+							}
+							@button.Button(button.Props{Type: "submit"}) {
+								Save Changes
+							}
+						</div>
+					</form>
+				}
+			}
+			
+			// Danger Zone
+			@card.Card(card.Props{Class: "border-destructive/20"}) {
+				@card.Header() {
+					@card.Title(card.TitleProps{Class: "text-destructive"}) { Danger Zone }
+					@card.Description() { Irreversible actions for this organization. }
+				}
+				@card.Content() {
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-medium text-sm">Delete Organization</p>
+							if data.CanDelete {
+								<p class="text-xs text-muted-foreground">Permanently delete this organization and all its apps.</p>
+							} else {
+								<p class="text-xs text-muted-foreground">Cannot delete the last organization.</p>
+							}
+						</div>
+						<form method="POST" action={ templ.SafeURL("/orgs/" + data.Org.ID + "/delete") }>
+							@button.Button(button.Props{
+								Variant:    button.VariantDestructive,
+								Size:       button.SizeSm,
+								Attributes: templ.Attributes{"disabled": !data.CanDelete},
+							}) {
+								@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
+								Delete Organization
+							}
+						</form>
+					</div>
+				}
+			}
+		</div>
+	}
+}

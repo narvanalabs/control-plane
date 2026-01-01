@@ -76,6 +76,7 @@ templ Detail(data DetailData) {
 							@dropdown.Item(dropdown.ItemProps{
 								Attributes: templ.Attributes{
 									"data-tui-dialog-trigger": "web-service-dialog",
+									"data-dialog-instance":    "web-service-dialog",
 								},
 							}) {
 								<div class="flex flex-col">
@@ -86,6 +87,7 @@ templ Detail(data DetailData) {
 							@dropdown.Item(dropdown.ItemProps{
 								Attributes: templ.Attributes{
 									"data-tui-dialog-trigger": "static-site-dialog",
+									"data-dialog-instance":    "static-site-dialog",
 								},
 							}) {
 								<div class="flex flex-col">
@@ -96,6 +98,7 @@ templ Detail(data DetailData) {
 							@dropdown.Item(dropdown.ItemProps{
 								Attributes: templ.Attributes{
 									"data-tui-dialog-trigger": "database-dialog",
+									"data-dialog-instance":    "database-dialog",
 								},
 							}) {
 								<div class="flex flex-col">
@@ -175,6 +178,7 @@ templ Detail(data DetailData) {
 									@dropdown.Item(dropdown.ItemProps{
 										Attributes: templ.Attributes{
 											"data-tui-dialog-trigger": "web-service-dialog",
+											"data-dialog-instance":    "web-service-dialog",
 										},
 									}) {
 										<div class="flex flex-col">
@@ -185,6 +189,7 @@ templ Detail(data DetailData) {
 									@dropdown.Item(dropdown.ItemProps{
 										Attributes: templ.Attributes{
 											"data-tui-dialog-trigger": "static-site-dialog",
+											"data-dialog-instance":    "static-site-dialog",
 										},
 									}) {
 										<div class="flex flex-col">
@@ -195,6 +200,7 @@ templ Detail(data DetailData) {
 									@dropdown.Item(dropdown.ItemProps{
 										Attributes: templ.Attributes{
 											"data-tui-dialog-trigger": "database-dialog",
+											"data-dialog-instance":    "database-dialog",
 										},
 									}) {
 										<div class="flex flex-col">
@@ -330,48 +336,64 @@ templ gitProviderSelector(data DetailData, prefix string) {
 			// Provider tabs
 			<div class="flex gap-1 p-1 bg-zinc-900/50 border border-zinc-800/50 rounded-lg">
 				if data.GitHubConnected {
-					<button 
-						type="button"
-						class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 text-white transition-all"
-						data-provider-tab={ prefix + "-github" }
-						data-provider="github"
-					>
+					@button.Button(button.Props{
+						Type:    "button",
+						Variant: button.VariantGhost,
+						Size:    button.SizeSm,
+						Class:   "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 text-white transition-all h-auto",
+						Attributes: templ.Attributes{
+							"data-provider-tab": prefix + "-github",
+							"data-provider":     "github",
+						},
+					}) {
 						@icon.Github(icon.Props{Class: "size-3.5"})
 						GitHub
-					</button>
+					}
 				}
 				if data.GitProviders["gitlab"].Connected {
-					<button 
-						type="button"
-						class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground hover:text-white transition-all"
-						data-provider-tab={ prefix + "-gitlab" }
-						data-provider="gitlab"
-					>
+					@button.Button(button.Props{
+						Type:    "button",
+						Variant: button.VariantGhost,
+						Size:    button.SizeSm,
+						Class:   "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground hover:text-white transition-all h-auto",
+						Attributes: templ.Attributes{
+							"data-provider-tab": prefix + "-gitlab",
+							"data-provider":     "gitlab",
+						},
+					}) {
 						@gitlabIconSmall()
 						GitLab
-					</button>
+					}
 				}
 				if data.GitProviders["bitbucket"].Connected {
-					<button 
-						type="button"
-						class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground hover:text-white transition-all"
-						data-provider-tab={ prefix + "-bitbucket" }
-						data-provider="bitbucket"
-					>
+					@button.Button(button.Props{
+						Type:    "button",
+						Variant: button.VariantGhost,
+						Size:    button.SizeSm,
+						Class:   "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground hover:text-white transition-all h-auto",
+						Attributes: templ.Attributes{
+							"data-provider-tab": prefix + "-bitbucket",
+							"data-provider":     "bitbucket",
+						},
+					}) {
 						@bitbucketIconSmall()
 						Bitbucket
-					</button>
+					}
 				}
 				if data.GitProviders["gitea"].Connected {
-					<button 
-						type="button"
-						class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground hover:text-white transition-all"
-						data-provider-tab={ prefix + "-gitea" }
-						data-provider="gitea"
-					>
+					@button.Button(button.Props{
+						Type:    "button",
+						Variant: button.VariantGhost,
+						Size:    button.SizeSm,
+						Class:   "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground hover:text-white transition-all h-auto",
+						Attributes: templ.Attributes{
+							"data-provider-tab": prefix + "-gitea",
+							"data-provider":     "gitea",
+						},
+					}) {
 						@giteaIconSmall()
 						Gitea
-					</button>
+					}
 				}
 			</div>
 			
@@ -824,32 +846,61 @@ templ AppDetailScript() {
 				}
 			}
 
-			// Handle selectbox changes for database dialog
-			document.addEventListener('tui-selectbox-change', (e) => {
-				const { id, value } = e.detail;
+			// Helper function to observe selectbox hidden input changes
+			function observeSelectbox(selectboxId, hiddenInputId, callback) {
+				const selectbox = document.getElementById(selectboxId);
+				if (!selectbox) return;
 				
-				// Database type selection
-				if (id === 'db_svc_type') {
-					document.getElementById('hidden_db_svc_type').value = value;
-					updateVersionSelector(value);
-				} else if (id.startsWith('db_svc_version_')) {
-					document.getElementById('hidden_db_svc_version').value = value;
-				} else if (id === 'db_svc_storage_size') {
-					document.getElementById('hidden_db_svc_storage_size').value = value;
-				} else if (id === 'db_svc_backup_schedule') {
-					document.getElementById('hidden_db_svc_backup_schedule').value = value;
-				}
+				// Find the hidden input inside the selectbox
+				const hiddenInput = selectbox.querySelector('input[type="hidden"]');
+				if (!hiddenInput) return;
 				
-				// Web service language selection
-				if (id === 'web_svc_language') {
-					document.getElementById('hidden_web_svc_language').value = value;
-				}
+				// Use MutationObserver to watch for value changes
+				const observer = new MutationObserver((mutations) => {
+					mutations.forEach((mutation) => {
+						if (mutation.type === 'attributes' && mutation.attributeName === 'value') {
+							const value = hiddenInput.value;
+							// Update the form hidden input
+							const formHiddenInput = document.getElementById(hiddenInputId);
+							if (formHiddenInput) {
+								formHiddenInput.value = value;
+							}
+							if (callback) callback(value);
+						}
+					});
+				});
 				
-				// Static site framework selection
-				if (id === 'static_svc_framework') {
-					document.getElementById('hidden_static_svc_framework').value = value;
-				}
+				observer.observe(hiddenInput, { attributes: true });
+				
+				// Also listen for change events
+				hiddenInput.addEventListener('change', () => {
+					const value = hiddenInput.value;
+					const formHiddenInput = document.getElementById(hiddenInputId);
+					if (formHiddenInput) {
+						formHiddenInput.value = value;
+					}
+					if (callback) callback(value);
+				});
+			}
+
+			// Set up observers for database dialog selectboxes
+			observeSelectbox('db_svc_type', 'hidden_db_svc_type', (value) => {
+				updateVersionSelector(value);
 			});
+			
+			observeSelectbox('db_svc_version_postgres', 'hidden_db_svc_version');
+			observeSelectbox('db_svc_version_mysql', 'hidden_db_svc_version');
+			observeSelectbox('db_svc_version_mariadb', 'hidden_db_svc_version');
+			observeSelectbox('db_svc_version_mongodb', 'hidden_db_svc_version');
+			observeSelectbox('db_svc_version_redis', 'hidden_db_svc_version');
+			observeSelectbox('db_svc_storage_size', 'hidden_db_svc_storage_size');
+			observeSelectbox('db_svc_backup_schedule', 'hidden_db_svc_backup_schedule');
+			
+			// Set up observers for web service dialog
+			observeSelectbox('web_svc_language', 'hidden_web_svc_language');
+			
+			// Set up observers for static site dialog
+			observeSelectbox('static_svc_framework', 'hidden_static_svc_framework');
 
 			// Auto-detection for web service git URL
 			// **Validates: Requirements 5.4, 5.5**

@@ -125,14 +125,22 @@ templ githubContent(data IndexData) {
 						</p>
 
 						<div class="grid grid-cols-2 p-1 bg-zinc-900/50 border border-zinc-800/50 rounded-xl">
-							<button id="tab-github-app" class="flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg bg-zinc-800 text-white shadow-sm transition-all">
+							@button.Button(button.Props{
+								ID:      "tab-github-app",
+								Variant: button.VariantGhost,
+								Class:   "flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg bg-zinc-800 text-white shadow-sm transition-all",
+							}) {
 								@icon.Zap(icon.Props{Class: "size-4"})
 								GitHub App
-							</button>
-							<button id="tab-oauth-app" class="flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:text-white transition-all">
+							}
+							@button.Button(button.Props{
+								ID:      "tab-oauth-app",
+								Variant: button.VariantGhost,
+								Class:   "flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:text-white transition-all",
+							}) {
 								@icon.Settings(icon.Props{Class: "size-4"})
 								OAuth App
-							</button>
+							}
 						</div>
 
 						<!-- GitHub App Manifest Flow -->

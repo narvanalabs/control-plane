@@ -201,18 +201,26 @@ templ Detail(data DetailData) {
 							Streaming logs from build agent...
 						</div>
 						<div class="flex items-center gap-4">
-							<button 
-								onclick="document.getElementById('logs-container').scrollTo({top: 0, behavior: 'smooth'})"
-								class="text-[10px] text-zinc-400 hover:text-white font-bold uppercase tracking-widest transition-colors"
-							>
+							@button.Button(button.Props{
+								Variant: button.VariantGhost,
+								Size:    button.SizeSm,
+								Class:   "text-[10px] text-zinc-400 hover:text-white font-bold uppercase tracking-widest h-auto py-1",
+								Attributes: templ.Attributes{
+									"onclick": "document.getElementById('logs-container').scrollTo({top: 0, behavior: 'smooth'})",
+								},
+							}) {
 								Jump to Top
-							</button>
-							<button 
-								onclick="const c = document.getElementById('logs-container'); c.scrollTo({top: c.scrollHeight, behavior: 'smooth'})"
-								class="text-[10px] text-zinc-400 hover:text-white font-bold uppercase tracking-widest transition-colors"
-							>
+							}
+							@button.Button(button.Props{
+								Variant: button.VariantGhost,
+								Size:    button.SizeSm,
+								Class:   "text-[10px] text-zinc-400 hover:text-white font-bold uppercase tracking-widest h-auto py-1",
+								Attributes: templ.Attributes{
+									"onclick": "const c = document.getElementById('logs-container'); c.scrollTo({top: c.scrollHeight, behavior: 'smooth'})",
+								},
+							}) {
 								Jump to Bottom
-							</button>
+							}
 						</div>
 					</div>
 				}

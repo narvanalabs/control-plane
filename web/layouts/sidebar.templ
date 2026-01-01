@@ -6,10 +6,16 @@ import (
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/web/components/avatar"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
 	"github.com/narvanalabs/control-plane/web/components/dropdown"
+	"github.com/narvanalabs/control-plane/web/components/form"
 	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
 	"github.com/narvanalabs/control-plane/web/components/sidebar"
 	"github.com/narvanalabs/control-plane/web/components/tabs"
+	"github.com/narvanalabs/control-plane/web/components/textarea"
 	"context"
 )
 
@@ -21,6 +27,7 @@ func GetUser(ctx context.Context) *store.User {
 	return &store.User{
 		Email: "admin@narvana.io",
 		Name:  "Admin",
+		Role:  store.RoleOwner,
 	}
 }
 
@@ -107,7 +114,20 @@ templ SidebarLayout(activePath string) {
 									}
 								}
 								@dropdown.Separator()
-								@dropdown.Item(dropdown.ItemProps{Href: "/orgs/new"}) {
+								@dropdown.Item(dropdown.ItemProps{
+									Href: "/orgs/" + currentOrg.ID,
+								}) {
+									<span class="flex items-center">
+										@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
+										Edit Organization
+									</span>
+								}
+								@dropdown.Item(dropdown.ItemProps{
+									Attributes: templ.Attributes{
+										"data-tui-dialog-trigger": "create-org-dialog",
+										"data-dialog-instance":    "create-org-dialog",
+									},
+								}) {
 									<span class="flex items-center">
 										@icon.Plus(icon.Props{Size: 16, Class: "mr-2"})
 										Create Organization
@@ -192,14 +212,64 @@ templ SidebarLayout(activePath string) {
 								<span>Nodes</span>
 							}
 						}
+					}
+				}
+				@sidebar.Separator()
+				@sidebar.Group() {
+					@sidebar.GroupLabel() {
+						Settings
+					}
+					@sidebar.Menu() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
-								Href:     "/domains",
-								Tooltip:  "Domains",
-								IsActive: isActive(activePath, "/domains"),
+								Href:     "/settings/profile",
+								Tooltip:  "Profile",
+								IsActive: activePath == "/settings/profile",
 							}) {
-								@icon.Globe(icon.Props{Class: "size-4"})
-								<span>Domains</span>
+								@icon.User(icon.Props{Class: "size-4"})
+								<span>Profile</span>
+							}
+						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/settings/server",
+								Tooltip:  "Server",
+								IsActive: isActive(activePath, "/settings/server"),
+							}) {
+								@icon.Server(icon.Props{Class: "size-4"})
+								<span>Server</span>
+							}
+						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/settings/ssh-keys",
+								Tooltip:  "SSH Keys",
+								IsActive: activePath == "/settings/ssh-keys",
+							}) {
+								@icon.Key(icon.Props{Class: "size-4"})
+								<span>SSH Keys</span>
+							}
+						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/settings/notifications",
+								Tooltip:  "Notifications",
+								IsActive: activePath == "/settings/notifications",
+							}) {
+								@icon.Bell(icon.Props{Class: "size-4"})
+								<span>Notifications</span>
+							}
+						}
+						if user.Role == store.RoleOwner {
+							@sidebar.MenuItem() {
+								@sidebar.MenuButton(sidebar.MenuButtonProps{
+									Href:     "/settings/users",
+									Tooltip:  "Users",
+									IsActive: activePath == "/settings/users",
+								}) {
+									@icon.Users(icon.Props{Class: "size-4"})
+									<span>Users</span>
+								}
 							}
 						}
 					}
@@ -219,28 +289,6 @@ templ SidebarLayout(activePath string) {
 								@icon.BookOpen(icon.Props{Class: "size-4"})
 								<span>Documentation</span>
 								@icon.ExternalLink(icon.Props{Class: "ml-auto size-3 text-muted-foreground"})
-							}
-						}
-						@sidebar.MenuItem() {
-							@sidebar.MenuButton(sidebar.MenuButtonProps{
-								Href:     "/settings",
-								Tooltip:  "Settings",
-								IsActive: isActive(activePath, "/settings"),
-							}) {
-								@icon.Settings(icon.Props{Class: "size-4"})
-								<span>Settings</span>
-							}
-						}
-						if user.Role == store.RoleOwner {
-							@sidebar.MenuItem() {
-								@sidebar.MenuButton(sidebar.MenuButtonProps{
-									Href:     "/settings/users",
-									Tooltip:  "Users",
-									IsActive: isActive(activePath, "/settings/users"),
-								}) {
-									@icon.Users(icon.Props{Class: "size-4"})
-									<span>Users</span>
-								}
 							}
 						}
 					}
@@ -284,11 +332,15 @@ templ SidebarLayout(activePath string) {
 							</div>
 
 							<!-- Collapsed State: Single Cycling Icon -->
-							<button 
-								data-theme-cycle 
-								class="hidden group-data-[tui-sidebar-state=collapsed]:flex items-center justify-center size-8 rounded-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200 relative"
-								title="Cycle Theme"
-							>
+							@button.Button(button.Props{
+								Variant: button.VariantGhost,
+								Size:    button.SizeIcon,
+								Class:   "hidden group-data-[tui-sidebar-state=collapsed]:flex items-center justify-center size-8 rounded-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200 relative",
+								Attributes: templ.Attributes{
+									"data-theme-cycle": "",
+									"title":            "Cycle Theme",
+								},
+							}) {
 								<div data-theme-icon="light" class="hidden">
 									@icon.Sun(icon.Props{Class: "size-5 text-orange-500"})
 								</div>
@@ -298,7 +350,7 @@ templ SidebarLayout(activePath string) {
 								<div data-theme-icon="system" class="hidden">
 									@icon.Monitor(icon.Props{Class: "size-5 text-muted-foreground"})
 								</div>
-							</button>
+							}
 						</div>
 					}
 					@sidebar.MenuItem() {
@@ -350,12 +402,6 @@ templ SidebarLayout(activePath string) {
 										Profile
 									</span>
 								}
-								@dropdown.Item(dropdown.ItemProps{Href: "/settings"}) {
-									<span class="flex items-center">
-										@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
-										Settings
-									</span>
-								}
 								@dropdown.Separator()
 								@dropdown.Item(dropdown.ItemProps{Href: "/logout"}) {
 									<span class="flex items-center text-destructive">
@@ -379,6 +425,58 @@ templ SidebarLayout(activePath string) {
 					{ children... }
 				</div>
 			</div>
+		}
+		@CreateOrgDialog()
+	}
+}
+
+// CreateOrgDialog renders the dialog for creating a new organization
+templ CreateOrgDialog() {
+	@dialog.Dialog(dialog.Props{ID: "create-org-dialog"}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() { Create Organization }
+				@dialog.Description() { Organizations help you group apps and manage team access. }
+			}
+			<form method="POST" action="/orgs" class="space-y-4">
+				@form.Item() {
+					@label.Label(label.Props{For: "org_name"}) { Name }
+					@input.Input(input.Props{
+						ID:          "org_name",
+						Name:        "name",
+						Placeholder: "My Organization",
+						Attributes:  templ.Attributes{"required": true},
+					})
+					<p class="text-xs text-muted-foreground">The display name for your organization.</p>
+				}
+				
+				@form.Item() {
+					@label.Label(label.Props{For: "org_slug"}) { Slug (optional) }
+					@input.Input(input.Props{
+						ID:          "org_slug",
+						Name:        "slug",
+						Placeholder: "my-organization",
+					})
+					<p class="text-xs text-muted-foreground">URL-friendly identifier. Auto-generated from name if not provided.</p>
+				}
+				
+				@form.Item() {
+					@label.Label(label.Props{For: "org_description"}) { Description (optional) }
+					@textarea.Textarea(textarea.Props{
+						ID:          "org_description",
+						Name:        "description",
+						Placeholder: "A brief description of your organization...",
+						Rows:        2,
+					})
+				}
+				
+				<div class="flex justify-end gap-2 pt-2">
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+					}
+					@button.Button(button.Props{Type: "submit"}) { Create Organization }
+				</div>
+			</form>
 		}
 	}
 }

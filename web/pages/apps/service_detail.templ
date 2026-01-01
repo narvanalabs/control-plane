@@ -39,14 +39,6 @@ type ServiceDetailData struct {
 templ ServiceDetail(data ServiceDetailData) {
 	@layouts.PageWithSidebar(data.Service.Name, "/apps") {
 		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
-		
-		<!-- Load JetBrains Mono and xterm.js -->
-		<link rel="preconnect" href="https://fonts.googleapis.com" />
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-		<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
-		<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 
 		<div class="space-y-6">
 			// Breadcrumb
@@ -72,7 +64,7 @@ templ ServiceDetail(data ServiceDetailData) {
 				}
 			}
 			
-			// Header
+			// Header with status and actions
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-3">
 					<div class="p-2 rounded-lg bg-muted flex items-center justify-center size-10">
@@ -83,7 +75,12 @@ templ ServiceDetail(data ServiceDetailData) {
 						}
 					</div>
 					<div>
-						<h1 class="text-2xl font-bold">{ data.Service.Name }</h1>
+						<div class="flex items-center gap-2">
+							<h1 class="text-2xl font-bold">{ data.Service.Name }</h1>
+							if len(data.Deployments) > 0 {
+								@DeploymentStatusBadge(data.Deployments[0].Status)
+							}
+						</div>
 						<p class="text-muted-foreground text-sm">
 							if data.Service.SourceType == "database" && data.Service.Database != nil {
 								if data.Service.Database.Type == "postgres" {
@@ -119,23 +116,27 @@ templ ServiceDetail(data ServiceDetailData) {
 					@tabs.Trigger(tabs.TriggerProps{Value: "logs", IsActive: data.SuccessMsg != ""}) {
 						Logs
 					}
-					// Terminal tab - only shown for running services
-					// **Validates: Requirements 23.1**
-					if data.ServiceState == models.ServiceStateRunning {
-						@tabs.Trigger(tabs.TriggerProps{Value: "terminal"}) {
-							@icon.Terminal(icon.Props{Class: "size-4 mr-1.5"})
-							Terminal
+					if isDatabaseService(data.Service) {
+						@tabs.Trigger(tabs.TriggerProps{Value: "secrets"}) {
+							Secrets
 						}
+					} else {
+						@tabs.Trigger(tabs.TriggerProps{Value: "environment"}) {
+							Environment
+						}
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "domains"}) {
+						Domains
 					}
 					@tabs.Trigger(tabs.TriggerProps{Value: "settings"}) {
 						Settings
 					}
 				}
 				
-				// Overview Tab (Visual Flow)
+				// Overview Tab
 				@tabs.Content(tabs.ContentProps{Value: "overview", IsActive: data.SuccessMsg == ""}) {
-					<div class="pt-4">
-						@FlowDashboard(data)
+					<div class="pt-4 space-y-6">
+						@ServiceOverview(data)
 					</div>
 				}
 				
@@ -636,12 +637,1083 @@ templ ServiceDetail(data ServiceDetailData) {
 				
 				// Terminal Tab - Interactive shell for running services
 				// **Validates: Requirements 23.1, 23.2, 23.3, 23.4, 23.5**
-				if data.ServiceState == models.ServiceStateRunning {
-					@tabs.Content(tabs.ContentProps{Value: "terminal"}) {
-						<div class="pt-4">
-							@TerminalPanel(data)
+				// NOTE: Terminal is now accessed via button in header, not as a tab
+				
+				// Secrets Tab - Database credentials (only for database services)
+				if isDatabaseService(data.Service) {
+					@tabs.Content(tabs.ContentProps{Value: "secrets"}) {
+						<div class="pt-4 space-y-6" id="secrets-tab" data-app-id={ data.App.ID } data-service-name={ data.Service.Name } data-db-type={ data.Service.Database.Type }>
+							@card.Card() {
+								@card.Header() {
+									<div class="flex items-center justify-between">
+										<div>
+											@card.Title() { 
+												@icon.Key(icon.Props{Class: "size-4 mr-2 inline"})
+												Database Credentials 
+											}
+											@card.Description() { Auto-generated credentials injected into dependent services }
+										</div>
+										@button.Button(button.Props{
+											ID: "reveal-secrets-btn",
+											Type: "button",
+											Variant: button.VariantOutline,
+											Size: button.SizeSm,
+										}) {
+											@icon.Eye(icon.Props{Class: "size-4 mr-2"})
+											<span id="reveal-btn-text">Reveal Password</span>
+										}
+									</div>
+								}
+								@card.Content() {
+									<div class="space-y-4">
+										<div class="rounded-lg border overflow-hidden">
+											@table.Table() {
+												@table.Header() {
+													@table.Row() {
+														@table.Head() { Environment Variable }
+														@table.Head() { Value }
+														@table.Head(table.HeadProps{Class: "w-24"}) { Actions }
+													}
+												}
+												@table.Body(table.BodyProps{ID: "secrets-table-body"}) {
+													// DATABASE_URL - shows password masked, not editable
+													@table.Row(table.RowProps{Class: "group", Attributes: templ.Attributes{"data-key": fmt.Sprintf("%s_DATABASE_URL", strings.ToUpper(data.Service.Name)), "data-is-url": "true"}}) {
+														@table.Cell() { 
+															<code class="font-mono text-xs">{ strings.ToUpper(data.Service.Name) }_DATABASE_URL</code>
+														}
+														@table.Cell() { 
+															<code class="font-mono text-xs text-muted-foreground secret-value database-url" data-masked="true">
+																{ getDatabaseURLPrefix(data.Service) }••••••••{ getDatabaseURLSuffix(data.Service, data.App.ID) }
+															</code>
+														}
+														@table.Cell() {
+															<div class="flex items-center gap-1">
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 copy-secret-btn",
+																}) {
+																	@icon.Copy(icon.Props{Class: "size-3"})
+																}
+																// No edit button - DATABASE_URL is derived from other values
+															</div>
+														}
+													}
+													// DB_HOST - not sensitive, not masked
+													@table.Row(table.RowProps{Class: "group", Attributes: templ.Attributes{"data-key": fmt.Sprintf("%s_DB_HOST", strings.ToUpper(data.Service.Name))}}) {
+														@table.Cell() { 
+															<code class="font-mono text-xs">{ strings.ToUpper(data.Service.Name) }_DB_HOST</code>
+														}
+														@table.Cell() { 
+															<code class="font-mono text-xs text-muted-foreground secret-value" data-masked="false">{ data.App.ID }-{ data.Service.Name }.narvana.local</code>
+														}
+														@table.Cell() {
+															<div class="flex items-center gap-1">
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 copy-secret-btn",
+																	Attributes: templ.Attributes{
+																		"onclick": fmt.Sprintf("navigator.clipboard.writeText('%s-%s.narvana.local')", data.App.ID, data.Service.Name),
+																	},
+																}) {
+																	@icon.Copy(icon.Props{Class: "size-3"})
+																}
+															</div>
+														}
+													}
+													// DB_PORT - not sensitive, not masked
+													@table.Row(table.RowProps{Class: "group", Attributes: templ.Attributes{"data-key": fmt.Sprintf("%s_DB_PORT", strings.ToUpper(data.Service.Name))}}) {
+														@table.Cell() { 
+															<code class="font-mono text-xs">{ strings.ToUpper(data.Service.Name) }_DB_PORT</code>
+														}
+														@table.Cell() { 
+															<code class="font-mono text-xs text-muted-foreground secret-value" data-masked="false">{ intToString(getServicePort(data.Service)) }</code>
+														}
+														@table.Cell() {
+															<div class="flex items-center gap-1">
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 copy-secret-btn",
+																	Attributes: templ.Attributes{
+																		"onclick": fmt.Sprintf("navigator.clipboard.writeText('%d')", getServicePort(data.Service)),
+																	},
+																}) {
+																	@icon.Copy(icon.Props{Class: "size-3"})
+																}
+															</div>
+														}
+													}
+													// DB_NAME - not sensitive, not masked
+													@table.Row(table.RowProps{Class: "group", Attributes: templ.Attributes{"data-key": fmt.Sprintf("%s_DB_NAME", strings.ToUpper(data.Service.Name))}}) {
+														@table.Cell() { 
+															<code class="font-mono text-xs">{ strings.ToUpper(data.Service.Name) }_DB_NAME</code>
+														}
+														@table.Cell() { 
+															<code class="font-mono text-xs text-muted-foreground secret-value" data-masked="false">{ data.Service.Name }</code>
+														}
+														@table.Cell() {
+															<div class="flex items-center gap-1">
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 copy-secret-btn",
+																	Attributes: templ.Attributes{
+																		"onclick": fmt.Sprintf("navigator.clipboard.writeText('%s')", data.Service.Name),
+																	},
+																}) {
+																	@icon.Copy(icon.Props{Class: "size-3"})
+																}
+															</div>
+														}
+													}
+													// DB_USER - not sensitive (same as service name), not masked
+													@table.Row(table.RowProps{Class: "group", Attributes: templ.Attributes{"data-key": fmt.Sprintf("%s_DB_USER", strings.ToUpper(data.Service.Name))}}) {
+														@table.Cell() { 
+															<code class="font-mono text-xs">{ strings.ToUpper(data.Service.Name) }_DB_USER</code>
+														}
+														@table.Cell() { 
+															<code class="font-mono text-xs text-muted-foreground secret-value" data-masked="false">{ data.Service.Name }</code>
+														}
+														@table.Cell() {
+															<div class="flex items-center gap-1">
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 copy-secret-btn",
+																	Attributes: templ.Attributes{
+																		"onclick": fmt.Sprintf("navigator.clipboard.writeText('%s')", data.Service.Name),
+																	},
+																}) {
+																	@icon.Copy(icon.Props{Class: "size-3"})
+																}
+															</div>
+														}
+													}
+													// DB_PASSWORD - SENSITIVE, masked, editable
+													@table.Row(table.RowProps{Class: "group", Attributes: templ.Attributes{"data-key": fmt.Sprintf("%s_DB_PASSWORD", strings.ToUpper(data.Service.Name)), "data-is-password": "true"}}) {
+														@table.Cell() { 
+															<code class="font-mono text-xs">{ strings.ToUpper(data.Service.Name) }_DB_PASSWORD</code>
+														}
+														@table.Cell() { 
+															<code class="font-mono text-xs text-muted-foreground secret-value password-value" data-masked="true">••••••••</code>
+														}
+														@table.Cell() {
+															<div class="flex items-center gap-1">
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 copy-secret-btn",
+																}) {
+																	@icon.Copy(icon.Props{Class: "size-3"})
+																}
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 edit-secret-btn",
+																}) {
+																	@icon.Pencil(icon.Props{Class: "size-3"})
+																}
+															</div>
+														}
+													}
+												}
+											}
+										</div>
+										
+										<div class="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
+											<div class="flex gap-3">
+												@icon.Info(icon.Props{Class: "size-5 text-blue-500 shrink-0 mt-0.5"})
+												<div class="space-y-1">
+													<p class="text-sm font-medium">How to use</p>
+													<p class="text-sm text-muted-foreground">
+														Add this database as a dependency in your service configuration. 
+														These credentials will be automatically injected as environment variables.
+													</p>
+												</div>
+											</div>
+										</div>
+									</div>
+								}
+							}
+							
+							// Edit Secret Dialog
+							@dialog.Dialog(dialog.Props{ID: "edit-secret-dialog"}) {
+								@dialog.Content() {
+									@dialog.Header() {
+										@dialog.Title() { Change Password }
+										@dialog.Description() {
+											Update the database password. This will also update the DATABASE_URL.
+										}
+									}
+									<div class="space-y-4 py-4">
+										@label.Label(label.Props{For: "edit-secret-value"}) { New Password }
+										@input.Input(input.Props{
+											ID: "edit-secret-value",
+											Type: input.TypePassword,
+											Placeholder: "Enter new password",
+										})
+										<p class="text-xs text-muted-foreground">
+											Changing the password will require redeploying dependent services.
+										</p>
+									</div>
+									@dialog.Footer() {
+										@dialog.Close() {
+											@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+										}
+										@button.Button(button.Props{ID: "save-secret-btn"}) { Save }
+									}
+								}
+							}
+							
+							// Secrets tab script
+							<script>
+								document.addEventListener('DOMContentLoaded', function() {
+									const secretsTab = document.getElementById('secrets-tab');
+									if (!secretsTab) return;
+									
+									const appId = secretsTab.dataset.appId;
+									const serviceName = secretsTab.dataset.serviceName;
+									const dbType = secretsTab.dataset.dbType || 'postgres';
+									const revealBtn = document.getElementById('reveal-secrets-btn');
+									const revealBtnText = document.getElementById('reveal-btn-text');
+									
+									let passwordRevealed = false;
+									let currentPassword = null;
+									
+									const serviceNameUpper = serviceName.toUpperCase();
+									const passwordKey = `${serviceNameUpper}_DB_PASSWORD`;
+									const urlKey = `${serviceNameUpper}_DATABASE_URL`;
+									
+									// Get URL parts based on database type
+									function getUrlPrefix() {
+										const user = serviceName;
+										switch (dbType) {
+											case 'mysql':
+											case 'mariadb':
+												return `mysql://${user}:`;
+											case 'mongodb':
+											case 'mongo':
+												return `mongodb://${user}:`;
+											case 'redis':
+												return 'redis://:';
+											default:
+												return `postgresql://${user}:`;
+										}
+									}
+									
+									function getUrlSuffix() {
+										const host = `${appId}-${serviceName}.narvana.local`;
+										const port = document.querySelector(`tr[data-key="${serviceNameUpper}_DB_PORT"] .secret-value`)?.textContent?.trim() || '5432';
+										const dbName = serviceName;
+										if (dbType === 'redis') {
+											return `@${host}:${port}`;
+										}
+										return `@${host}:${port}/${dbName}`;
+									}
+									
+									function buildDatabaseUrl(password) {
+										return getUrlPrefix() + password + getUrlSuffix();
+									}
+									
+									function getMaskedUrl() {
+										return getUrlPrefix() + '••••••••' + getUrlSuffix();
+									}
+									
+									// Reveal/Hide password
+									if (revealBtn) {
+										revealBtn.addEventListener('click', async function() {
+											if (!passwordRevealed) {
+												// Fetch password from API
+												try {
+													const res = await fetch(`/api/v1/apps/${appId}/secrets`);
+													if (res.ok) {
+														const data = await res.json();
+														const secrets = data.secrets || [];
+														const passwordSecret = secrets.find(s => s.key === passwordKey);
+														
+														if (passwordSecret && passwordSecret.value) {
+															currentPassword = passwordSecret.value;
+														} else {
+															currentPassword = '(not set)';
+														}
+														
+														// Update password display
+														const passwordEl = document.querySelector('.password-value');
+														if (passwordEl) {
+															passwordEl.textContent = currentPassword;
+															passwordEl.dataset.revealed = 'true';
+														}
+														
+														// Update DATABASE_URL to show actual password
+														const urlEl = document.querySelector('.database-url');
+														if (urlEl && currentPassword !== '(not set)') {
+															urlEl.textContent = buildDatabaseUrl(currentPassword);
+															urlEl.dataset.revealed = 'true';
+														}
+														
+														passwordRevealed = true;
+														revealBtnText.textContent = 'Hide Password';
+													}
+												} catch (err) {
+													console.error('Failed to fetch secrets:', err);
+												}
+											} else {
+												// Hide password
+												const passwordEl = document.querySelector('.password-value');
+												if (passwordEl) {
+													passwordEl.textContent = '••••••••';
+													passwordEl.dataset.revealed = 'false';
+												}
+												
+												// Hide password in DATABASE_URL
+												const urlEl = document.querySelector('.database-url');
+												if (urlEl) {
+													urlEl.textContent = getMaskedUrl();
+													urlEl.dataset.revealed = 'false';
+												}
+												
+												passwordRevealed = false;
+												revealBtnText.textContent = 'Reveal Password';
+											}
+										});
+									}
+									
+									// Copy buttons
+									document.querySelectorAll('.copy-secret-btn').forEach(btn => {
+										if (!btn.onclick) {
+											btn.addEventListener('click', async function() {
+												const row = this.closest('tr');
+												const valueEl = row?.querySelector('.secret-value');
+												const key = row?.dataset.key;
+												const isUrl = row?.dataset.isUrl === 'true';
+												const isPassword = row?.dataset.isPassword === 'true';
+												
+												let textToCopy = '';
+												
+												if (isUrl || isPassword) {
+													// Need to fetch actual password if not already fetched
+													if (!currentPassword) {
+														try {
+															const res = await fetch(`/api/v1/apps/${appId}/secrets`);
+															if (res.ok) {
+																const data = await res.json();
+																const secrets = data.secrets || [];
+																const passwordSecret = secrets.find(s => s.key === passwordKey);
+																currentPassword = passwordSecret?.value || '(not set)';
+															}
+														} catch (err) {
+															console.error('Failed to fetch secrets:', err);
+														}
+													}
+													
+													if (isUrl) {
+														textToCopy = buildDatabaseUrl(currentPassword || '');
+													} else {
+														textToCopy = currentPassword || '';
+													}
+												} else {
+													textToCopy = valueEl?.textContent?.trim() || '';
+												}
+												
+												navigator.clipboard.writeText(textToCopy).then(() => {
+													// Visual feedback
+													const originalHTML = this.innerHTML;
+													this.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-500"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+													setTimeout(() => {
+														this.innerHTML = originalHTML;
+													}, 1500);
+												});
+											});
+										}
+									});
+									
+									// Edit button (only for password)
+									document.querySelectorAll('.edit-secret-btn').forEach(btn => {
+										btn.addEventListener('click', function() {
+											document.getElementById('edit-secret-value').value = '';
+											window.tui.dialog.open('edit-secret-dialog');
+										});
+									});
+									
+									// Save password
+									const saveBtn = document.getElementById('save-secret-btn');
+									if (saveBtn) {
+										saveBtn.addEventListener('click', async function() {
+											const newPassword = document.getElementById('edit-secret-value').value;
+											if (!newPassword) return;
+											
+											saveBtn.disabled = true;
+											saveBtn.textContent = 'Saving...';
+											
+											try {
+												// Save the new password
+												const res = await fetch(`/api/v1/apps/${appId}/secrets`, {
+													method: 'POST',
+													headers: { 'Content-Type': 'application/json' },
+													body: JSON.stringify({ key: passwordKey, value: newPassword })
+												});
+												
+												if (res.ok) {
+													// Also update the DATABASE_URL with new password
+													const newUrl = buildDatabaseUrl(newPassword);
+													await fetch(`/api/v1/apps/${appId}/secrets`, {
+														method: 'POST',
+														headers: { 'Content-Type': 'application/json' },
+														body: JSON.stringify({ key: urlKey, value: newUrl })
+													});
+													
+													window.tui.dialog.close('edit-secret-dialog');
+													
+													// Update local state
+													currentPassword = newPassword;
+													
+													// Update display if revealed
+													if (passwordRevealed) {
+														const passwordEl = document.querySelector('.password-value');
+														if (passwordEl) passwordEl.textContent = newPassword;
+														
+														const urlEl = document.querySelector('.database-url');
+														if (urlEl) urlEl.textContent = newUrl;
+													}
+												} else {
+													alert('Failed to update password');
+												}
+											} catch (err) {
+												console.error(err);
+												alert('Failed to update password');
+											} finally {
+												saveBtn.disabled = false;
+												saveBtn.textContent = 'Save';
+											}
+										});
+									}
+								});
+							</script>
 						</div>
 					}
+				}
+				
+				// Environment Tab - Environment variables for web services
+				if !isDatabaseService(data.Service) {
+					@tabs.Content(tabs.ContentProps{Value: "environment"}) {
+						<div class="pt-4 space-y-6">
+							// Import .env file
+							@card.Card() {
+								@card.Header() {
+									@card.Title() { 
+										@icon.Upload(icon.Props{Class: "size-4 mr-2 inline"})
+										Import from .env file
+									}
+									@card.Description() { Upload a .env file to bulk import environment variables }
+								}
+								@card.Content() {
+									<div class="space-y-4">
+										<div class="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer" id="env-dropzone">
+											<input type="file" id="env-file-input" accept=".env,.env.local,.env.example" class="hidden" />
+											<div class="space-y-2">
+												@icon.FileText(icon.Props{Class: "size-8 mx-auto text-muted-foreground"})
+												<p class="text-sm font-medium">Drop .env file here or click to browse</p>
+												<p class="text-xs text-muted-foreground">Supports .env, .env.local, .env.example</p>
+											</div>
+										</div>
+										<div id="env-preview" class="hidden space-y-3">
+											<div class="flex items-center justify-between">
+												<p class="text-sm font-medium">Preview (<span id="env-count">0</span> variables)</p>
+												<div class="flex gap-2">
+													@button.Button(button.Props{
+														ID: "env-cancel-btn",
+														Type: "button",
+														Variant: button.VariantGhost,
+														Size: button.SizeSm,
+													}) {
+														Cancel
+													}
+													@button.Button(button.Props{
+														ID: "env-import-btn",
+														Type: "button",
+														Size: button.SizeSm,
+													}) {
+														Import All
+													}
+												</div>
+											</div>
+											<div id="env-preview-list" class="max-h-48 overflow-y-auto space-y-2 rounded-lg border p-3 bg-muted/30"></div>
+										</div>
+									</div>
+								}
+							}
+							
+							// Add single variable
+							@card.Card() {
+								@card.Header() {
+									@card.Title() { Add Environment Variable }
+									@card.Description() { Add a new environment variable to this service }
+								}
+								@card.Content() {
+									<form id="add-env-form" class="space-y-4">
+										<div class="grid grid-cols-2 gap-4">
+											<div class="space-y-2">
+												@label.Label(label.Props{For: "env-key"}) { Key }
+												@input.Input(input.Props{
+													ID: "env-key",
+													Placeholder: "DATABASE_URL",
+													Class: "font-mono",
+												})
+											</div>
+											<div class="space-y-2">
+												@label.Label(label.Props{For: "env-value"}) { Value }
+												@input.Input(input.Props{
+													ID: "env-value",
+													Placeholder: "postgres://...",
+													Type: input.TypePassword,
+												})
+											</div>
+										</div>
+										<div class="flex justify-end">
+											@button.Button(button.Props{Type: "submit"}) {
+												@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+												Add Variable
+											}
+										</div>
+									</form>
+								}
+							}
+							
+							// Current variables
+							@card.Card() {
+								@card.Header() {
+									<div class="flex items-center justify-between">
+										<div>
+											@card.Title() { Environment Variables }
+											@card.Description() { 
+												{ intToString(len(data.Service.EnvVars)) } variable(s) configured
+											}
+										</div>
+									</div>
+								}
+								@card.Content() {
+									if len(data.Service.EnvVars) == 0 {
+										<div class="text-center py-8 text-muted-foreground">
+											<p class="text-sm">No environment variables configured yet.</p>
+											<p class="text-xs mt-1">Add variables above or import from a .env file.</p>
+										</div>
+									} else {
+										<div class="rounded-lg border overflow-hidden">
+											@table.Table() {
+												@table.Header() {
+													@table.Row() {
+														@table.Head() { Key }
+														@table.Head() { Value }
+														@table.Head(table.HeadProps{Class: "w-20 text-right"}) { Actions }
+													}
+												}
+												@table.Body(table.BodyProps{ID: "env-vars-list"}) {
+													for key, value := range data.Service.EnvVars {
+														@table.Row(table.RowProps{Class: "group"}) {
+															@table.Cell() { 
+																<code class="font-mono text-xs">{ key }</code>
+															}
+															@table.Cell() { 
+																<div class="flex items-center gap-2">
+																	<code class="font-mono text-xs text-muted-foreground env-value" data-value={ value }>••••••••</code>
+																	@button.Button(button.Props{
+																		Type: "button",
+																		Variant: button.VariantGhost,
+																		Size: button.SizeIcon,
+																		Class: "h-6 w-6 toggle-visibility",
+																	}) {
+																		@icon.Eye(icon.Props{Class: "size-3"})
+																	}
+																</div>
+															}
+															@table.Cell(table.CellProps{Class: "text-right"}) {
+																@button.Button(button.Props{
+																	Type: "button",
+																	Variant: button.VariantGhost,
+																	Size: button.SizeIcon,
+																	Class: "h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive delete-env-btn",
+																	Attributes: templ.Attributes{"data-key": key},
+																}) {
+																	@icon.Trash2(icon.Props{Class: "size-4"})
+																}
+															}
+														}
+													}
+												}
+											}
+										</div>
+									}
+								}
+							}
+							
+							// Environment tab script
+							<script>
+								document.addEventListener('DOMContentLoaded', function() {
+									const appId = '{ data.App.ID }';
+									const serviceName = '{ data.Service.Name }';
+									
+									// File drop zone
+									const dropzone = document.getElementById('env-dropzone');
+									const fileInput = document.getElementById('env-file-input');
+									const preview = document.getElementById('env-preview');
+									const previewList = document.getElementById('env-preview-list');
+									const envCount = document.getElementById('env-count');
+									const cancelBtn = document.getElementById('env-cancel-btn');
+									const importBtn = document.getElementById('env-import-btn');
+									
+									let parsedEnvVars = {};
+									
+									if (dropzone) {
+										dropzone.addEventListener('click', () => fileInput.click());
+										dropzone.addEventListener('dragover', (e) => {
+											e.preventDefault();
+											dropzone.classList.add('border-primary');
+										});
+										dropzone.addEventListener('dragleave', () => {
+											dropzone.classList.remove('border-primary');
+										});
+										dropzone.addEventListener('drop', (e) => {
+											e.preventDefault();
+											dropzone.classList.remove('border-primary');
+											const file = e.dataTransfer.files[0];
+											if (file) handleEnvFile(file);
+										});
+									}
+									
+									if (fileInput) {
+										fileInput.addEventListener('change', (e) => {
+											const file = e.target.files[0];
+											if (file) handleEnvFile(file);
+										});
+									}
+									
+									function handleEnvFile(file) {
+										const reader = new FileReader();
+										reader.onload = (e) => {
+											const content = e.target.result;
+											parsedEnvVars = parseEnvFile(content);
+											showPreview(parsedEnvVars);
+										};
+										reader.readAsText(file);
+									}
+									
+									function parseEnvFile(content) {
+										const vars = {};
+										const lines = content.split('\n');
+										for (const line of lines) {
+											const trimmed = line.trim();
+											if (!trimmed || trimmed.startsWith('#')) continue;
+											const eqIndex = trimmed.indexOf('=');
+											if (eqIndex > 0) {
+												const key = trimmed.substring(0, eqIndex).trim();
+												let value = trimmed.substring(eqIndex + 1).trim();
+												// Remove quotes if present
+												if ((value.startsWith('"') && value.endsWith('"')) || 
+													(value.startsWith("'") && value.endsWith("'"))) {
+													value = value.slice(1, -1);
+												}
+												vars[key] = value;
+											}
+										}
+										return vars;
+									}
+									
+									function showPreview(vars) {
+										const keys = Object.keys(vars);
+										envCount.textContent = keys.length;
+										previewList.innerHTML = keys.map(key => 
+											`<div class="flex items-center justify-between text-sm">
+												<code class="font-mono text-xs">${key}</code>
+												<code class="font-mono text-xs text-muted-foreground">••••••••</code>
+											</div>`
+										).join('');
+										preview.classList.remove('hidden');
+										dropzone.classList.add('hidden');
+									}
+									
+									if (cancelBtn) {
+										cancelBtn.addEventListener('click', () => {
+											parsedEnvVars = {};
+											preview.classList.add('hidden');
+											dropzone.classList.remove('hidden');
+											fileInput.value = '';
+										});
+									}
+									
+									if (importBtn) {
+										importBtn.addEventListener('click', async () => {
+											importBtn.disabled = true;
+											importBtn.textContent = 'Importing...';
+											
+											try {
+												for (const [key, value] of Object.entries(parsedEnvVars)) {
+													await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env`, {
+														method: 'POST',
+														headers: { 'Content-Type': 'application/json' },
+														body: JSON.stringify({ key, value })
+													});
+												}
+												window.location.reload();
+											} catch (err) {
+												console.error(err);
+												alert('Failed to import variables');
+												importBtn.disabled = false;
+												importBtn.textContent = 'Import All';
+											}
+										});
+									}
+									
+									// Add single variable form
+									const addForm = document.getElementById('add-env-form');
+									if (addForm) {
+										addForm.addEventListener('submit', async (e) => {
+											e.preventDefault();
+											const key = document.getElementById('env-key').value.trim();
+											const value = document.getElementById('env-value').value;
+											
+											if (!key) return;
+											
+											try {
+												const res = await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env`, {
+													method: 'POST',
+													headers: { 'Content-Type': 'application/json' },
+													body: JSON.stringify({ key, value })
+												});
+												
+												if (res.ok) {
+													window.location.reload();
+												} else {
+													const err = await res.json();
+													alert(err.error || 'Failed to add variable');
+												}
+											} catch (err) {
+												console.error(err);
+												alert('Failed to add variable');
+											}
+										});
+									}
+									
+									// Toggle visibility
+									document.querySelectorAll('.toggle-visibility').forEach(btn => {
+										btn.addEventListener('click', function() {
+											const valueEl = this.parentElement.querySelector('.env-value');
+											const actualValue = valueEl.dataset.value;
+											if (valueEl.textContent === '••••••••') {
+												valueEl.textContent = actualValue;
+											} else {
+												valueEl.textContent = '••••••••';
+											}
+										});
+									});
+									
+									// Delete variable
+									document.querySelectorAll('.delete-env-btn').forEach(btn => {
+										btn.addEventListener('click', async function() {
+											const key = this.dataset.key;
+											if (!confirm(`Delete ${key}?`)) return;
+											
+											try {
+												const res = await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env/${key}`, {
+													method: 'DELETE'
+												});
+												if (res.ok) {
+													window.location.reload();
+												} else {
+													alert('Failed to delete variable');
+												}
+											} catch (err) {
+												console.error(err);
+												alert('Failed to delete variable');
+											}
+										});
+									});
+								});
+							</script>
+						</div>
+					}
+				}
+				
+				// Domains Tab - Port configuration and custom domains
+				@tabs.Content(tabs.ContentProps{Value: "domains"}) {
+					<div class="pt-4 space-y-6">
+						// Port Configuration Card
+						@card.Card() {
+							@card.Header() {
+								@card.Title() { Port Configuration }
+								@card.Description() { Configure the port your application listens on }
+							}
+							@card.Content() {
+								<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/port") } class="space-y-4">
+									<div class="grid grid-cols-2 gap-4">
+										<div class="space-y-2">
+											@label.Label(label.Props{For: "container-port"}) { Container Port }
+											@input.Input(input.Props{
+												ID: "container-port",
+												Name: "port",
+												Type: input.TypeNumber,
+												Value: fmt.Sprintf("%d", getServicePort(data.Service)),
+												Placeholder: "8080",
+												Attributes: templ.Attributes{"min": "1", "max": "65535"},
+											})
+											<p class="text-[10px] text-muted-foreground">The port your application listens on inside the container.</p>
+										</div>
+										<div class="space-y-2">
+											@label.Label(label.Props{}) { Auto-assigned URL }
+											<div class="flex items-center gap-2 h-9 px-3 rounded-md border bg-muted/50">
+												<span class="text-sm text-muted-foreground font-mono truncate">
+													{ data.App.ID }-{ data.Service.Name }.narvana.local
+												</span>
+												@tooltip.Tooltip() {
+													@tooltip.Trigger() {
+														@button.Button(button.Props{
+															Type: "button",
+															Variant: button.VariantGhost,
+															Size: button.SizeIcon,
+															Class: "h-6 w-6",
+															Attributes: templ.Attributes{
+																"onclick": fmt.Sprintf("navigator.clipboard.writeText('%s-%s.narvana.local')", data.App.ID, data.Service.Name),
+															},
+														}) {
+															@icon.Copy(icon.Props{Class: "size-3"})
+														}
+													}
+													@tooltip.Content() {
+														Copy URL
+													}
+												}
+											</div>
+											<p class="text-[10px] text-muted-foreground">Wildcard domain automatically assigned to this service.</p>
+										</div>
+									</div>
+									<div class="flex justify-end">
+										@button.Button(button.Props{Type: "submit"}) { Save Port }
+									</div>
+								</form>
+							}
+						}
+						
+						// Custom Domains Card
+						@card.Card() {
+							@card.Header() {
+								@card.Title() { Custom Domains }
+								@card.Description() { Add your own domain names to route traffic to this service }
+							}
+							@card.Content() {
+								<div class="space-y-4">
+									<div class="flex items-end gap-2">
+										<div class="flex-1 space-y-2">
+											@label.Label(label.Props{For: "domain-input"}) { Add new domain }
+											@input.Input(input.Props{
+												ID: "domain-input",
+												Placeholder: "e.g., api.myapp.com",
+											})
+										</div>
+										@button.Button(button.Props{
+											ID:      "add-domain-btn",
+											Type:    "button",
+											Attributes: templ.Attributes{
+												"data-app-id":      data.App.ID,
+												"data-service-name": data.Service.Name,
+											},
+										}) {
+											@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+											Add
+										}
+									</div>
+									
+									<div class="rounded-lg border overflow-hidden">
+										@table.Table() {
+											@table.Header() {
+												@table.Row() {
+													@table.Head() { Domain }
+													@table.Head() { Type }
+													@table.Head() { Status }
+													@table.Head(table.HeadProps{Class: "text-right"}) { Action }
+												}
+											}
+											@table.Body(table.BodyProps{ID: "domains-list"}) {
+												@table.Row(table.RowProps{ID: "domains-loading"}) {
+													@table.Cell(table.CellProps{Attributes: templ.Attributes{"colspan": "4"}, Class: "py-8 text-center text-muted-foreground"}) {
+														Loading domains...
+													}
+												}
+											}
+										}
+									</div>
+									<p class="text-[10px] text-muted-foreground">
+										Configure your DNS provider to point a CNAME record to 
+										<span class="font-mono">narvana.local</span> (or your controller IP).
+									</p>
+								</div>
+								
+								<!-- Hidden Dialog for Domain Deletion -->
+								@dialog.Dialog(dialog.Props{ID: "delete-domain-dialog"}) {
+									@dialog.Content() {
+										@dialog.Header() {
+											@dialog.Title() { Remove Domain }
+											@dialog.Description() {
+												Are you sure you want to remove <strong id="delete-domain-name"></strong>? This will stop traffic to this domain.
+											}
+										}
+										@dialog.Footer() {
+											@dialog.Close() {
+												@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+											}
+											@button.Button(button.Props{
+												ID: "confirm-delete-domain-btn",
+												Variant: button.VariantDestructive,
+											}) { Remove Domain }
+										}
+									}
+								}
+
+								<script>
+									document.addEventListener('DOMContentLoaded', () => {
+										const appId = document.getElementById('add-domain-btn')?.dataset.appId;
+										const serviceName = document.getElementById('add-domain-btn')?.dataset.serviceName;
+										if (!appId) return;
+
+										const list = document.getElementById('domains-list');
+										const input = document.getElementById('domain-input');
+										const addBtn = document.getElementById('add-domain-btn');
+										const deleteConfirmBtn = document.getElementById('confirm-delete-domain-btn');
+										let domainToDeleteId = null;
+
+										// Load domains
+										fetch(`/api/v1/apps/${appId}/domains`)
+											.then(r => r.json())
+											.then(data => {
+												list.innerHTML = '';
+												const domains = (data.domains || []).filter(d => d.service === serviceName);
+												
+												if (domains.length === 0) {
+													list.innerHTML = `
+														<tr class="border-b transition-colors hover:bg-muted/50">
+															<td colspan="4" class="p-2 align-middle py-8 text-center text-muted-foreground">
+																No custom domains configured.
+															</td>
+														</tr>
+													`;
+													return;
+												}
+
+												domains.forEach(d => {
+													const row = document.createElement('tr');
+													row.className = 'border-b transition-colors hover:bg-muted/50 group';
+													row.innerHTML = `
+														<td class="p-2 align-middle">
+															<a href="http://${d.domain}" target="_blank" class="font-mono text-sm hover:underline">
+																${d.domain}
+															</a>
+														</td>
+														<td class="p-2 align-middle">
+															<span class="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors bg-secondary text-secondary-foreground">
+																${d.is_wildcard ? 'Wildcard' : 'Custom'}
+															</span>
+														</td>
+														<td class="p-2 align-middle">
+															<span class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-0.5 text-xs font-semibold bg-green-500/10 text-green-500 border-green-500/20">
+																<span class="size-1.5 rounded-full bg-green-500"></span>
+																Active
+															</span>
+														</td>
+														<td class="p-2 align-middle text-right">
+															<button 
+																class="delete-domain inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 w-9 opacity-0 group-hover:opacity-100"
+																data-id="${d.id}"
+																data-domain="${d.domain}"
+																title="Remove domain"
+																type="button"
+															>
+																<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+															</button>
+														</td>
+													`;
+													list.appendChild(row);
+												});
+
+												// Bind deletes using TemplUI dialog
+												document.querySelectorAll('.delete-domain').forEach(btn => {
+													btn.addEventListener('click', (e) => {
+														const id = e.currentTarget.dataset.id;
+														const domain = e.currentTarget.dataset.domain;
+														domainToDeleteId = id;
+														
+														document.getElementById('delete-domain-name').textContent = domain;
+														window.tui.dialog.open('delete-domain-dialog');
+													});
+												});
+											});
+
+										// Confirm delete action
+										if (deleteConfirmBtn) {
+											deleteConfirmBtn.addEventListener('click', async () => {
+												if (!domainToDeleteId) return;
+												
+												deleteConfirmBtn.disabled = true;
+												deleteConfirmBtn.textContent = 'Removing...';
+												
+												try {
+													const res = await fetch(`/api/v1/apps/${appId}/domains/${domainToDeleteId}`, { method: 'DELETE' });
+													if (res.ok) {
+														window.location.reload();
+													} else {
+														alert('Failed to delete domain');
+														deleteConfirmBtn.disabled = false;
+														deleteConfirmBtn.textContent = 'Remove Domain';
+													}
+												} catch (err) {
+													console.error(err);
+													deleteConfirmBtn.disabled = false;
+													deleteConfirmBtn.textContent = 'Remove Domain';
+												}
+											});
+										}
+
+										// Add domain logic
+										addBtn.addEventListener('click', async () => {
+											const domain = input.value.trim();
+											if (!domain) return;
+											
+											addBtn.disabled = true;
+											addBtn.textContent = 'Adding...';
+
+											try {
+												const res = await fetch(`/api/v1/apps/${appId}/domains`, {
+													method: 'POST',
+													headers: { 'Content-Type': 'application/json' },
+													body: JSON.stringify({ service: serviceName, domain })
+												});
+												
+												if (res.ok) {
+													input.value = '';
+													window.location.reload();
+												} else {
+													const err = await res.json();
+													alert(err.error || 'Failed to add domain');
+												}
+											} catch (error) {
+												console.error(error);
+												alert('Failed to connect to server');
+											} finally {
+												addBtn.disabled = false;
+												addBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 mr-2"><path d="M5 12h14"/><path d="M12 5v14"/></svg> Add';
+											}
+										});
+									});
+								</script>
+							}
+						}
+					</div>
 				}
 				
 				// Settings Tab
@@ -715,16 +1787,17 @@ templ ServiceDetail(data ServiceDetailData) {
 												Placeholder: "e.g., api.myapp.com",
 											})
 										</div>
-										<button 
-											id="add-domain-btn"
-											class="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-950 disabled:pointer-events-none disabled:opacity-50 bg-zinc-50 text-zinc-900 shadow hover:bg-zinc-50/90 h-9 px-4 py-2"
-											type="button"
-											data-app-id={ data.App.ID }
-											data-service-name={ data.Service.Name }
-										>
+										@button.Button(button.Props{
+											ID:      "add-domain-btn",
+											Type:    "button",
+											Attributes: templ.Attributes{
+												"data-app-id":      data.App.ID,
+												"data-service-name": data.Service.Name,
+											},
+										}) {
 											@icon.Plus(icon.Props{Class: "size-4 mr-2"})
 											Add
-										</button>
+										}
 									</div>
 									
 									<div class="rounded-lg border bg-zinc-900/50">
@@ -961,872 +2034,475 @@ templ ServiceDetail(data ServiceDetailData) {
 	}
 }
 
-// FlowStage represents a stage in the deployment pipeline
-type FlowStage struct {
-	ID          string
-	Name        string
-	Icon        string
-	Status      string // pending, active, completed, failed
-	Description string
-	Link        string
-	Details     map[string]string
-}
-
-// GetFlowStages returns the deployment pipeline stages based on current state
-func GetFlowStages(data ServiceDetailData) []FlowStage {
-	stages := []FlowStage{}
-	
-	// Stage 1: Git Source
-	gitStatus := "completed"
-	gitDesc := "Source configured"
-	gitDetails := map[string]string{}
-	if data.Service.GitRepo != "" {
-		gitDetails["Repository"] = data.Service.GitRepo
-		gitDetails["Branch"] = data.Service.GitRef
-		if gitDetails["Branch"] == "" {
-			gitDetails["Branch"] = "main"
-		}
-	} else if data.Service.SourceType == "database" {
-		gitStatus = "completed"
-		gitDesc = "Database template"
-		if data.Service.Database != nil {
-			gitDetails["Type"] = data.Service.Database.Type
-			gitDetails["Version"] = data.Service.Database.Version
-		}
+// ServiceOverview dispatches to the appropriate overview based on service type
+templ ServiceOverview(data ServiceDetailData) {
+	if isDatabaseService(data.Service) {
+		@DatabaseServiceOverview(data)
 	} else {
-		gitStatus = "pending"
-		gitDesc = "No source configured"
+		@WebServiceOverview(data)
 	}
-	stages = append(stages, FlowStage{
-		ID:          "git",
-		Name:        "Source",
-		Icon:        "git",
-		Status:      gitStatus,
-		Description: gitDesc,
-		Link:        "",
-		Details:     gitDetails,
-	})
-	
-	// Stage 2: Build
-	buildStatus := "pending"
-	buildDesc := "Not built"
-	buildDetails := map[string]string{}
+}
+
+// ServiceStatusBanner renders the deployment status banner (shared by both overview types)
+templ ServiceStatusBanner(data ServiceDetailData) {
 	if len(data.Deployments) > 0 {
-		latestDep := data.Deployments[0]
-		switch latestDep.Status {
-		case "pending":
-			buildStatus = "pending"
-			buildDesc = "Queued"
-		case "building":
-			buildStatus = "active"
-			buildDesc = "Building..."
-		case "built", "scheduled", "deploying", "running":
-			buildStatus = "completed"
-			buildDesc = "Build successful"
-		case "failed":
-			buildStatus = "failed"
-			buildDesc = "Build failed"
-		}
-		buildDetails["Strategy"] = string(data.Service.BuildStrategy)
-		if latestDep.GitCommit != "" {
-			buildDetails["Commit"] = latestDep.GitCommit[:8]
-		}
-	}
-	stages = append(stages, FlowStage{
-		ID:          "build",
-		Name:        "Build",
-		Icon:        "build",
-		Status:      buildStatus,
-		Description: buildDesc,
-		Link:        "/builds",
-		Details:     buildDetails,
-	})
-	
-	// Stage 3: Deploy
-	deployStatus := "pending"
-	deployDesc := "Not deployed"
-	deployDetails := map[string]string{}
-	if len(data.Deployments) > 0 {
-		latestDep := data.Deployments[0]
-		switch latestDep.Status {
-		case "pending", "building":
-			deployStatus = "pending"
-			deployDesc = "Waiting for build"
-		case "built":
-			deployStatus = "pending"
-			deployDesc = "Ready to deploy"
-		case "scheduled", "deploying":
-			deployStatus = "active"
-			deployDesc = "Deploying..."
-		case "running":
-			deployStatus = "completed"
-			deployDesc = "Deployed"
-		case "failed":
-			deployStatus = "failed"
-			deployDesc = "Deploy failed"
-		case "stopped":
-			deployStatus = "completed"
-			deployDesc = "Stopped"
-		}
-		deployDetails["Version"] = fmt.Sprintf("v%d", latestDep.Version)
-		deployDetails["Status"] = latestDep.Status
-	}
-	stages = append(stages, FlowStage{
-		ID:          "deploy",
-		Name:        "Deploy",
-		Icon:        "deploy",
-		Status:      deployStatus,
-		Description: deployDesc,
-		Link:        "/deployments",
-		Details:     deployDetails,
-	})
-	
-	// Stage 4: Node
-	nodeStatus := "pending"
-	nodeDesc := "No node assigned"
-	nodeDetails := map[string]string{}
-	if len(data.Deployments) > 0 && data.Deployments[0].NodeID != "" {
-		latestDep := data.Deployments[0]
-		if latestDep.Status == "running" {
-			nodeStatus = "completed"
-			nodeDesc = "Running on node"
-		} else if latestDep.Status == "deploying" || latestDep.Status == "scheduled" {
-			nodeStatus = "active"
-			nodeDesc = "Starting on node"
-		} else if latestDep.Status == "stopped" {
-			nodeStatus = "completed"
-			nodeDesc = "Stopped"
-		} else {
-			nodeStatus = "pending"
-			nodeDesc = "Assigned to node"
-		}
-		nodeDetails["Node ID"] = latestDep.NodeID[:12]
-	}
-	stages = append(stages, FlowStage{
-		ID:          "node",
-		Name:        "Node",
-		Icon:        "node",
-		Status:      nodeStatus,
-		Description: nodeDesc,
-		Link:        "/nodes",
-		Details:     nodeDetails,
-	})
-	
-	return stages
-}
-
-// FlowDashboard renders the visual deployment pipeline flow
-// **Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6**
-templ FlowDashboard(data ServiceDetailData) {
-	{{ stages := GetFlowStages(data) }}
-	
-	// Mobile-responsive container with horizontal scroll
-	<div class="w-full overflow-x-auto pb-4 -mx-4 px-4 md:mx-0 md:px-0">
-		<div class="min-w-[600px] md:min-w-0">
-			// Main flow container - dark/light mode compatible
-			<div class="relative w-full bg-card dark:bg-zinc-950 rounded-xl border border-border dark:border-zinc-800 p-6 md:p-8">
-				// Background grid pattern - adapts to theme
-				<div class="absolute inset-0 bg-[radial-gradient(var(--tw-gradient-stops))] from-muted/50 to-transparent dark:from-zinc-800/30 dark:to-transparent opacity-50 rounded-xl"></div>
-				
-				// Flow stages container
-				<div class="relative z-10">
-					// Title
-					<div class="flex items-center justify-between mb-6">
-						<div class="flex items-center gap-2">
-							@icon.GitBranch(icon.Props{Class: "size-4 text-muted-foreground"})
-							<h3 class="text-sm font-semibold text-foreground">Deployment Pipeline</h3>
-						</div>
-						if len(data.Deployments) > 0 {
-							<div class="flex items-center gap-2">
-								@badge.Badge(badge.Props{
-									Variant: getStatusBadgeVariant(data.Deployments[0].Status),
-									Class: "text-xs",
-								}) {
-									{ data.Deployments[0].Status }
-								}
-							</div>
-						}
-					</div>
-					
-					// Flow diagram
-					<div class="flex items-center justify-between gap-2 md:gap-4">
-						for i, stage := range stages {
-							// Flow node with tooltip
-							@FlowNode(stage, data.App.ID)
-							
-							// Connector arrow (except after last node)
-							if i < len(stages) - 1 {
-								@FlowConnector(stage.Status, stages[i+1].Status)
-							}
-						}
-					</div>
-					
-					// Additional info section
-					<div class="mt-6 pt-4 border-t border-border dark:border-zinc-800">
-						<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-							if data.Service.GitRepo != "" {
-								<div class="space-y-1">
-									<span class="text-muted-foreground">Repository</span>
-									<p class="font-mono text-foreground truncate">{ data.Service.GitRepo }</p>
-								</div>
-							}
-							if len(data.Deployments) > 0 {
-								<div class="space-y-1">
-									<span class="text-muted-foreground">Latest Version</span>
-									<p class="font-medium text-foreground">v{ intToString(data.Deployments[0].Version) }</p>
-								</div>
-								<div class="space-y-1">
-									<span class="text-muted-foreground">Last Deployed</span>
-									<p class="text-foreground">{ formatTime(data.Deployments[0].CreatedAt) }</p>
-								</div>
-								if data.Deployments[0].NodeID != "" {
-									<div class="space-y-1">
-										<span class="text-muted-foreground">Running On</span>
-										<p class="font-mono text-foreground">{ data.Deployments[0].NodeID[:12] }</p>
-									</div>
-								}
-							}
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>
-	</div>
-	
-	// Legacy flow dashboard for detailed view (below the pipeline)
-	<div class="mt-6">
-		@DetailedFlowDashboard(data)
-	</div>
-}
-
-// FlowNode renders a single node in the deployment pipeline
-templ FlowNode(stage FlowStage, appID string) {
-	<div 
-		class="group relative flex-1 min-w-[100px] max-w-[180px]"
-		data-flow-stage={ stage.ID }
-	>
-		// Tooltip trigger wrapper
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				// Clickable node card
-				if stage.Link != "" {
-					<a 
-						href={ templ.SafeURL(stage.Link) }
-						class={ 
-							"block p-3 md:p-4 rounded-lg border-2 transition-all duration-200 cursor-pointer",
-							"hover:shadow-lg hover:scale-105",
-							getFlowNodeClasses(stage.Status),
-						}
-					>
-						@FlowNodeContent(stage)
-					</a>
-				} else {
-					<div 
-						class={ 
-							"p-3 md:p-4 rounded-lg border-2 transition-all duration-200",
-							getFlowNodeClasses(stage.Status),
-						}
-					>
-						@FlowNodeContent(stage)
-					</div>
-				}
-			}
-			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true}) {
-				<div class="space-y-2 min-w-[150px]">
-					<div class="font-semibold text-sm">{ stage.Name }</div>
-					<div class="text-xs opacity-80">{ stage.Description }</div>
-					if len(stage.Details) > 0 {
-						<div class="pt-2 border-t border-current/20 space-y-1">
-							for key, value := range stage.Details {
-								<div class="flex justify-between gap-4 text-xs">
-									<span class="opacity-70">{ key }:</span>
-									<span class="font-mono">{ value }</span>
-								</div>
-							}
-						</div>
+		{{ latestDep := data.Deployments[0] }}
+		<div class={ 
+			"rounded-lg border p-4",
+			utils.IfElse(latestDep.Status == "running", "bg-green-500/5 border-green-500/20", ""),
+			utils.IfElse(latestDep.Status == "failed", "bg-destructive/5 border-destructive/20", ""),
+			utils.IfElse(latestDep.Status == "building" || latestDep.Status == "deploying", "bg-primary/5 border-primary/20", ""),
+		}>
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					if latestDep.Status == "running" {
+						<div class="size-3 rounded-full bg-green-500 animate-pulse"></div>
+					} else if latestDep.Status == "failed" {
+						<div class="size-3 rounded-full bg-destructive"></div>
+					} else if latestDep.Status == "building" || latestDep.Status == "deploying" {
+						@icon.Loader(icon.Props{Class: "size-4 animate-spin text-primary"})
+					} else {
+						<div class="size-3 rounded-full bg-muted-foreground"></div>
 					}
-					if stage.Link != "" {
-						<div class="pt-2 text-xs opacity-70 flex items-center gap-1">
-							@icon.ExternalLink(icon.Props{Class: "size-3"})
-							Click to view details
-						</div>
-					}
-				</div>
-			}
-		}
-	</div>
-}
-
-// FlowNodeContent renders the content inside a flow node
-templ FlowNodeContent(stage FlowStage) {
-	<div class="flex flex-col items-center text-center space-y-2">
-		// Icon with status indicator
-		<div class={ "relative p-2 md:p-3 rounded-full", getFlowIconBgClasses(stage.Status) }>
-			@FlowStageIcon(stage.Icon, stage.Status)
-			// Animated pulse for active status
-			if stage.Status == "active" {
-				<div class="absolute inset-0 rounded-full animate-ping opacity-30 bg-primary"></div>
-			}
-		</div>
-		// Stage name
-		<div class="space-y-0.5">
-			<p class={ "text-xs md:text-sm font-medium", getFlowTextClasses(stage.Status) }>
-				{ stage.Name }
-			</p>
-			<p class={ "text-[10px] md:text-xs", getFlowDescClasses(stage.Status) }>
-				{ stage.Description }
-			</p>
-		</div>
-	</div>
-}
-
-// FlowStageIcon renders the appropriate icon for each stage
-templ FlowStageIcon(iconType string, status string) {
-	{{ iconClass := "size-5 md:size-6 " + getFlowIconClasses(status) }}
-	switch iconType {
-		case "git":
-			@icon.GitBranch(icon.Props{Class: iconClass})
-		case "build":
-			if status == "active" {
-				@icon.Loader(icon.Props{Class: iconClass + " animate-spin"})
-			} else {
-				@icon.Hammer(icon.Props{Class: iconClass})
-			}
-		case "deploy":
-			if status == "active" {
-				@icon.Loader(icon.Props{Class: iconClass + " animate-spin"})
-			} else {
-				@icon.Rocket(icon.Props{Class: iconClass})
-			}
-		case "node":
-			@icon.Server(icon.Props{Class: iconClass})
-		default:
-			@icon.Circle(icon.Props{Class: iconClass})
-	}
-}
-
-// FlowConnector renders the arrow/line between flow nodes
-templ FlowConnector(fromStatus string, toStatus string) {
-	<div class="flex-shrink-0 flex items-center px-1 md:px-2">
-		<div class={ "h-0.5 w-4 md:w-8 transition-colors duration-300", getConnectorClasses(fromStatus, toStatus) }></div>
-		<div class={ "w-0 h-0 border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent border-l-[6px] transition-colors duration-300", getConnectorArrowClasses(fromStatus, toStatus) }></div>
-	</div>
-}
-
-// Helper functions for flow node styling
-func getFlowNodeClasses(status string) string {
-	switch status {
-	case "completed":
-		return "bg-emerald-500/10 dark:bg-emerald-500/10 border-emerald-500/50 dark:border-emerald-500/30"
-	case "active":
-		return "bg-primary/10 dark:bg-primary/10 border-primary/50 dark:border-primary/30 shadow-md shadow-primary/20"
-	case "failed":
-		return "bg-destructive/10 dark:bg-destructive/10 border-destructive/50 dark:border-destructive/30"
-	default: // pending
-		return "bg-muted/50 dark:bg-zinc-900/50 border-border dark:border-zinc-700"
-	}
-}
-
-func getFlowIconBgClasses(status string) string {
-	switch status {
-	case "completed":
-		return "bg-emerald-500/20 dark:bg-emerald-500/20"
-	case "active":
-		return "bg-primary/20 dark:bg-primary/20"
-	case "failed":
-		return "bg-destructive/20 dark:bg-destructive/20"
-	default:
-		return "bg-muted dark:bg-zinc-800"
-	}
-}
-
-func getFlowIconClasses(status string) string {
-	switch status {
-	case "completed":
-		return "text-emerald-600 dark:text-emerald-400"
-	case "active":
-		return "text-primary"
-	case "failed":
-		return "text-destructive"
-	default:
-		return "text-muted-foreground"
-	}
-}
-
-func getFlowTextClasses(status string) string {
-	switch status {
-	case "completed":
-		return "text-emerald-700 dark:text-emerald-400"
-	case "active":
-		return "text-primary"
-	case "failed":
-		return "text-destructive"
-	default:
-		return "text-muted-foreground"
-	}
-}
-
-func getFlowDescClasses(status string) string {
-	switch status {
-	case "completed":
-		return "text-emerald-600/70 dark:text-emerald-400/70"
-	case "active":
-		return "text-primary/70"
-	case "failed":
-		return "text-destructive/70"
-	default:
-		return "text-muted-foreground/70"
-	}
-}
-
-func getConnectorClasses(fromStatus string, toStatus string) string {
-	if fromStatus == "completed" {
-		return "bg-emerald-500/50 dark:bg-emerald-500/30"
-	}
-	if fromStatus == "active" {
-		return "bg-primary/50 dark:bg-primary/30 animate-pulse"
-	}
-	return "bg-border dark:bg-zinc-700"
-}
-
-func getConnectorArrowClasses(fromStatus string, toStatus string) string {
-	if fromStatus == "completed" {
-		return "border-l-emerald-500/50 dark:border-l-emerald-500/30"
-	}
-	if fromStatus == "active" {
-		return "border-l-primary/50 dark:border-l-primary/30"
-	}
-	return "border-l-border dark:border-l-zinc-700"
-}
-
-func getStatusBadgeVariant(status string) badge.Variant {
-	switch status {
-	case "running":
-		return badge.VariantDefault // Primary color for success
-	case "building", "deploying", "scheduled":
-		return badge.VariantSecondary
-	case "failed":
-		return badge.VariantDestructive
-	default:
-		return badge.VariantOutline
-	}
-}
-
-// DetailedFlowDashboard renders the detailed service architecture view (legacy)
-templ DetailedFlowDashboard(data ServiceDetailData) {
-	<div class="relative min-h-[500px] w-full bg-card dark:bg-zinc-950 rounded-xl border border-border dark:border-zinc-900 overflow-hidden p-6 md:p-12">
-		// Dark background grid
-		<div class="absolute inset-0 bg-[radial-gradient(var(--tw-gradient-stops))] from-muted/30 to-transparent dark:from-zinc-800/20 dark:to-transparent opacity-50"></div>
-		
-		<div class="relative flex flex-col md:flex-row items-stretch md:items-center justify-between gap-6 md:gap-12 h-full z-10">
-			// Left: Networking & Domains / Storage & Persistence
-			<div class="w-full md:w-[300px] space-y-4">
-				@NetworkingCard(data.Service, data.App)
-			</div>
-
-			// Center: The Service / App Cluster
-			<div class="flex-1 flex flex-col items-center justify-center">
-				@ServiceNode(data.Service, data.App.ID, data.Deployments)
-			</div>
-
-			// Right: Resources (DB, Cache, etc.)
-			<div class="w-full md:w-[300px] space-y-4">
-				@ResourcesCard(data)
-			</div>
-		</div>
-
-		// SVG Connections Layer
-		<svg class="absolute inset-0 w-full h-full pointer-events-none z-0 hidden md:block" id="flow-connections"></svg>
-	</div>
-}
-
-templ NetworkingCard(svc api.Service, app api.App) {
-	<div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-5 space-y-4 backdrop-blur-sm" data-flow-node="network">
-		if svc.SourceType == "database" {
-			<div class="flex items-center justify-between text-zinc-400">
-				<div class="flex items-center gap-2">
-					@icon.Database(icon.Props{Class: "size-4 text-primary"})
-					<span class="text-xs font-semibold uppercase tracking-wider">Storage & Persistence</span>
-				</div>
-				<div class="size-5 rounded-full bg-zinc-800 flex items-center justify-center cursor-help">
-					@icon.Info(icon.Props{Class: "size-3"})
-				</div>
-			</div>
-			
-			<div class="space-y-4">
-				// Data Volume
-				<div class="bg-primary/5 border border-primary/10 rounded-lg p-4 space-y-3">
-					<div class="flex items-center gap-3">
-						<div class="size-8 rounded bg-primary/10 flex items-center justify-center">
-							@icon.HardDrive(icon.Props{Class: "size-4 text-primary"})
-						</div>
-						<div>
-							<h4 class="text-sm font-medium text-zinc-200">Data Directory</h4>
-							<p class="text-[10px] text-zinc-500">
-								if svc.Database != nil && svc.Database.Type == "postgres" {
-									PostgreSQL data cluster
-								} else {
-									Persistent disk storage
-								}
-							</p>
-						</div>
-					</div>
-					
-					<div class="space-y-1.5 pt-1 border-t border-primary/10">
-						<div class="flex items-center justify-between text-[11px]">
-							<span class="text-zinc-500 font-mono">
-								if svc.Database != nil && svc.Database.Type == "postgres" {
-									/app/data/pgdata
-								} else {
-									/var/lib/narvana/data
-								}
-							</span>
-							<span class="text-primary font-medium">Mounted</span>
-						</div>
-					</div>
-				</div>
-
-				// Access Strategy
-				<div class="bg-zinc-950/50 border border-zinc-800/50 rounded-lg p-4 space-y-3">
-					<div class="flex items-center gap-3">
-						<div class="size-8 rounded bg-zinc-900 flex items-center justify-center text-zinc-500">
-							@icon.Shield(icon.Props{Class: "size-4"})
-						</div>
-						<div>
-							<h4 class="text-sm font-medium text-zinc-200">Connection</h4>
-						</div>
-					</div>
-					<div class="space-y-1.5 pt-1">
-						if svc.Database != nil && svc.Database.Type == "postgres" {
-							<div class="flex items-center justify-between text-[11px]">
-								<span class="text-zinc-500">Connection string</span>
-								<span class="text-zinc-100 font-mono text-[10px]">postgresql://narvana:***@localhost:5432/narvana</span>
-							</div>
-							<div class="flex items-center justify-between text-[11px]">
-								<span class="text-zinc-500">Port</span>
-								<span class="text-zinc-100 font-mono">5432</span>
-							</div>
-							<div class="flex items-center justify-between text-[11px]">
-								<span class="text-zinc-500">Network</span>
-								<span class="text-emerald-500 flex items-center gap-1.5">
-									<div class="size-1.5 rounded-full bg-emerald-500"></div>
-									TCP Server
-								</span>
-							</div>
-						} else {
-							<div class="flex items-center justify-between text-[11px]">
-								<span class="text-zinc-500">Connection string</span>
-								<span class="text-zinc-100 font-mono">/app/data/database.db</span>
-							</div>
-							<div class="flex items-center justify-between text-[11px]">
-								<span class="text-zinc-500">Isolation</span>
-								<span class="text-emerald-500 flex items-center gap-1.5">
-									<div class="size-1.5 rounded-full bg-emerald-500"></div>
-									Pod-Local
-								</span>
-							</div>
-						}
-					</div>
-				</div>
-			</div>
-		} else {
-			<div class="flex items-center justify-between text-zinc-400">
-				<div class="flex items-center gap-2">
-					@icon.Globe(icon.Props{Class: "size-4"})
-					<span class="text-xs font-semibold uppercase tracking-wider">Inbound Network</span>
-				</div>
-				<div class="size-5 rounded-full bg-zinc-800 flex items-center justify-center cursor-help">
-					@icon.Info(icon.Props{Class: "size-3"})
-				</div>
-			</div>
-			
-			<div class="space-y-4">
-				// Internal Pod Network
-				<div class="bg-zinc-950/50 border border-zinc-800/50 rounded-lg p-4 space-y-3">
-					<div class="flex items-center gap-3">
-						<div class="size-8 rounded bg-primary/10 flex items-center justify-center">
-							@icon.Shield(icon.Props{Class: "size-4 text-primary"})
-						</div>
-						<div>
-							<h4 class="text-sm font-medium text-zinc-200">App Pod Network</h4>
-							<p class="text-[10px] text-zinc-500">Podman internal network</p>
-						</div>
-					</div>
-					
-					<div class="space-y-1.5 pt-1 border-t border-zinc-900/50">
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2">
-								@icon.Zap(icon.Props{Class: "size-3 text-zinc-600"})
-								<span class="text-zinc-500">Shared pod DNS</span>
-							</div>
-							<span class="text-emerald-500/80 font-medium">Active</span>
-						</div>
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2 text-zinc-600">
-								@icon.Activity(icon.Props{Class: "size-3"})
-								<span>Intra-pod traffic</span>
-							</div>
-							<span class="text-zinc-500">Isolated</span>
-						</div>
-					</div>
-
-					<div class="mt-2 p-2 bg-primary/5 rounded border border-primary/10">
-						<p class="text-[9px] text-primary/70 leading-relaxed italic">
-							Services in this app share a common hardware-isolated Podman network.
+					<div>
+						<p class="font-medium">
+							if latestDep.Status == "running" {
+								Service is running
+							} else if latestDep.Status == "failed" {
+								Deployment failed
+							} else if latestDep.Status == "building" {
+								Building...
+							} else if latestDep.Status == "deploying" {
+								Deploying...
+							} else if latestDep.Status == "stopped" {
+								Service stopped
+							} else {
+								{ latestDep.Status }
+							}
+						</p>
+						<p class="text-xs text-muted-foreground">
+							v{ intToString(latestDep.Version) } • { formatTime(latestDep.CreatedAt) }
+							if latestDep.NodeID != "" {
+								 • Node { latestDep.NodeID[:8] }
+							}
 						</p>
 					</div>
 				</div>
-
-				// Domains
-				<div class="bg-zinc-950/50 border border-zinc-800/50 rounded-lg p-4 space-y-3">
-					<div class="flex items-center gap-3">
-						<div class="size-8 rounded bg-zinc-900 flex items-center justify-center text-zinc-500">
-							@icon.Globe(icon.Props{Class: "size-4"})
-						</div>
-						<div>
-							<h4 class="text-sm font-medium text-zinc-200">Domains</h4>
-						</div>
-					</div>
-					<div class="space-y-1.5 pt-1">
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2">
-								@icon.Cloud(icon.Props{Class: "size-3 text-zinc-600"})
-								<span class="text-zinc-500">Cloud domain</span>
-							</div>
-							<span class="text-zinc-600 flex items-center gap-1.5">
-								<div class="size-1.5 rounded-full bg-zinc-600"></div>
-								Pending
-							</span>
-						</div>
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2">
-								@icon.Globe(icon.Props{Class: "size-3 text-zinc-600"})
-								<span class="text-zinc-500">Custom domains</span>
-							</div>
-							<span class="text-zinc-600 flex items-center gap-1.5">
-								<div class="size-1.5 rounded-full bg-zinc-600"></div>
-								Not connected
-							</span>
-						</div>
-					</div>
-				</div>
-			</div>
-		}
-	</div>
-}
-
-templ ServiceNode(svc api.Service, appID string, deployments []api.Deployment) {
-	<div 
-		class="w-[400px] bg-zinc-900 border border-zinc-800 rounded-xl p-1 shadow-2xl group transition-all hover:border-zinc-700"
-		data-flow-node="service"
-	>
-		<div class="bg-zinc-950 rounded-[10px] p-1">
-			<div class="p-4 border-b border-zinc-900">
-				<div class="flex items-center justify-end mb-1">
-					<div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/5 border border-primary/10">
-						<div class="size-1 rounded-full bg-primary"></div>
-						<span class="text-[9px] text-primary/80 font-medium">Shared App Pod</span>
-					</div>
-				</div>
-				<div class="flex items-center gap-3">
-					<div class="size-10 rounded bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-						@icon.Box(icon.Props{Class: "size-5 text-zinc-400"})
-					</div>
-					<div>
-						<h4 class="text-sm font-semibold text-zinc-100">Service process</h4>
-						<div class="flex items-center gap-2">
-							if len(deployments) > 0 {
-								@DeploymentStatusBadge(deployments[0].Status)
-							} else {
-								<div class="size-2 rounded-full bg-zinc-700"></div>
-								<span class="text-[10px] text-zinc-500">No active instance</span>
+				<div class="flex items-center gap-2">
+					if latestDep.Status == "failed" {
+						<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/retry") }>
+							@button.Button(button.Props{Type: "submit", Size: button.SizeSm}) {
+								@icon.RotateCcw(icon.Props{Class: "size-4 mr-1"})
+								Retry
 							}
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<div class="p-4 space-y-4">
-				<div class="space-y-3">
-					if svc.SourceType == "database" && svc.Database != nil {
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2 text-zinc-400">
-								@icon.Database(icon.Props{Class: "size-3.5"})
-								<span>Engine</span>
-							</div>
-							<div class="flex items-center gap-2">
-								<span class="bg-zinc-900 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-800">
-									if svc.Database.Type == "postgres" {
-										PostgreSQL
-									} else if svc.Database.Type == "sqlite" {
-										SQLite
-									} else {
-										{ svc.Database.Type }
-									}
-								</span>
-							</div>
-						</div>
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2 text-zinc-400">
-								@icon.Zap(icon.Props{Class: "size-3.5"})
-								<span>Version</span>
-							</div>
-							<span class="text-zinc-100 font-medium">{ svc.Database.Version }</span>
-						</div>
-					} else {
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2 text-zinc-400">
-								@icon.Box(icon.Props{Class: "size-3.5"})
-								<span>Process type</span>
-							</div>
-							<div class="flex items-center gap-2">
-								<span class="bg-zinc-900 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-800 capitalize">{ svc.SourceType }</span>
-							</div>
-						</div>
-						<div class="flex items-center justify-between text-[11px]">
-							<div class="flex items-center gap-2 text-zinc-400">
-								@icon.Layers(icon.Props{Class: "size-3.5"})
-								<span>Instances</span>
-							</div>
-							<span class="text-zinc-100 font-medium">{ fmt.Sprintf("%d", svc.Replicas) }</span>
-						</div>
+						</form>
 					}
-					<div class="flex items-center justify-between text-[11px]">
-						<div class="flex items-center gap-2 text-zinc-400">
-							@icon.Activity(icon.Props{Class: "size-3.5"})
-							<span>Health status</span>
-						</div>
-						<span class="text-emerald-500 font-medium">Healthy</span>
-					</div>
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Size: button.SizeSm,
+						Href: "#",
+						Attributes: templ.Attributes{"data-tui-tabs-trigger": "logs"},
+					}) {
+						View Logs
+					}
 				</div>
-
-				if len(deployments) > 0 && deployments[0].NodeID != "" {
-					<div class="pt-4 border-t border-zinc-900 flex items-center justify-between">
-						<div class="flex items-center gap-3">
-							<div class="size-8 rounded bg-zinc-950 flex items-center justify-center text-zinc-500">
-								@icon.Server(icon.Props{Class: "size-4"})
-							</div>
-							<div>
-								<h5 class="text-xs font-medium text-zinc-300">Deployment Node</h5>
-								<p class="text-[10px] text-zinc-600 font-mono">{ deployments[0].NodeID[:12] }</p>
-							</div>
-						</div>
-						
-						@dialog.Dialog(dialog.Props{ID: "service-terminal-dialog", DisableClickAway: true}) {
-							@dialog.Trigger() {
-								@button.Button(button.Props{
-									Variant: button.VariantOutline,
-									Size:    button.SizeSm,
-									Class:   "h-8 text-[10px] uppercase font-bold tracking-wider",
-								}) {
-									@icon.Terminal(icon.Props{Class: "size-3 mr-1.5"})
-									Terminal
-								}
-							}
-							@dialog.Content(dialog.ContentProps{Class: "sm:max-w-4xl"}) {
-								@dialog.Header() {
-									<div class="flex items-center justify-between pr-8">
-										<div>
-											@dialog.Title() { Service Console }
-											@dialog.Description() { Interactive shell session for { svc.Name } }
-										</div>
-									</div>
-								}
-								<div class="rounded-md bg-zinc-950 border border-zinc-800 overflow-hidden">
-									<div class="flex items-center justify-between px-3 py-1.5 bg-zinc-900/50 border-b border-zinc-800">
-										<div class="flex items-center gap-1.5">
-											<div class="size-2.5 rounded-full bg-red-500/20 border border-red-500/40"></div>
-											<div class="size-2.5 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
-											<div class="size-2.5 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
-											<span class="ml-2 text-[10px] font-medium text-zinc-500 uppercase tracking-wider">sh — { svc.Name }</span>
-										</div>
-										@badge.Badge(badge.Props{ID: "svc-term-status", Variant: badge.VariantOutline, Class: "h-5 text-[10px] px-1.5 border-zinc-800"}) {
-											<span class="mr-1 size-1.5 rounded-full bg-zinc-500"></span>
-											Connecting
-										}
-									</div>
-									<div id="svc-terminal" class="h-[500px] w-full p-2"></div>
-								</div>
-								@dialog.Footer() {
-									<div class="flex flex-1 items-center gap-2">
-										<p class="text-[10px] uppercase text-muted-foreground font-semibold">Common:</p>
-										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-svc-cmd", Attributes: templ.Attributes{"data-cmd": "ps aux\n"}}) { ps }
-										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-svc-cmd", Attributes: templ.Attributes{"data-cmd": "ls -la\n"}}) { list }
-										@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs quick-svc-cmd", Attributes: templ.Attributes{"data-cmd": "env\n"}}) { env }
-									</div>
-									
-									@dialog.Dialog(dialog.Props{ID: "svc-term-close-confirm"}) {
-										@dialog.Trigger() {
-											@button.Button(button.Props{Variant: button.VariantOutline}) { Close Terminal }
-										}
-										@dialog.Content() {
-											@dialog.Header() {
-												@dialog.Title() { Terminate Session? }
-												@dialog.Description() { 
-													Are you sure you want to close the terminal? All running processes in this session will be terminated.
-												}
-											}
-											@dialog.Footer() {
-												@dialog.Close() {
-													@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
-												}
-												@button.Button(button.Props{
-													ID:      "confirm-svc-terminate-btn",
-													Variant: button.VariantDestructive,
-												}) { 
-													Terminate & Close 
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					</div>
-				}
 			</div>
 		</div>
-	</div>
+	} else {
+		// No deployments yet - prompt to deploy
+		<div class="rounded-lg border border-dashed p-8 text-center">
+			<div class="mx-auto size-12 rounded-full bg-muted flex items-center justify-center mb-4">
+				@icon.Rocket(icon.Props{Class: "size-6 text-muted-foreground"})
+			</div>
+			<h3 class="font-semibold">Ready to deploy</h3>
+			<p class="text-sm text-muted-foreground mt-1 mb-4">
+				This service hasn't been deployed yet. Click deploy to get started.
+			</p>
+			<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/deploy") }>
+				@button.Button(button.Props{Type: "submit"}) {
+					@icon.Rocket(icon.Props{Class: "size-4 mr-2"})
+					Deploy Now
+				}
+			</form>
+		</div>
+	}
 }
 
-templ ResourcesCard(data ServiceDetailData) {
-	<div class="space-y-4" data-flow-node="resources">
-		// Current Resources
-		for _, dep := range data.Service.DependsOn {
-			<div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-4 flex items-center gap-3 group hover:border-zinc-700 transition-all backdrop-blur-sm">
-				<div class="size-8 rounded bg-zinc-950 flex items-center justify-center text-zinc-500">
-					@icon.Database(icon.Props{Class: "size-4"})
-				</div>
-				<div class="flex-1 min-w-0">
-					<h4 class="text-xs font-medium text-zinc-200 truncate">{ dep }</h4>
-					<p class="text-[10px] text-zinc-500">Internal Dependency</p>
-				</div>
-				@icon.ExternalLink(icon.Props{Class: "size-3 text-zinc-700 group-hover:text-zinc-400"})
-			</div>
-		}
-
-		// Add Resource
-		<div class="bg-zinc-900/20 border border-dashed border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-all cursor-pointer group">
-			@selectbox.SelectBox(selectbox.Props{ID: "add-resource-dropdown"}) {
-				@selectbox.Trigger(selectbox.TriggerProps{Class: "w-full bg-transparent border-none p-0 h-auto hover:bg-transparent shadow-none"}) {
-					<div class="flex items-center gap-3 w-full">
-						<div class="size-2 rounded-full bg-primary/80 group-hover:bg-primary transition-colors"></div>
-						<div class="flex-1 text-left">
-							<h4 class="text-xs font-medium text-zinc-400 group-hover:text-zinc-200 transition-colors">Add resource</h4>
-							<p class="text-[10px] text-zinc-600">Database, cache, storage, WebSockets</p>
-						</div>
-						@icon.ChevronDown(icon.Props{Class: "size-3 text-zinc-700"})
+// DatabaseServiceOverview renders an overview for database services
+templ DatabaseServiceOverview(data ServiceDetailData) {
+	// Status Banner
+	@ServiceStatusBanner(data)
+	
+	// Quick Info Grid
+	<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+		// Engine & Version
+		@card.Card(card.Props{Class: "group hover:border-primary/50 transition-colors"}) {
+			@card.Content(card.ContentProps{Class: "pt-6"}) {
+				<div class="flex items-center justify-between mb-3">
+					<div class="size-10 rounded-lg bg-primary/10 flex items-center justify-center">
+						@icon.Database(icon.Props{Class: "size-5 text-primary"})
 					</div>
-				}
-				@selectbox.Content(selectbox.ContentProps{Class: "text-xs"}) {
-					@selectbox.Item(selectbox.ItemProps{Value: "database"}) { Database (SQLite, Postgres) }
-					@selectbox.Item(selectbox.ItemProps{Value: "cache"}) { Cache (Redis) }
-					@selectbox.Item(selectbox.ItemProps{Value: "storage"}) { Storage Buckets }
-					@selectbox.Item(selectbox.ItemProps{Value: "websockets"}) { WebSockets (Pusher) }
+				</div>
+				<h3 class="font-semibold">Engine</h3>
+				if data.Service.Database != nil {
+					<p class="text-2xl font-bold mt-1 capitalize">{ data.Service.Database.Type }</p>
+					<p class="text-xs text-muted-foreground">v{ data.Service.Database.Version }</p>
 				}
 			}
-		</div>
+		}
+		
+		// Port
+		@card.Card(card.Props{Class: "group hover:border-primary/50 transition-colors"}) {
+			@card.Content(card.ContentProps{Class: "pt-6"}) {
+				<div class="flex items-center justify-between mb-3">
+					<div class="size-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+						@icon.Globe(icon.Props{Class: "size-5 text-blue-500"})
+					</div>
+				</div>
+				<h3 class="font-semibold">Port</h3>
+				<p class="text-2xl font-bold mt-1 font-mono">{ intToString(getServicePort(data.Service)) }</p>
+				<p class="text-xs text-muted-foreground">default port</p>
+			}
+		}
+		
+		// Replicas
+		@card.Card(card.Props{Class: "group hover:border-primary/50 transition-colors"}) {
+			@card.Content(card.ContentProps{Class: "pt-6"}) {
+				<div class="flex items-center justify-between mb-3">
+					<div class="size-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+						@icon.Layers(icon.Props{Class: "size-5 text-green-500"})
+					</div>
+				</div>
+				<h3 class="font-semibold">Instances</h3>
+				<p class="text-2xl font-bold mt-1">{ intToString(data.Service.Replicas) }</p>
+				<p class="text-xs text-muted-foreground">replica(s)</p>
+			}
+		}
 	</div>
+	
+	// Connection Details Card
+	@card.Card() {
+		@card.Header() {
+			@card.Title() { Connection Details }
+			@card.Description() { Connection info for this database }
+		}
+		@card.Content() {
+			<div class="space-y-4">
+				// Host
+				<div class="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+					<div>
+						<p class="text-xs text-muted-foreground uppercase font-medium">Host</p>
+						<p class="font-mono text-sm">{ data.App.ID }-{ data.Service.Name }.narvana.local</p>
+					</div>
+					@tooltip.Tooltip() {
+						@tooltip.Trigger() {
+							@button.Button(button.Props{
+								Type: "button",
+								Variant: button.VariantGhost,
+								Size: button.SizeIcon,
+								Class: "h-8 w-8",
+								Attributes: templ.Attributes{
+									"onclick": fmt.Sprintf("navigator.clipboard.writeText('%s-%s.narvana.local')", data.App.ID, data.Service.Name),
+								},
+							}) {
+								@icon.Copy(icon.Props{Class: "size-4"})
+							}
+						}
+						@tooltip.Content() { Copy }
+					}
+				</div>
+				
+				// Port
+				<div class="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+					<div>
+						<p class="text-xs text-muted-foreground uppercase font-medium">Port</p>
+						<p class="font-mono text-sm">{ intToString(getServicePort(data.Service)) }</p>
+					</div>
+					@tooltip.Tooltip() {
+						@tooltip.Trigger() {
+							@button.Button(button.Props{
+								Type: "button",
+								Variant: button.VariantGhost,
+								Size: button.SizeIcon,
+								Class: "h-8 w-8",
+								Attributes: templ.Attributes{
+									"onclick": fmt.Sprintf("navigator.clipboard.writeText('%d')", getServicePort(data.Service)),
+								},
+							}) {
+								@icon.Copy(icon.Props{Class: "size-4"})
+							}
+						}
+						@tooltip.Content() { Copy }
+					}
+				</div>
+				
+				// Database Name
+				<div class="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+					<div>
+						<p class="text-xs text-muted-foreground uppercase font-medium">Database</p>
+						<p class="font-mono text-sm">{ data.Service.Name }</p>
+					</div>
+					@tooltip.Tooltip() {
+						@tooltip.Trigger() {
+							@button.Button(button.Props{
+								Type: "button",
+								Variant: button.VariantGhost,
+								Size: button.SizeIcon,
+								Class: "h-8 w-8",
+								Attributes: templ.Attributes{
+									"onclick": fmt.Sprintf("navigator.clipboard.writeText('%s')", data.Service.Name),
+								},
+							}) {
+								@icon.Copy(icon.Props{Class: "size-4"})
+							}
+						}
+						@tooltip.Content() { Copy }
+					}
+				</div>
+			</div>
+		}
+	}
+	
+	// Dependent Services
+	{{ dependents := getDependentServices(data.App, data.Service.Name) }}
+	if len(dependents) > 0 {
+		@card.Card() {
+			@card.Header() {
+				@card.Title() { Dependent Services }
+				@card.Description() { Services that use this database }
+			}
+			@card.Content() {
+				<div class="flex flex-wrap gap-2">
+					for _, dep := range dependents {
+						<a href={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + dep) } class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-muted/50 hover:bg-muted transition-colors">
+							@icon.Box(icon.Props{Class: "size-4 text-muted-foreground"})
+							<span class="text-sm font-medium">{ dep }</span>
+							@icon.ArrowRight(icon.Props{Class: "size-3 text-muted-foreground"})
+						</a>
+					}
+				</div>
+			}
+		}
+	}
+}
+
+// WebServiceOverview renders an overview for web/application services
+templ WebServiceOverview(data ServiceDetailData) {
+	// Status Banner
+	@ServiceStatusBanner(data)
+	
+	// Quick Actions Grid
+	<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+		// Scaling
+		@card.Card(card.Props{Class: "group hover:border-primary/50 transition-colors"}) {
+			@card.Content(card.ContentProps{Class: "pt-6"}) {
+				<div class="flex items-center justify-between mb-3">
+					<div class="size-10 rounded-lg bg-primary/10 flex items-center justify-center">
+						@icon.Layers(icon.Props{Class: "size-5 text-primary"})
+					</div>
+					@dialog.Dialog(dialog.Props{ID: "scale-dialog"}) {
+						@dialog.Trigger() {
+							@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8"}) {
+								@icon.Settings(icon.Props{Class: "size-4"})
+							}
+						}
+						@dialog.Content() {
+							@dialog.Header() {
+								@dialog.Title() { Scale Service }
+								@dialog.Description() { Adjust the number of instances for { data.Service.Name } }
+							}
+							<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name) } class="space-y-4">
+								@label.Label(label.Props{For: "replicas"}) { Number of Instances }
+								@input.Input(input.Props{
+									ID: "replicas",
+									Name: "replicas",
+									Type: input.TypeNumber,
+									Value: intToString(data.Service.Replicas),
+									Attributes: templ.Attributes{"min": "0", "max": "10"},
+								})
+								<p class="text-xs text-muted-foreground">Set to 0 to stop all instances.</p>
+								@dialog.Footer() {
+									@dialog.Close() {
+										@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+									}
+									@button.Button(button.Props{Type: "submit"}) { Save }
+								}
+							</form>
+						}
+					}
+				</div>
+				<h3 class="font-semibold">Instances</h3>
+				<p class="text-2xl font-bold mt-1">{ intToString(data.Service.Replicas) }</p>
+				<p class="text-xs text-muted-foreground">replica(s) configured</p>
+			}
+		}
+		
+		// Port / Networking
+		@card.Card(card.Props{Class: "group hover:border-primary/50 transition-colors"}) {
+			@card.Content(card.ContentProps{Class: "pt-6"}) {
+				<div class="flex items-center justify-between mb-3">
+					<div class="size-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+						@icon.Globe(icon.Props{Class: "size-5 text-blue-500"})
+					</div>
+					@button.Button(button.Props{
+						Variant: button.VariantGhost, 
+						Size: button.SizeIcon, 
+						Class: "size-8",
+						Attributes: templ.Attributes{"data-tui-tabs-trigger": "domains"},
+					}) {
+						@icon.Settings(icon.Props{Class: "size-4"})
+					}
+				</div>
+				<h3 class="font-semibold">Port</h3>
+				<p class="text-2xl font-bold mt-1 font-mono">{ intToString(getServicePort(data.Service)) }</p>
+				<p class="text-xs text-muted-foreground">container port</p>
+			}
+		}
+		
+		// Source / Git
+		@card.Card(card.Props{Class: "group hover:border-primary/50 transition-colors"}) {
+			@card.Content(card.ContentProps{Class: "pt-6"}) {
+				<div class="flex items-center justify-between mb-3">
+					<div class="size-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+						@icon.GitBranch(icon.Props{Class: "size-5 text-orange-500"})
+					</div>
+					@button.Button(button.Props{
+						Variant: button.VariantGhost, 
+						Size: button.SizeIcon, 
+						Class: "size-8",
+						Attributes: templ.Attributes{"data-tui-tabs-trigger": "settings"},
+					}) {
+						@icon.Settings(icon.Props{Class: "size-4"})
+					}
+				</div>
+				<h3 class="font-semibold">Source</h3>
+				if data.Service.GitRepo != "" {
+					<p class="text-sm font-mono mt-1 truncate" title={ data.Service.GitRepo }>{ data.Service.GitRepo }</p>
+					<p class="text-xs text-muted-foreground">{ utils.IfElse(data.Service.GitRef != "", data.Service.GitRef, "main") }</p>
+				} else {
+					<p class="text-sm text-muted-foreground mt-1">Not configured</p>
+				}
+			}
+		}
+		
+		// Build Strategy
+		@card.Card(card.Props{Class: "group hover:border-primary/50 transition-colors"}) {
+			@card.Content(card.ContentProps{Class: "pt-6"}) {
+				<div class="flex items-center justify-between mb-3">
+					<div class="size-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+						@icon.Hammer(icon.Props{Class: "size-5 text-purple-500"})
+					</div>
+					@button.Button(button.Props{
+						Variant: button.VariantGhost, 
+						Size: button.SizeIcon, 
+						Class: "size-8",
+						Attributes: templ.Attributes{"data-tui-tabs-trigger": "settings"},
+					}) {
+						@icon.Settings(icon.Props{Class: "size-4"})
+					}
+				</div>
+				<h3 class="font-semibold">Build</h3>
+				<p class="text-sm font-medium mt-1 capitalize">
+					if data.Service.BuildStrategy != "" {
+						{ string(data.Service.BuildStrategy) }
+					} else {
+						Auto-detect
+					}
+				</p>
+				<p class="text-xs text-muted-foreground">build strategy</p>
+			}
+		}
+	</div>
+	
+	// Recent Activity / Deployments
+	if len(data.Deployments) > 0 {
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					@card.Title() { Recent Deployments }
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size: button.SizeSm,
+						Attributes: templ.Attributes{"data-tui-tabs-trigger": "deployments"},
+					}) {
+						View All
+						@icon.ArrowRight(icon.Props{Class: "size-4 ml-1"})
+					}
+				</div>
+			}
+			@card.Content() {
+				<div class="space-y-3">
+					for i, dep := range data.Deployments {
+						if i < 3 {
+							<div class="flex items-center justify-between py-2 border-b last:border-0">
+								<div class="flex items-center gap-3">
+									@DeploymentStatusBadge(dep.Status)
+									<div>
+										<p class="text-sm font-medium">v{ intToString(dep.Version) }</p>
+										<p class="text-xs text-muted-foreground">{ formatTime(dep.CreatedAt) }</p>
+									</div>
+								</div>
+								if dep.NodeID != "" {
+									<span class="text-xs font-mono text-muted-foreground">{ dep.NodeID[:8] }</span>
+								}
+							</div>
+						}
+					}
+				</div>
+			}
+		}
+	}
+	
+	// Dependencies
+	if len(data.Service.DependsOn) > 0 {
+		@card.Card() {
+			@card.Header() {
+				@card.Title() { Dependencies }
+				@card.Description() { Services this service depends on }
+			}
+			@card.Content() {
+				<div class="flex flex-wrap gap-2">
+					for _, dep := range data.Service.DependsOn {
+						<a href={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + dep) } class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-muted/50 hover:bg-muted transition-colors">
+							@icon.Box(icon.Props{Class: "size-4 text-muted-foreground"})
+							<span class="text-sm font-medium">{ dep }</span>
+							@icon.ArrowRight(icon.Props{Class: "size-3 text-muted-foreground"})
+						</a>
+					}
+				</div>
+			}
+		}
+	}
+	
+	// Environment Variables Quick View
+	if len(data.Service.EnvVars) > 0 {
+		@card.Card() {
+			@card.Header() {
+				<div class="flex items-center justify-between">
+					<div>
+						@card.Title() { Environment Variables }
+						@card.Description() { { intToString(len(data.Service.EnvVars)) } variable(s) configured }
+					</div>
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Size: button.SizeSm,
+						Attributes: templ.Attributes{"data-tui-tabs-trigger": "settings"},
+					}) {
+						Manage
+					}
+				</div>
+			}
+			@card.Content() {
+				<div class="flex flex-wrap gap-2">
+					for key := range data.Service.EnvVars {
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "font-mono text-xs"}) {
+							{ key }
+						}
+					}
+				</div>
+			}
+		}
+	}
 }
 
 templ ServiceDetailScript(appID string, serviceName string) {
