@@ -261,6 +261,7 @@ func (m *MockStore) GitHub() store.GitHubStore      { return m.github }
 func (m *MockStore) GitHubAccounts() store.GitHubAccountStore { return m.githubAccounts }
 func (m *MockStore) Settings() store.SettingsStore      { return m.settings }
 func (m *MockStore) Domains() store.DomainStore         { return m.domains }
+func (m *MockStore) Invitations() store.InvitationStore { return nil }
 func (m *MockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *MockStore) Close() error                   { return nil }
 
@@ -435,6 +436,36 @@ func (m *MockBuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, e
 		}
 	}
 	return pending, nil
+}
+
+// ListRunning retrieves all builds with status 'running'.
+// Used for startup recovery to identify interrupted builds.
+// **Validates: Requirements 15.1, 15.2**
+func (m *MockBuildStore) ListRunning(ctx context.Context) ([]*models.BuildJob, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var running []*models.BuildJob
+	for _, build := range m.builds {
+		if build.Status == models.BuildStatusRunning {
+			running = append(running, build)
+		}
+	}
+	return running, nil
+}
+
+// ListQueued retrieves all builds with status 'queued'.
+// Used for startup recovery to resume pending builds.
+// **Validates: Requirements 15.1**
+func (m *MockBuildStore) ListQueued(ctx context.Context) ([]*models.BuildJob, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var queued []*models.BuildJob
+	for _, build := range m.builds {
+		if build.Status == models.BuildStatusQueued {
+			queued = append(queued, build)
+		}
+	}
+	return queued, nil
 }
 
 func (m *MockBuildStore) List(ctx context.Context, appID string) ([]*models.BuildJob, error) {
@@ -967,6 +998,50 @@ func (m *MockUserStore) Update(ctx context.Context, user *store.User) error {
 	defer m.mu.Unlock()
 	m.users[user.ID] = user
 	return nil
+}
+
+func (m *MockUserStore) Delete(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.users, id)
+	return nil
+}
+
+func (m *MockUserStore) CreateWithRole(ctx context.Context, email, password string, role store.Role, invitedBy string) (*store.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	user := &store.User{
+		ID:        email,
+		Email:     email,
+		Role:      role,
+		InvitedBy: invitedBy,
+		CreatedAt: time.Now().Unix(),
+	}
+	m.users[email] = user
+	return user, nil
+}
+
+func (m *MockUserStore) CountByRole(ctx context.Context, role store.Role) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, user := range m.users {
+		if user.Role == role {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *MockUserStore) GetFirstOwner(ctx context.Context) (*store.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, user := range m.users {
+		if user.Role == store.RoleOwner {
+			return user, nil
+		}
+	}
+	return nil, nil
 }
 
 // MockGitHubStore is a mock implementation of GitHubStore for testing.
