@@ -37,6 +37,24 @@ func main() {
 	// Initialize queue
 	queue := postgresqueue.NewPostgresQueue(store.DB(), log.Logger)
 
+	// Set up context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Perform startup recovery for pending and interrupted builds
+	// **Validates: Requirements 15.1, 15.2**
+	recoveryService := builder.NewRecoveryService(store, queue, log.Logger)
+	recoveryResult, err := recoveryService.RecoverOnStartup(ctx)
+	if err != nil {
+		log.Error("failed to perform startup recovery", "error", err)
+		// Continue anyway - recovery errors shouldn't prevent worker from starting
+	} else {
+		log.Info("startup recovery completed",
+			"interrupted_builds", recoveryResult.InterruptedBuilds,
+			"resumed_builds", recoveryResult.ResumedBuilds,
+		)
+	}
+
 	// Get default config for AtticToken
 	defaultNixCfg := builder.DefaultNixBuilderConfig()
 
@@ -76,10 +94,6 @@ func main() {
 		log.Error("failed to create worker", "error", err)
 		os.Exit(1)
 	}
-
-	// Set up context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Handle shutdown signals
 	sigCh := make(chan os.Signal, 1)
