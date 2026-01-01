@@ -186,6 +186,30 @@ func (m *mockBuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, e
 	return result, nil
 }
 
+// ListRunning retrieves all builds with status 'running'.
+// Used for startup recovery to identify interrupted builds.
+func (m *mockBuildStore) ListRunning(ctx context.Context) ([]*models.BuildJob, error) {
+	var result []*models.BuildJob
+	for _, b := range m.builds {
+		if b.Status == models.BuildStatusRunning {
+			result = append(result, b)
+		}
+	}
+	return result, nil
+}
+
+// ListQueued retrieves all builds with status 'queued'.
+// Used for startup recovery to resume pending builds.
+func (m *mockBuildStore) ListQueued(ctx context.Context) ([]*models.BuildJob, error) {
+	var result []*models.BuildJob
+	for _, b := range m.builds {
+		if b.Status == models.BuildStatusQueued {
+			result = append(result, b)
+		}
+	}
+	return result, nil
+}
+
 func (m *mockBuildStore) List(ctx context.Context, appID string) ([]*models.BuildJob, error) {
 	var result []*models.BuildJob
 	for _, b := range m.builds {
@@ -256,6 +280,10 @@ func (m *deploymentMockStore) Settings() store.SettingsStore {
 }
 
 func (m *deploymentMockStore) Domains() store.DomainStore {
+	return nil
+}
+
+func (m *deploymentMockStore) Invitations() store.InvitationStore {
 	return nil
 }
 
