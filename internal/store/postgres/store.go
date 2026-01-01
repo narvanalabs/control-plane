@@ -17,18 +17,19 @@ type PostgresStore struct {
 	logger *slog.Logger
 
 	// Sub-stores
-	orgs        *OrgStore
-	apps        *AppStore
-	deployments *DeploymentStore
-	nodes       *NodeStore
-	builds      *BuildStore
-	secrets     *SecretStore
-	logs        *LogStore
-	users       *UserStore
-	github      *GitHubStore
+	orgs           *OrgStore
+	apps           *AppStore
+	deployments    *DeploymentStore
+	nodes          *NodeStore
+	builds         *BuildStore
+	secrets        *SecretStore
+	logs           *LogStore
+	users          *UserStore
+	github         *GitHubStore
 	githubAccounts *GitHubAccountStore
-	settings    *SettingsStore
-	domains     *domainStore
+	settings       *SettingsStore
+	domains        *domainStore
+	invitations    *InvitationStore
 }
 
 // Config holds PostgreSQL connection configuration.
@@ -95,6 +96,7 @@ func NewPostgresStore(cfg *Config, logger *slog.Logger) (*PostgresStore, error) 
 	s.githubAccounts = &GitHubAccountStore{db: db, logger: logger}
 	s.settings = &SettingsStore{db: db, logger: logger}
 	s.domains = NewDomainStore(db)
+	s.invitations = &InvitationStore{db: db, logger: logger}
 
 	logger.Info("connected to PostgreSQL database")
 	return s, nil
@@ -160,6 +162,11 @@ func (s *PostgresStore) Domains() store.DomainStore {
 	return s.domains
 }
 
+// Invitations returns the InvitationStore.
+func (s *PostgresStore) Invitations() store.InvitationStore {
+	return s.invitations
+}
+
 // WithTx executes the given function within a database transaction.
 func (s *PostgresStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -206,18 +213,19 @@ type txStore struct {
 	tx     *sql.Tx
 	logger *slog.Logger
 
-	orgs        *OrgStore
-	apps        *AppStore
-	deployments *DeploymentStore
-	nodes       *NodeStore
-	builds      *BuildStore
-	secrets     *SecretStore
-	logs        *LogStore
-	users       *UserStore
-	github      *GitHubStore
+	orgs           *OrgStore
+	apps           *AppStore
+	deployments    *DeploymentStore
+	nodes          *NodeStore
+	builds         *BuildStore
+	secrets        *SecretStore
+	logs           *LogStore
+	users          *UserStore
+	github         *GitHubStore
 	githubAccounts *GitHubAccountStore
-	settings    *SettingsStore
-	domains     *domainStore
+	settings       *SettingsStore
+	domains        *domainStore
+	invitations    *InvitationStore
 }
 
 func (s *txStore) Orgs() store.OrgStore {
@@ -302,6 +310,13 @@ func (s *txStore) Domains() store.DomainStore {
 		s.domains = NewDomainStore(s.tx)
 	}
 	return s.domains
+}
+
+func (s *txStore) Invitations() store.InvitationStore {
+	if s.invitations == nil {
+		s.invitations = &InvitationStore{tx: s.tx, logger: s.logger}
+	}
+	return s.invitations
 }
 
 func (s *txStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
