@@ -1,0 +1,96 @@
+package orgs
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
+	"github.com/narvanalabs/control-plane/web/components/textarea"
+)
+
+// NewOrgData holds data for the new organization page
+type NewOrgData struct {
+	Error string
+}
+
+// New renders the new organization page
+templ New(data NewOrgData) {
+	@layouts.PageWithSidebar("New Organization", "/") {
+		<div class="max-w-2xl mx-auto space-y-6">
+			@breadcrumb.Breadcrumb() {
+				@breadcrumb.List() {
+					@breadcrumb.Item() {
+						@breadcrumb.Link(breadcrumb.LinkProps{Href: "/"}) {
+							Dashboard
+						}
+					}
+					@breadcrumb.Separator()
+					@breadcrumb.Item() {
+						@breadcrumb.Page() {
+							New Organization
+						}
+					}
+				}
+			}
+			
+			@card.Card() {
+				@card.Header() {
+					@card.Title() { Create Organization }
+					@card.Description() { Organizations help you group apps and manage team access. }
+				}
+				@card.Content() {
+					<form method="POST" action="/orgs" class="space-y-4">
+						if data.Error != "" {
+							<div class="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+								{ data.Error }
+							</div>
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "name"}) { Name }
+							@input.Input(input.Props{
+								ID:          "name",
+								Name:        "name",
+								Placeholder: "My Organization",
+								Attributes:  templ.Attributes{"required": true, "autofocus": true},
+							})
+							<p class="text-xs text-muted-foreground">The display name for your organization.</p>
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "slug"}) { Slug (optional) }
+							@input.Input(input.Props{
+								ID:          "slug",
+								Name:        "slug",
+								Placeholder: "my-organization",
+							})
+							<p class="text-xs text-muted-foreground">URL-friendly identifier. Auto-generated from name if not provided.</p>
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "description"}) { Description (optional) }
+							@textarea.Textarea(textarea.Props{
+								ID:          "description",
+								Name:        "description",
+								Placeholder: "A brief description of your organization...",
+								Rows:        3,
+							})
+						}
+						
+						<div class="flex justify-end gap-3 pt-4">
+							@button.Button(button.Props{Variant: button.VariantOutline, Href: "/"}) {
+								Cancel
+							}
+							@button.Button(button.Props{Type: "submit"}) {
+								Create Organization
+							}
+						</div>
+					</form>
+				}
+			}
+		</div>
+	}
+}
