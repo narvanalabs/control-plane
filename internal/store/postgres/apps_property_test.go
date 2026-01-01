@@ -319,3 +319,188 @@ func TestAppNameUniqueness(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+// **Feature: platform-enhancements, Property 12: Application CRUD Round-Trip**
+// *For any* valid application data, creating an application and then retrieving it by ID
+// SHALL return equivalent data. Additionally, updating and deleting should work correctly.
+// **Validates: Requirements 21.1, 21.2**
+func TestAppCRUDRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("App CRUD round-trip preserves data", prop.ForAll(
+		func(input models.App, newDescription string) bool {
+			ctx := context.Background()
+
+			// CREATE: Create the app
+			err := store.Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// READ: Retrieve the app by ID
+			retrieved, err := store.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get error: %v", err)
+				return false
+			}
+
+			// Verify core fields match after creation
+			if retrieved.ID != input.ID ||
+				retrieved.OwnerID != input.OwnerID ||
+				retrieved.Name != input.Name ||
+				retrieved.Description != input.Description {
+				t.Logf("Fields mismatch after create")
+				return false
+			}
+
+			// UPDATE: Update the app description
+			retrieved.Description = newDescription
+			err = store.Update(ctx, retrieved)
+			if err != nil {
+				t.Logf("Update error: %v", err)
+				return false
+			}
+
+			// READ again: Verify update was persisted
+			updated, err := store.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get after update error: %v", err)
+				return false
+			}
+
+			if updated.Description != newDescription {
+				t.Logf("Description not updated: got %s, want %s", updated.Description, newDescription)
+				return false
+			}
+
+			// Verify other fields were preserved
+			if updated.ID != input.ID ||
+				updated.OwnerID != input.OwnerID ||
+				updated.Name != input.Name {
+				t.Logf("Other fields changed during update")
+				return false
+			}
+
+			// DELETE: Soft-delete the app
+			err = store.Delete(ctx, input.ID)
+			if err != nil {
+				t.Logf("Delete error: %v", err)
+				return false
+			}
+
+			// READ after delete: Should return not found
+			_, err = store.Get(ctx, input.ID)
+			if err != ErrNotFound {
+				t.Logf("Expected ErrNotFound after delete, got: %v", err)
+				return false
+			}
+
+			return true
+		},
+		genAppInput(),
+		gen.AlphaString(), // new description
+	))
+
+	properties.TestingRun(t)
+}
+
+// TestAppListFiltersDeleted verifies that List only returns non-deleted apps.
+// **Validates: Requirements 21.5**
+func TestAppListFiltersDeleted(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("List returns only non-deleted apps", prop.ForAll(
+		func(ownerID string) bool {
+			ctx := context.Background()
+
+			// Create two apps for the same owner
+			app1 := models.App{
+				ID:          uuid.New().String(),
+				OwnerID:     ownerID,
+				Name:        "app1",
+				Description: "first app",
+				Services:    []models.ServiceConfig{},
+			}
+			app2 := models.App{
+				ID:          uuid.New().String(),
+				OwnerID:     ownerID,
+				Name:        "app2",
+				Description: "second app",
+				Services:    []models.ServiceConfig{},
+			}
+
+			err := store.Create(ctx, &app1)
+			if err != nil {
+				t.Logf("Create app1 error: %v", err)
+				return false
+			}
+
+			err = store.Create(ctx, &app2)
+			if err != nil {
+				t.Logf("Create app2 error: %v", err)
+				return false
+			}
+
+			// List should return both apps
+			apps, err := store.List(ctx, ownerID)
+			if err != nil {
+				t.Logf("List error: %v", err)
+				return false
+			}
+
+			if len(apps) != 2 {
+				t.Logf("Expected 2 apps, got %d", len(apps))
+				return false
+			}
+
+			// Delete one app
+			err = store.Delete(ctx, app1.ID)
+			if err != nil {
+				t.Logf("Delete error: %v", err)
+				return false
+			}
+
+			// List should now return only one app
+			apps, err = store.List(ctx, ownerID)
+			if err != nil {
+				t.Logf("List after delete error: %v", err)
+				return false
+			}
+
+			if len(apps) != 1 {
+				t.Logf("Expected 1 app after delete, got %d", len(apps))
+				return false
+			}
+
+			if apps[0].ID != app2.ID {
+				t.Logf("Wrong app returned: got %s, want %s", apps[0].ID, app2.ID)
+				return false
+			}
+
+			// Cleanup
+			store.Delete(ctx, app2.ID)
+
+			return true
+		},
+		genNonEmptyAlphaString(),
+	))
+
+	properties.TestingRun(t)
+}
