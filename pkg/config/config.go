@@ -49,9 +49,10 @@ type SOPSConfig struct {
 
 // SchedulerConfig holds scheduler-specific configuration.
 type SchedulerConfig struct {
-	HealthThreshold time.Duration
-	MaxRetries      int
-	RetryBackoff    time.Duration
+	HealthThreshold   time.Duration
+	MaxRetries        int
+	RetryBackoff      time.Duration
+	DeploymentTimeout time.Duration // Timeout for deployments waiting to be scheduled
 }
 
 // WorkerConfig holds build worker-specific configuration.
@@ -75,9 +76,10 @@ func Load() (*Config, error) {
 		GRPCPort:      getIntEnv("GRPC_PORT", 9090),
 		APIHost:       getEnv("API_HOST", "0.0.0.0"),
 		Scheduler: SchedulerConfig{
-			HealthThreshold: getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
-			MaxRetries:      getIntEnv("SCHEDULER_MAX_RETRIES", 5),
-			RetryBackoff:    getDurationEnv("SCHEDULER_RETRY_BACKOFF", 5*time.Second),
+			HealthThreshold:   getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
+			MaxRetries:        getIntEnv("SCHEDULER_MAX_RETRIES", 5),
+			RetryBackoff:      getDurationEnv("SCHEDULER_RETRY_BACKOFF", 5*time.Second),
+			DeploymentTimeout: getDurationEnv("SCHEDULER_DEPLOYMENT_TIMEOUT", 30*time.Minute),
 		},
 		Worker: WorkerConfig{
 			WorkDir:        getEnv("WORKER_WORKDIR", "/tmp/narvana-builds"),
@@ -123,9 +125,10 @@ func LoadWithDefaults() *Config {
 		GRPCPort:      getIntEnv("GRPC_PORT", 9090),
 		APIHost:       getEnv("API_HOST", "0.0.0.0"),
 		Scheduler: SchedulerConfig{
-			HealthThreshold: getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
-			MaxRetries:      getIntEnv("SCHEDULER_MAX_RETRIES", 5),
-			RetryBackoff:    getDurationEnv("SCHEDULER_RETRY_BACKOFF", 5*time.Second),
+			HealthThreshold:   getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
+			MaxRetries:        getIntEnv("SCHEDULER_MAX_RETRIES", 5),
+			RetryBackoff:      getDurationEnv("SCHEDULER_RETRY_BACKOFF", 5*time.Second),
+			DeploymentTimeout: getDurationEnv("SCHEDULER_DEPLOYMENT_TIMEOUT", 30*time.Minute),
 		},
 		Worker: WorkerConfig{
 			WorkDir:        getEnv("WORKER_WORKDIR", "/tmp/narvana-builds"),
