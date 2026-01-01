@@ -720,7 +720,17 @@ func handleNodes(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
 	ctx := r.Context()
 	nodeList, _ := client.ListNodes(ctx)
-	nodes.List(nodes.ListData{Nodes: nodeList}).Render(ctx, w)
+	
+	// Get the API URL for node registration instructions
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+	
+	nodes.List(nodes.ListData{
+		Nodes:  nodeList,
+		APIURL: apiURL,
+	}).Render(ctx, w)
 }
 
 func handleLogStream(w http.ResponseWriter, r *http.Request) {
