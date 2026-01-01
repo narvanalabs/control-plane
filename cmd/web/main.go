@@ -52,6 +52,10 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	// Invitation acceptance routes (no auth required)
+	r.Get("/invite/{token}", handleInviteAcceptPage)
+	r.Post("/invite/accept", handleInviteAcceptSubmit)
+
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(requireAuth)
@@ -123,6 +127,12 @@ func main() {
 		r.Post("/settings/profile", handleUpdateProfile)
 		r.Get("/settings/ssh-keys", handleSettingsSSHKeys)
 		r.Get("/settings/notifications", handleSettingsNotifications)
+		
+		// Users management routes (admin only)
+		r.Get("/settings/users", handleSettingsUsers)
+		r.Post("/settings/users/invite", handleInviteUser)
+		r.Post("/settings/users/delete", handleDeleteUser)
+		r.Post("/settings/users/revoke", handleRevokeInvitation)
 
 		// GitHub proxy routes
 		r.Get("/api/github/config", handleGetGitHubConfig)
@@ -1522,6 +1532,145 @@ func handleSettingsNotifications(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============================================================================
+// Users Management Handlers
+// ============================================================================
+
+func handleSettingsUsers(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
+	
+	successMsg := r.URL.Query().Get("success")
+	errorMsg := r.URL.Query().Get("error")
+	
+	// Get current user
+	currentUser, err := client.GetUserProfile(r.Context())
+	if err != nil {
+		slog.Error("failed to get current user", "error", err)
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	
+	// Check if user is owner
+	if currentUser.Role != "owner" {
+		http.Redirect(w, r, "/?error=Access denied", http.StatusFound)
+		return
+	}
+	
+	// Get all users
+	users, err := client.ListUsers(r.Context())
+	if err != nil {
+		slog.Error("failed to list users", "error", err)
+		users = []api.UserInfo{}
+		errorMsg = "Failed to load users"
+	}
+	
+	// Get all invitations
+	invitations, err := client.ListInvitations(r.Context())
+	if err != nil {
+		slog.Error("failed to list invitations", "error", err)
+		invitations = []api.Invitation{}
+	}
+	
+	// Filter to only show pending invitations
+	pendingInvitations := []api.Invitation{}
+	for _, inv := range invitations {
+		if inv.Status == "pending" {
+			pendingInvitations = append(pendingInvitations, inv)
+		}
+	}
+	
+	currentUserInfo := &api.UserInfo{
+		ID:    currentUser.ID,
+		Email: currentUser.Email,
+		Name:  currentUser.Name,
+		Role:  string(currentUser.Role),
+	}
+	
+	data := settings_page.UsersData{
+		Users:       users,
+		Invitations: pendingInvitations,
+		CurrentUser: currentUserInfo,
+		SuccessMsg:  successMsg,
+		ErrorMsg:    errorMsg,
+	}
+	settings_page.Users(data).Render(r.Context(), w)
+}
+
+func handleInviteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	email := r.FormValue("email")
+	role := r.FormValue("role")
+	
+	if email == "" {
+		http.Redirect(w, r, "/settings/users?error=Email is required", http.StatusSeeOther)
+		return
+	}
+	
+	if role == "" {
+		role = "member"
+	}
+	
+	client := getAPIClient(r)
+	_, err := client.CreateInvitation(r.Context(), email, role)
+	if err != nil {
+		slog.Error("failed to create invitation", "error", err)
+		http.Redirect(w, r, "/settings/users?error=Failed to send invitation", http.StatusSeeOther)
+		return
+	}
+	
+	http.Redirect(w, r, "/settings/users?success=Invitation sent to "+email, http.StatusSeeOther)
+}
+
+func handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	userID := r.FormValue("user_id")
+	if userID == "" {
+		http.Redirect(w, r, "/settings/users?error=User ID is required", http.StatusSeeOther)
+		return
+	}
+	
+	client := getAPIClient(r)
+	err := client.DeleteUser(r.Context(), userID)
+	if err != nil {
+		slog.Error("failed to delete user", "error", err, "user_id", userID)
+		http.Redirect(w, r, "/settings/users?error=Failed to remove user", http.StatusSeeOther)
+		return
+	}
+	
+	http.Redirect(w, r, "/settings/users?success=User removed successfully", http.StatusSeeOther)
+}
+
+func handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	invitationID := r.FormValue("invitation_id")
+	if invitationID == "" {
+		http.Redirect(w, r, "/settings/users?error=Invitation ID is required", http.StatusSeeOther)
+		return
+	}
+	
+	client := getAPIClient(r)
+	err := client.RevokeInvitation(r.Context(), invitationID)
+	if err != nil {
+		slog.Error("failed to revoke invitation", "error", err, "invitation_id", invitationID)
+		http.Redirect(w, r, "/settings/users?error=Failed to revoke invitation", http.StatusSeeOther)
+		return
+	}
+	
+	http.Redirect(w, r, "/settings/users?success=Invitation revoked", http.StatusSeeOther)
+}
+
+// ============================================================================
 // Builds Handlers
 // ============================================================================
 
@@ -1644,4 +1793,114 @@ func handleDeploymentRollback(w http.ResponseWriter, r *http.Request) {
 	// Rollback implementation in client/API would go here
 	// For now just redirect back
 	http.Redirect(w, r, "/deployments/"+deploymentID, http.StatusSeeOther)
+}
+
+// ============================================================================
+// Invitation Acceptance Handlers
+// ============================================================================
+
+func handleInviteAcceptPage(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	if token == "" {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	client := getAPIClient(r)
+	invitation, err := client.GetInvitationByToken(r.Context(), token)
+	if err != nil {
+		slog.Error("failed to get invitation", "error", err, "token", token)
+		auth.AcceptInvite(auth.AcceptInviteData{
+			Token:   token,
+			IsValid: false,
+			Error:   "Failed to load invitation details",
+		}).Render(r.Context(), w)
+		return
+	}
+
+	// Check if invitation is valid
+	isValid := invitation.Status == "pending"
+	isExpired := invitation.Status == "expired"
+
+	auth.AcceptInvite(auth.AcceptInviteData{
+		Token:     token,
+		Email:     invitation.Email,
+		IsValid:   isValid,
+		IsExpired: isExpired,
+	}).Render(r.Context(), w)
+}
+
+func handleInviteAcceptSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		auth.AcceptInvite(auth.AcceptInviteData{
+			Error: "Invalid form data",
+		}).Render(r.Context(), w)
+		return
+	}
+
+	token := r.FormValue("token")
+	password := r.FormValue("password")
+	confirmPassword := r.FormValue("confirm_password")
+
+	if token == "" {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	if password == "" {
+		auth.AcceptInvite(auth.AcceptInviteData{
+			Token:   token,
+			IsValid: true,
+			Error:   "Password is required",
+		}).Render(r.Context(), w)
+		return
+	}
+
+	if len(password) < 8 {
+		auth.AcceptInvite(auth.AcceptInviteData{
+			Token:   token,
+			IsValid: true,
+			Error:   "Password must be at least 8 characters",
+		}).Render(r.Context(), w)
+		return
+	}
+
+	if password != confirmPassword {
+		auth.AcceptInvite(auth.AcceptInviteData{
+			Token:   token,
+			IsValid: true,
+			Error:   "Passwords do not match",
+		}).Render(r.Context(), w)
+		return
+	}
+
+	client := getAPIClient(r)
+	resp, err := client.AcceptInvitation(r.Context(), token, password)
+	if err != nil {
+		slog.Error("failed to accept invitation", "error", err)
+		
+		// Get invitation details to show proper error
+		invitation, _ := client.GetInvitationByToken(r.Context(), token)
+		email := ""
+		isValid := true
+		isExpired := false
+		if invitation != nil {
+			email = invitation.Email
+			isValid = invitation.Status == "pending"
+			isExpired = invitation.Status == "expired"
+		}
+		
+		auth.AcceptInvite(auth.AcceptInviteData{
+			Token:     token,
+			Email:     email,
+			IsValid:   isValid,
+			IsExpired: isExpired,
+			Error:     "Failed to create account. The invitation may have expired or already been used.",
+		}).Render(r.Context(), w)
+		return
+	}
+
+	// Set auth cookie and redirect to dashboard
+	setAuthCookie(w, resp.Token)
+	http.Redirect(w, r, "/", http.StatusFound)
 }
