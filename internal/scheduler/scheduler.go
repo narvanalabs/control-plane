@@ -18,6 +18,8 @@ var (
 	ErrNoHealthyNodes          = errors.New("no healthy nodes available")
 	ErrInsufficientResources   = errors.New("no nodes with sufficient resources")
 	ErrDependenciesNotRunning  = errors.New("service dependencies are not running")
+	ErrDeploymentQueued        = errors.New("deployment queued waiting for available nodes")
+	ErrDeploymentTimeout       = errors.New("deployment timed out waiting for scheduling")
 )
 
 // AgentClient defines the interface for communicating with node agents.
@@ -139,6 +141,8 @@ func (s *Scheduler) GetHealthThreshold() time.Duration {
 
 
 // ScheduleAndAssign schedules a deployment and updates the deployment record with the placement.
+// If no healthy nodes are available, the deployment remains in "built" status (queued).
+// **Validates: Requirements 16.1**
 func (s *Scheduler) ScheduleAndAssign(ctx context.Context, deployment *models.Deployment) error {
 	// Check if dependencies are running before scheduling
 	if len(deployment.DependsOn) > 0 {
@@ -157,6 +161,26 @@ func (s *Scheduler) ScheduleAndAssign(ctx context.Context, deployment *models.De
 
 	node, err := s.Schedule(ctx, deployment)
 	if err != nil {
+		// If no healthy nodes or insufficient resources, keep deployment in "built" status (queued)
+		// **Validates: Requirements 16.1, 16.4**
+		if errors.Is(err, ErrNoHealthyNodes) || errors.Is(err, ErrInsufficientResources) {
+			s.logger.Info("no nodes available, deployment queued",
+				"deployment_id", deployment.ID,
+				"reason", err.Error(),
+			)
+			// Ensure deployment stays in "built" status - it will be picked up by the node availability watcher
+			if deployment.Status != models.DeploymentStatusBuilt {
+				deployment.Status = models.DeploymentStatusBuilt
+				deployment.UpdatedAt = time.Now()
+				if updateErr := s.store.Deployments().Update(ctx, deployment); updateErr != nil {
+					s.logger.Error("failed to update deployment status to built",
+						"deployment_id", deployment.ID,
+						"error", updateErr,
+					)
+				}
+			}
+			return ErrDeploymentQueued
+		}
 		return err
 	}
 
