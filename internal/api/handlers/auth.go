@@ -62,6 +62,22 @@ func (h *AuthHandler) SetupCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// CanRegister returns whether public registration is allowed.
+func (h *AuthHandler) CanRegister(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	
+	canRegister, err := h.rbacService.CanRegister(ctx)
+	if err != nil {
+		h.logger.Error("failed to check registration status", "error", err)
+		WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	
+	WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"can_register": canRegister,
+	})
+}
+
 
 // Register handles user registration (only allowed if no users exist or for additional users).
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
