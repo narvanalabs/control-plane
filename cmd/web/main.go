@@ -20,10 +20,11 @@ import (
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
 	"github.com/narvanalabs/control-plane/web/pages/auth"
-	"github.com/narvanalabs/control-plane/web/pages/git"
-	"github.com/narvanalabs/control-plane/web/pages/nodes"
 	"github.com/narvanalabs/control-plane/web/pages/builds"
 	"github.com/narvanalabs/control-plane/web/pages/deployments"
+	"github.com/narvanalabs/control-plane/web/pages/domains"
+	"github.com/narvanalabs/control-plane/web/pages/git"
+	"github.com/narvanalabs/control-plane/web/pages/nodes"
 	settings_page "github.com/narvanalabs/control-plane/web/pages/settings"
 )
 
@@ -86,6 +87,11 @@ func main() {
 		r.Post("/apps/{appID}/secrets", handleCreateSecret)
 		r.Post("/apps/{appID}/secrets/{key}/delete", handleDeleteSecret)
 		r.Get("/nodes", handleNodes)
+		
+		// Domain management routes
+		r.Get("/domains", handleDomainsList)
+		r.Post("/domains", handleCreateDomain)
+		r.Post("/domains/{domainID}/delete", handleDeleteDomain)
 		
 		r.Route("/builds", func(r chi.Router) {
 			r.Get("/", handleBuildsList)
@@ -731,6 +737,86 @@ func handleNodes(w http.ResponseWriter, r *http.Request) {
 		Nodes:  nodeList,
 		APIURL: apiURL,
 	}).Render(ctx, w)
+}
+
+// handleDomainsList renders the domains list page
+func handleDomainsList(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
+	ctx := r.Context()
+
+	// Get all domains
+	domainList, err := client.ListAllDomains(ctx)
+	if err != nil {
+		slog.Error("failed to list domains", "error", err)
+		domainList = []api.Domain{}
+	}
+
+	// Get all apps to map app IDs to names and for the add domain form
+	appList, err := client.ListApps(ctx)
+	if err != nil {
+		slog.Error("failed to list apps", "error", err)
+		appList = []api.App{}
+	}
+
+	// Create a map of app IDs to names
+	appNames := make(map[string]string)
+	for _, app := range appList {
+		appNames[app.ID] = app.Name
+	}
+
+	// Build domain list with app names
+	domainsWithApps := make([]domains.DomainWithApp, 0, len(domainList))
+	for _, d := range domainList {
+		domainsWithApps = append(domainsWithApps, domains.DomainWithApp{
+			Domain:  d,
+			AppName: appNames[d.AppID],
+		})
+	}
+
+	domains.List(domains.ListData{
+		Domains: domainsWithApps,
+		Apps:    appList,
+	}).Render(ctx, w)
+}
+
+// handleCreateDomain creates a new domain mapping
+func handleCreateDomain(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	domainName := r.FormValue("domain")
+	appID := r.FormValue("app_id")
+	service := r.FormValue("service")
+
+	// Check if it's a wildcard domain
+	isWildcard := strings.HasPrefix(domainName, "*.")
+
+	client := getAPIClient(r)
+	_, err := client.CreateDomain(r.Context(), appID, service, domainName, isWildcard)
+	if err != nil {
+		slog.Error("failed to create domain", "error", err)
+		http.Redirect(w, r, "/domains?error=Failed+to+create+domain", http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/domains?success=Domain+added", http.StatusFound)
+}
+
+// handleDeleteDomain deletes a domain mapping
+func handleDeleteDomain(w http.ResponseWriter, r *http.Request) {
+	domainID := chi.URLParam(r, "domainID")
+
+	client := getAPIClient(r)
+	err := client.DeleteDomain(r.Context(), domainID)
+	if err != nil {
+		slog.Error("failed to delete domain", "error", err)
+		http.Redirect(w, r, "/domains?error=Failed+to+delete+domain", http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/domains?success=Domain+deleted", http.StatusFound)
 }
 
 func handleLogStream(w http.ResponseWriter, r *http.Request) {
