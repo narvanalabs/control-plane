@@ -143,6 +143,10 @@ func (m *mockStore) Domains() store.DomainStore {
 	return nil
 }
 
+func (m *mockStore) Invitations() store.InvitationStore {
+	return nil
+}
+
 func (m *mockStore) Close() error {
 	return nil
 }
