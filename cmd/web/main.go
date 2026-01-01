@@ -25,6 +25,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/pages/domains"
 	"github.com/narvanalabs/control-plane/web/pages/git"
 	"github.com/narvanalabs/control-plane/web/pages/nodes"
+	"github.com/narvanalabs/control-plane/web/pages/orgs"
 	settings_page "github.com/narvanalabs/control-plane/web/pages/settings"
 )
 
@@ -64,6 +65,17 @@ func main() {
 
 		r.Get("/", handleDashboard)
 		r.Get("/git", handleGitPage)
+		
+		// Organization routes
+		r.Route("/orgs", func(r chi.Router) {
+			r.Get("/new", handleNewOrgPage)
+			r.Post("/", handleCreateOrg)
+			r.Get("/{orgID}", handleEditOrgPage)
+			r.Post("/{orgID}", handleUpdateOrg)
+			r.Post("/{orgID}/delete", handleDeleteOrg)
+			r.Get("/{slug}/switch", handleSwitchOrg)
+		})
+		
 		r.Route("/apps", func(r chi.Router) {
 			r.Get("/", handleApps)
 			r.Post("/", handleCreateAppSubmit)
@@ -126,7 +138,21 @@ func main() {
 		// **Validates: Requirements 5.4, 5.5**
 		r.Post("/api/detect", handleDetectProxy)
 
+		// Secrets API proxy (for AJAX calls from service detail page)
+		r.Get("/api/v1/apps/{appID}/secrets", handleSecretsListProxy)
+		r.Post("/api/v1/apps/{appID}/secrets", handleSecretsCreateProxy)
+
+		// Domains API proxy (for AJAX calls from service detail page)
+		r.Get("/api/v1/apps/{appID}/domains", handleDomainsListProxy)
+		r.Post("/api/v1/apps/{appID}/domains", handleDomainsCreateProxy)
+		r.Delete("/api/v1/apps/{appID}/domains/{domainID}", handleDomainsDeleteProxy)
+
+		// Environment variables API proxy (for AJAX calls from service detail page)
+		r.Post("/api/v1/apps/{appID}/services/{serviceName}/env", handleEnvCreateProxy)
+		r.Delete("/api/v1/apps/{appID}/services/{serviceName}/env/{key}", handleEnvDeleteProxy)
+
 		// Server management pages
+		r.Get("/settings", handleSettingsGeneral)
 		r.Get("/settings/server/logs", handleSettingsServerLogs)
 		r.Get("/settings/server/stats", handleSettingsServerStats)
 		r.Get("/settings/profile", handleSettingsProfile)
@@ -203,6 +229,44 @@ func userContextMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), "user", user)
+		
+		// Load user's organizations
+		orgs, err := client.ListOrgs(r.Context())
+		if err == nil && len(orgs) > 0 {
+			// Convert to pointer slice for context
+			orgPtrs := make([]*models.Organization, len(orgs))
+			for i := range orgs {
+				orgPtrs[i] = &models.Organization{
+					ID:          orgs[i].ID,
+					Name:        orgs[i].Name,
+					Slug:        orgs[i].Slug,
+					Description: orgs[i].Description,
+					IconURL:     orgs[i].IconURL,
+				}
+			}
+			ctx = context.WithValue(ctx, "user_orgs", orgPtrs)
+			
+			// Determine current org from cookie or use first org
+			currentOrgSlug := ""
+			if cookie, err := r.Cookie("current_org"); err == nil {
+				currentOrgSlug = cookie.Value
+			}
+			
+			var currentOrg *models.Organization
+			for _, org := range orgPtrs {
+				if org.Slug == currentOrgSlug {
+					currentOrg = org
+					break
+				}
+			}
+			if currentOrg == nil && len(orgPtrs) > 0 {
+				currentOrg = orgPtrs[0]
+			}
+			if currentOrg != nil {
+				ctx = context.WithValue(ctx, "current_org", currentOrg)
+			}
+		}
+		
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -303,7 +367,12 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	auth.Login(auth.LoginData{}).Render(r.Context(), w)
+	
+	// Check if registration is allowed (to show/hide signup link)
+	client := getAPIClient(r)
+	canRegister, _ := client.CanRegister(r.Context())
+	
+	auth.Login(auth.LoginData{CanRegister: canRegister}).Render(r.Context(), w)
 }
 
 func handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -327,10 +396,34 @@ func handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
+	// Check if registration is allowed (no owner exists)
+	client := getAPIClient(r)
+	canRegister, err := client.CanRegister(r.Context())
+	if err != nil {
+		slog.Error("failed to check registration status", "error", err)
+		// On error, redirect to login for safety
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	
+	if !canRegister {
+		// Owner exists, redirect to login
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	
 	auth.Register(auth.RegisterData{}).Render(r.Context(), w)
 }
 
 func handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
+	// Check if registration is allowed first
+	client := getAPIClient(r)
+	canRegister, err := client.CanRegister(r.Context())
+	if err != nil || !canRegister {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	
 	if err := r.ParseForm(); err != nil {
 		auth.Register(auth.RegisterData{Error: "Invalid form data"}).Render(r.Context(), w)
 		return
@@ -339,7 +432,6 @@ func handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 
-	client := getAPIClient(r)
 	resp, err := client.Register(r.Context(), email, password)
 	if err != nil {
 		auth.Register(auth.RegisterData{Error: err.Error()}).Render(r.Context(), w)
@@ -374,6 +466,129 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		NodeHealth:        nodesHealth,
 	}).Render(ctx, w)
 }
+
+// ============================================================================
+// Organization Handlers
+// ============================================================================
+
+func handleNewOrgPage(w http.ResponseWriter, r *http.Request) {
+	orgs.New(orgs.NewOrgData{}).Render(r.Context(), w)
+}
+
+func handleCreateOrg(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/?error=Invalid+form+data", http.StatusFound)
+		return
+	}
+
+	name := r.FormValue("name")
+	slug := r.FormValue("slug")
+	description := r.FormValue("description")
+
+	client := getAPIClient(r)
+	org, err := client.CreateOrg(r.Context(), api.CreateOrgRequest{
+		Name:        name,
+		Slug:        slug,
+		Description: description,
+	})
+	if err != nil {
+		http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+
+	// Switch to the new organization and redirect to dashboard
+	http.SetCookie(w, &http.Cookie{
+		Name:     "current_org",
+		Value:    org.Slug,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 365,
+	})
+	http.Redirect(w, r, "/?success=Organization+created", http.StatusFound)
+}
+
+func handleEditOrgPage(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "orgID")
+	client := getAPIClient(r)
+
+	org, err := client.GetOrg(r.Context(), orgID)
+	if err != nil {
+		http.Error(w, "Organization not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if this is the last organization
+	orgList, _ := client.ListOrgs(r.Context())
+	canDelete := len(orgList) > 1
+
+	orgs.Edit(orgs.EditOrgData{
+		Org:        *org,
+		CanDelete:  canDelete,
+		SuccessMsg: r.URL.Query().Get("success"),
+		Error:      r.URL.Query().Get("error"),
+	}).Render(r.Context(), w)
+}
+
+func handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "orgID")
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/orgs/"+orgID+"?error=Invalid+form+data", http.StatusFound)
+		return
+	}
+
+	name := r.FormValue("name")
+	slug := r.FormValue("slug")
+	description := r.FormValue("description")
+	iconURL := r.FormValue("icon_url")
+
+	client := getAPIClient(r)
+	_, err := client.UpdateOrg(r.Context(), orgID, api.UpdateOrgRequest{
+		Name:        name,
+		Slug:        slug,
+		Description: description,
+		IconURL:     iconURL,
+	})
+	if err != nil {
+		http.Redirect(w, r, "/orgs/"+orgID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/orgs/"+orgID+"?success=Organization+updated", http.StatusFound)
+}
+
+func handleDeleteOrg(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "orgID")
+	client := getAPIClient(r)
+
+	err := client.DeleteOrg(r.Context(), orgID)
+	if err != nil {
+		http.Redirect(w, r, "/orgs/"+orgID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/?success=Organization+deleted", http.StatusFound)
+}
+
+func handleSwitchOrg(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	
+	// Set a cookie to remember the current organization
+	http.SetCookie(w, &http.Cookie{
+		Name:     "current_org",
+		Value:    slug,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 365, // 1 year
+	})
+	
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// ============================================================================
+// App Handlers
+// ============================================================================
 
 func handleApps(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
@@ -1020,6 +1235,171 @@ func handleDetectProxy(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/v1/detect"
 	
 	slog.Info("proxying detection request", "path", r.URL.Path)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleSecretsListProxy proxies secrets list requests to the API server.
+func handleSecretsListProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/secrets", appID)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleSecretsCreateProxy proxies secrets create requests to the API server.
+func handleSecretsCreateProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/secrets", appID)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleDomainsListProxy proxies domains list requests to the API server.
+func handleDomainsListProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/domains", appID)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleDomainsCreateProxy proxies domains create requests to the API server.
+func handleDomainsCreateProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/domains", appID)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleDomainsDeleteProxy proxies domains delete requests to the API server.
+func handleDomainsDeleteProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	domainID := chi.URLParam(r, "domainID")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/domains/%s", appID, domainID)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleEnvCreateProxy proxies environment variable create requests to the API server.
+func handleEnvCreateProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/services/%s/env", appID, serviceName)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleEnvDeleteProxy proxies environment variable delete requests to the API server.
+func handleEnvDeleteProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	key := chi.URLParam(r, "key")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/services/%s/env/%s", appID, serviceName, key)
 	proxy.ServeHTTP(w, r)
 }
 
