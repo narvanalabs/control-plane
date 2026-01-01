@@ -144,6 +144,18 @@ type Log struct {
 	Timestamp    time.Time `json:"timestamp"`
 }
 
+// Domain represents a custom domain mapping.
+type Domain struct {
+	ID         string    `json:"id"`
+	AppID      string    `json:"app_id"`
+	Service    string    `json:"service"`
+	Domain     string    `json:"domain"`
+	IsWildcard bool      `json:"is_wildcard"`
+	Verified   bool      `json:"verified"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 // ============================================================================
 // Dashboard Types
 // ============================================================================
@@ -561,6 +573,38 @@ func (c *Client) GetBuild(ctx context.Context, id string) (*Build, error) {
 // RetryBuild retries a failed build.
 func (c *Client) RetryBuild(ctx context.Context, id string) error {
 	return c.post(ctx, "/v1/builds/"+id+"/retry", nil, nil)
+}
+
+// ============================================================================
+// Domain Methods
+// ============================================================================
+
+// ListAllDomains retrieves all domains across all applications.
+func (c *Client) ListAllDomains(ctx context.Context) ([]Domain, error) {
+	var domains []Domain
+	err := c.Get(ctx, "/v1/domains", &domains)
+	if domains == nil {
+		domains = []Domain{}
+	}
+	return domains, err
+}
+
+// CreateDomain creates a new domain mapping.
+func (c *Client) CreateDomain(ctx context.Context, appID, service, domain string, isWildcard bool) (*Domain, error) {
+	req := map[string]interface{}{
+		"app_id":      appID,
+		"service":     service,
+		"domain":      domain,
+		"is_wildcard": isWildcard,
+	}
+	var d Domain
+	err := c.post(ctx, "/v1/domains", req, &d)
+	return &d, err
+}
+
+// DeleteDomain removes a domain mapping.
+func (c *Client) DeleteDomain(ctx context.Context, id string) error {
+	return c.delete(ctx, "/v1/domains/"+id)
 }
 
 // ============================================================================
