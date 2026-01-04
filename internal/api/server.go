@@ -121,6 +121,14 @@ func (s *Server) setupRouter() {
 		configHandler := handlers.NewConfigHandler(s.store, s.logger)
 		r.Get("/config", configHandler.GetConfig)
 
+		// Dashboard statistics endpoint
+		// Requirements: 1.1
+		statsHandler := handlers.NewStatsHandler(s.store, s.logger)
+		r.Route("/dashboard", func(r chi.Router) {
+			r.Use(middleware.OrgContext(s.store, s.logger))
+			r.Get("/stats", statsHandler.GetDashboardStats)
+		})
+
 		// Detection endpoint
 		detectHandler := handlers.NewDetectHandler(s.logger)
 		r.Post("/detect", detectHandler.Detect)
