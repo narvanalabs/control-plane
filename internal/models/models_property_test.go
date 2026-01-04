@@ -1452,3 +1452,241 @@ func TestContainerNameUniqueness(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: backend-source-of-truth, Property 19: BuildJob Source Field Consistency**
+// For any BuildJob, if SourceType is "git" then GitURL SHALL be non-empty and FlakeURI SHALL
+// contain the constructed flake URI; if SourceType is "flake" then FlakeURI SHALL be non-empty
+// and GitURL SHALL be empty.
+// **Validates: Requirements 27.1, 27.2, 27.3**
+func TestBuildJobSourceFieldConsistency(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for valid git source BuildJob
+	genGitSourceBuildJob := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier(),                                     // ID
+			gen.Identifier(),                                     // DeploymentID
+			gen.Identifier(),                                     // AppID
+			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
+			genGitRepo(),                                         // GitURL (valid git repo)
+			genGitRef(),                                          // GitRef
+			genFlakeOutput(),                                     // FlakeOutput
+			genBuildType(),                                       // BuildType
+			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
+			genTime(),                                            // CreatedAt
+		).Map(func(vals []interface{}) BuildJob {
+			gitURL := vals[4].(string)
+			gitRef := vals[5].(string)
+			flakeOutput := vals[6].(string)
+			// Construct the flake URI from git components
+			flakeURI := buildFlakeURIFromGit(gitURL, gitRef, flakeOutput)
+			return BuildJob{
+				ID:           vals[0].(string),
+				DeploymentID: vals[1].(string),
+				AppID:        vals[2].(string),
+				ServiceName:  vals[3].(string),
+				SourceType:   SourceTypeGit,
+				GitURL:       gitURL,
+				GitRef:       gitRef,
+				FlakeURI:     flakeURI,
+				FlakeOutput:  flakeOutput,
+				BuildType:    vals[7].(BuildType),
+				Status:       vals[8].(BuildStatus),
+				CreatedAt:    vals[9].(time.Time),
+			}
+		})
+	}
+
+	// Generator for valid flake source BuildJob
+	genFlakeSourceBuildJob := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier(),                                     // ID
+			gen.Identifier(),                                     // DeploymentID
+			gen.Identifier(),                                     // AppID
+			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
+			genFlakeURI(),                                        // FlakeURI (valid flake URI)
+			genBuildType(),                                       // BuildType
+			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
+			genTime(),                                            // CreatedAt
+		).Map(func(vals []interface{}) BuildJob {
+			return BuildJob{
+				ID:           vals[0].(string),
+				DeploymentID: vals[1].(string),
+				AppID:        vals[2].(string),
+				ServiceName:  vals[3].(string),
+				SourceType:   SourceTypeFlake,
+				GitURL:       "", // Empty for flake sources
+				FlakeURI:     vals[4].(string),
+				BuildType:    vals[5].(BuildType),
+				Status:       vals[6].(BuildStatus),
+				CreatedAt:    vals[7].(time.Time),
+			}
+		})
+	}
+
+	// Generator for invalid git source BuildJob (missing GitURL)
+	genInvalidGitSourceBuildJob := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier(),                                     // ID
+			gen.Identifier(),                                     // DeploymentID
+			gen.Identifier(),                                     // AppID
+			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
+			genFlakeURI(),                                        // FlakeURI
+			genBuildType(),                                       // BuildType
+			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
+			genTime(),                                            // CreatedAt
+		).Map(func(vals []interface{}) BuildJob {
+			return BuildJob{
+				ID:           vals[0].(string),
+				DeploymentID: vals[1].(string),
+				AppID:        vals[2].(string),
+				ServiceName:  vals[3].(string),
+				SourceType:   SourceTypeGit,
+				GitURL:       "", // Invalid: empty for git source
+				FlakeURI:     vals[4].(string),
+				BuildType:    vals[5].(BuildType),
+				Status:       vals[6].(BuildStatus),
+				CreatedAt:    vals[7].(time.Time),
+			}
+		})
+	}
+
+	// Generator for invalid flake source BuildJob (has GitURL)
+	genInvalidFlakeSourceBuildJob := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.Identifier(),                                     // ID
+			gen.Identifier(),                                     // DeploymentID
+			gen.Identifier(),                                     // AppID
+			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
+			genGitRepo(),                                         // GitURL (should be empty for flake)
+			genFlakeURI(),                                        // FlakeURI
+			genBuildType(),                                       // BuildType
+			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
+			genTime(),                                            // CreatedAt
+		).Map(func(vals []interface{}) BuildJob {
+			return BuildJob{
+				ID:           vals[0].(string),
+				DeploymentID: vals[1].(string),
+				AppID:        vals[2].(string),
+				ServiceName:  vals[3].(string),
+				SourceType:   SourceTypeFlake,
+				GitURL:       vals[4].(string), // Invalid: non-empty for flake source
+				FlakeURI:     vals[5].(string),
+				BuildType:    vals[6].(BuildType),
+				Status:       vals[7].(BuildStatus),
+				CreatedAt:    vals[8].(time.Time),
+			}
+		})
+	}
+
+	// Property: Valid git source BuildJob passes validation
+	properties.Property("Valid git source BuildJob passes validation", prop.ForAll(
+		func(job BuildJob) bool {
+			err := job.ValidateBuildJobSource()
+			return err == nil
+		},
+		genGitSourceBuildJob(),
+	))
+
+	// Property: Valid flake source BuildJob passes validation
+	properties.Property("Valid flake source BuildJob passes validation", prop.ForAll(
+		func(job BuildJob) bool {
+			err := job.ValidateBuildJobSource()
+			return err == nil
+		},
+		genFlakeSourceBuildJob(),
+	))
+
+	// Property: Git source with empty GitURL fails validation
+	properties.Property("Git source with empty GitURL fails validation", prop.ForAll(
+		func(job BuildJob) bool {
+			err := job.ValidateBuildJobSource()
+			if err == nil {
+				return false
+			}
+			validationErr, ok := err.(*ValidationError)
+			if !ok {
+				return false
+			}
+			return validationErr.Field == "git_url"
+		},
+		genInvalidGitSourceBuildJob(),
+	))
+
+	// Property: Flake source with non-empty GitURL fails validation
+	properties.Property("Flake source with non-empty GitURL fails validation", prop.ForAll(
+		func(job BuildJob) bool {
+			err := job.ValidateBuildJobSource()
+			if err == nil {
+				return false
+			}
+			validationErr, ok := err.(*ValidationError)
+			if !ok {
+				return false
+			}
+			return validationErr.Field == "git_url"
+		},
+		genInvalidFlakeSourceBuildJob(),
+	))
+
+	// Property: Git source BuildJob has non-empty FlakeURI (constructed from git URL)
+	properties.Property("Git source BuildJob has non-empty FlakeURI", prop.ForAll(
+		func(job BuildJob) bool {
+			if job.SourceType != SourceTypeGit {
+				return true
+			}
+			return job.FlakeURI != ""
+		},
+		genGitSourceBuildJob(),
+	))
+
+	// Property: Flake source BuildJob has empty GitURL
+	properties.Property("Flake source BuildJob has empty GitURL", prop.ForAll(
+		func(job BuildJob) bool {
+			if job.SourceType != SourceTypeFlake {
+				return true
+			}
+			return job.GitURL == ""
+		},
+		genFlakeSourceBuildJob(),
+	))
+
+	// Property: BuildJob source fields are preserved through JSON round-trip
+	properties.Property("BuildJob source fields preserved through JSON round-trip", prop.ForAll(
+		func(job BuildJob) bool {
+			// Serialize to JSON
+			data, err := json.Marshal(job)
+			if err != nil {
+				return false
+			}
+
+			// Deserialize from JSON
+			var restored BuildJob
+			if err := json.Unmarshal(data, &restored); err != nil {
+				return false
+			}
+
+			// Source fields should be preserved
+			if job.SourceType != restored.SourceType {
+				return false
+			}
+			if job.GitURL != restored.GitURL {
+				return false
+			}
+			if job.FlakeURI != restored.FlakeURI {
+				return false
+			}
+			if job.GitRef != restored.GitRef {
+				return false
+			}
+
+			return true
+		},
+		gen.OneGenOf(genGitSourceBuildJob(), genFlakeSourceBuildJob()),
+	))
+
+	properties.TestingRun(t)
+}
