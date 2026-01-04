@@ -356,6 +356,14 @@ func (m *MockOrgStore) ListMembers(ctx context.Context, orgID string) ([]*models
 	return nil, nil
 }
 
+func (m *MockOrgStore) IsMember(ctx context.Context, orgID, userID string) (bool, error) {
+	return true, nil
+}
+
+func (m *MockOrgStore) GetDefaultForUser(ctx context.Context, userID string) (*models.Organization, error) {
+	return m.GetDefault(ctx)
+}
+
 
 // MockBuildStore is a mock implementation of BuildStore for testing.
 type MockBuildStore struct {
@@ -620,6 +628,20 @@ func (m *MockDeploymentStore) GetNextVersion(ctx context.Context, appID, service
 	return maxVersion + 1, nil
 }
 
+// CountByStatusAndOrg counts deployments by status filtered by organization.
+// Note: This mock implementation doesn't actually filter by org since it doesn't have access to app org_id.
+func (m *MockDeploymentStore) CountByStatusAndOrg(ctx context.Context, status models.DeploymentStatus, orgID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, d := range m.deployments {
+		if d.Status == status {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // Reset clears all deployments.
 func (m *MockDeploymentStore) Reset() {
 	m.mu.Lock()
@@ -766,6 +788,18 @@ func (m *MockAppStore) Delete(ctx context.Context, id string) error {
 	defer m.mu.Unlock()
 	delete(m.apps, id)
 	return nil
+}
+
+func (m *MockAppStore) ListByOrg(ctx context.Context, orgID string) ([]*models.App, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*models.App
+	for _, app := range m.apps {
+		if app.OrgID == orgID {
+			result = append(result, app)
+		}
+	}
+	return result, nil
 }
 
 // MockNodeStore is a mock implementation of NodeStore for testing.
