@@ -224,6 +224,63 @@ func (s *AppStore) List(ctx context.Context, ownerID string) ([]*models.App, err
 	return apps, nil
 }
 
+// ListByOrg retrieves all applications for a given organization.
+// Excludes soft-deleted apps.
+func (s *AppStore) ListByOrg(ctx context.Context, orgID string) ([]*models.App, error) {
+	query := `
+		SELECT id, COALESCE(org_id::text, ''), owner_id, name, COALESCE(description, ''), COALESCE(icon_url, ''), services, 
+		       version, created_at, updated_at, deleted_at
+		FROM apps
+		WHERE org_id = $1 AND deleted_at IS NULL
+		ORDER BY created_at DESC`
+
+	rows, err := s.conn().QueryContext(ctx, query, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("querying apps by org: %w", err)
+	}
+	defer rows.Close()
+
+	var apps []*models.App
+	for rows.Next() {
+		app := &models.App{}
+		var servicesJSON []byte
+		var deletedAt sql.NullTime
+
+		err := rows.Scan(
+			&app.ID,
+			&app.OrgID,
+			&app.OwnerID,
+			&app.Name,
+			&app.Description,
+			&app.IconURL,
+			&servicesJSON,
+			&app.Version,
+			&app.CreatedAt,
+			&app.UpdatedAt,
+			&deletedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scanning app row: %w", err)
+		}
+
+		if err := json.Unmarshal(servicesJSON, &app.Services); err != nil {
+			return nil, fmt.Errorf("unmarshaling services: %w", err)
+		}
+
+		if deletedAt.Valid {
+			app.DeletedAt = &deletedAt.Time
+		}
+
+		apps = append(apps, app)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating app rows: %w", err)
+	}
+
+	return apps, nil
+}
+
 
 // Update updates an existing application with optimistic locking.
 // Returns ErrConcurrentModification if the version doesn't match.

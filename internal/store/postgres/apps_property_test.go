@@ -607,3 +607,157 @@ func TestAppOptimisticLockingConflictDetection(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: backend-source-of-truth, Property 3: App Organization Filtering**
+// *For any* organization with apps, listing apps SHALL return only apps
+// where org_id matches the current organization context.
+// **Validates: Requirements 3.5, 5.1, 5.2**
+func TestAppOrganizationFiltering(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("ListByOrg returns only apps for the specified org", prop.ForAll(
+		func(ownerID string) bool {
+			ctx := context.Background()
+
+			// Create two different org IDs
+			org1ID := uuid.New().String()
+			org2ID := uuid.New().String()
+
+			// Create apps for org1
+			app1 := models.App{
+				ID:          uuid.New().String(),
+				OrgID:       org1ID,
+				OwnerID:     ownerID,
+				Name:        "app1org1",
+				Description: "app in org1",
+				Services:    []models.ServiceConfig{},
+			}
+			app2 := models.App{
+				ID:          uuid.New().String(),
+				OrgID:       org1ID,
+				OwnerID:     ownerID,
+				Name:        "app2org1",
+				Description: "another app in org1",
+				Services:    []models.ServiceConfig{},
+			}
+
+			// Create app for org2
+			app3 := models.App{
+				ID:          uuid.New().String(),
+				OrgID:       org2ID,
+				OwnerID:     ownerID,
+				Name:        "app1org2",
+				Description: "app in org2",
+				Services:    []models.ServiceConfig{},
+			}
+
+			// Create all apps
+			if err := store.Create(ctx, &app1); err != nil {
+				t.Logf("Create app1 error: %v", err)
+				return false
+			}
+			if err := store.Create(ctx, &app2); err != nil {
+				t.Logf("Create app2 error: %v", err)
+				store.Delete(ctx, app1.ID)
+				return false
+			}
+			if err := store.Create(ctx, &app3); err != nil {
+				t.Logf("Create app3 error: %v", err)
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app2.ID)
+				return false
+			}
+
+			// List apps for org1 - should return only app1 and app2
+			org1Apps, err := store.ListByOrg(ctx, org1ID)
+			if err != nil {
+				t.Logf("ListByOrg org1 error: %v", err)
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app2.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			if len(org1Apps) != 2 {
+				t.Logf("Expected 2 apps for org1, got %d", len(org1Apps))
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app2.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			// Verify all returned apps belong to org1
+			for _, app := range org1Apps {
+				if app.OrgID != org1ID {
+					t.Logf("App %s has wrong org_id: got %s, want %s", app.ID, app.OrgID, org1ID)
+					store.Delete(ctx, app1.ID)
+					store.Delete(ctx, app2.ID)
+					store.Delete(ctx, app3.ID)
+					return false
+				}
+			}
+
+			// List apps for org2 - should return only app3
+			org2Apps, err := store.ListByOrg(ctx, org2ID)
+			if err != nil {
+				t.Logf("ListByOrg org2 error: %v", err)
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app2.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			if len(org2Apps) != 1 {
+				t.Logf("Expected 1 app for org2, got %d", len(org2Apps))
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app2.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			if org2Apps[0].OrgID != org2ID {
+				t.Logf("App has wrong org_id: got %s, want %s", org2Apps[0].OrgID, org2ID)
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app2.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			// Delete one app from org1 and verify it's excluded
+			store.Delete(ctx, app1.ID)
+
+			org1AppsAfterDelete, err := store.ListByOrg(ctx, org1ID)
+			if err != nil {
+				t.Logf("ListByOrg after delete error: %v", err)
+				store.Delete(ctx, app2.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			if len(org1AppsAfterDelete) != 1 {
+				t.Logf("Expected 1 app for org1 after delete, got %d", len(org1AppsAfterDelete))
+				store.Delete(ctx, app2.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			// Cleanup
+			store.Delete(ctx, app2.ID)
+			store.Delete(ctx, app3.ID)
+
+			return true
+		},
+		genNonEmptyAlphaString(),
+	))
+
+	properties.TestingRun(t)
+}
