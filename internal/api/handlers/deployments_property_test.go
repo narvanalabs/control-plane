@@ -105,6 +105,15 @@ func (m *mockDeploymentStore) GetNextVersion(ctx context.Context, appID, service
 	return maxVersion + 1, nil
 }
 
+func (m *mockDeploymentStore) CountByStatusAndOrg(ctx context.Context, status models.DeploymentStatus, orgID string) (int, error) {
+	count := 0
+	for _, d := range m.deployments {
+		if d.Status == status {
+			count++
+		}
+	}
+	return count, nil
+}
 
 // mockQueue implements queue.Queue for testing
 type mockQueue struct {
