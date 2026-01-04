@@ -273,6 +273,19 @@ func (s *OrgStore) RemoveMember(ctx context.Context, orgID, userID string) error
 	return nil
 }
 
+// IsMember checks if a user is a member of an organization.
+func (s *OrgStore) IsMember(ctx context.Context, orgID, userID string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM org_memberships WHERE org_id = $1 AND user_id = $2)`
+
+	var exists bool
+	err := s.conn().QueryRowContext(ctx, query, orgID, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("checking organization membership: %w", err)
+	}
+
+	return exists, nil
+}
+
 // GetDefault returns the default organization (first created).
 func (s *OrgStore) GetDefault(ctx context.Context) (*models.Organization, error) {
 	query := `
@@ -298,6 +311,39 @@ func (s *OrgStore) GetDefault(ctx context.Context) (*models.Organization, error)
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("querying default organization: %w", err)
+	}
+
+	return org, nil
+}
+
+// GetDefaultForUser returns the user's default organization.
+// Returns the first organization the user is a member of (ordered by creation date).
+func (s *OrgStore) GetDefaultForUser(ctx context.Context, userID string) (*models.Organization, error) {
+	query := `
+		SELECT o.id, o.name, o.slug, COALESCE(o.description, ''), COALESCE(o.icon_url, ''),
+		       o.created_at, o.updated_at
+		FROM organizations o
+		INNER JOIN org_memberships m ON o.id = m.org_id
+		WHERE m.user_id = $1
+		ORDER BY o.created_at ASC
+		LIMIT 1`
+
+	org := &models.Organization{}
+	err := s.conn().QueryRowContext(ctx, query, userID).Scan(
+		&org.ID,
+		&org.Name,
+		&org.Slug,
+		&org.Description,
+		&org.IconURL,
+		&org.CreatedAt,
+		&org.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("querying default organization for user: %w", err)
 	}
 
 	return org, nil
