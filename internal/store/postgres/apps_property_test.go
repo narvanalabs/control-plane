@@ -84,7 +84,9 @@ func runMigrations(db *sql.DB) error {
 			deleted_at TIMESTAMPTZ
 		);
 
-		CREATE UNIQUE INDEX idx_apps_owner_name_unique ON apps(owner_id, name) WHERE deleted_at IS NULL;
+		-- Unique index on (org_id, name) for non-deleted apps
+		-- This ensures app names are unique within an organization
+		CREATE UNIQUE INDEX apps_org_name_unique ON apps(org_id, name) WHERE deleted_at IS NULL;
 		CREATE INDEX idx_apps_owner_id ON apps(owner_id) WHERE deleted_at IS NULL;
 		CREATE INDEX idx_apps_org_id ON apps(org_id) WHERE deleted_at IS NULL;
 	`
@@ -269,9 +271,10 @@ func TestAppCreationRoundTrip(t *testing.T) {
 }
 
 // **Feature: control-plane, Property 3: Application name uniqueness**
-// For any user and application name, attempting to create a second application
-// with the same name should be rejected while the first exists.
+// For any organization and application name, attempting to create a second application
+// with the same name within the same organization should be rejected while the first exists.
 // **Validates: Requirements 1.5**
+// Note: This test was updated to use org_id instead of owner_id after migration 020.
 func TestAppNameUniqueness(t *testing.T) {
 	db := setupTestDB(t)
 	defer cleanupTestDB(t, db)
@@ -283,22 +286,36 @@ func TestAppNameUniqueness(t *testing.T) {
 	parameters.MinSuccessfulTests = 100
 	properties := gopter.NewProperties(parameters)
 
-	properties.Property("Duplicate app names for same owner are rejected", prop.ForAll(
-		func(input models.App) bool {
+	properties.Property("Duplicate app names for same org are rejected", prop.ForAll(
+		func(ownerID string) bool {
 			ctx := context.Background()
 
+			// Create a single org ID for this test
+			orgID := uuid.New().String()
+			appName := "testapp"
+
 			// Create the first app
+			input := models.App{
+				ID:          uuid.New().String(),
+				OrgID:       orgID,
+				OwnerID:     ownerID,
+				Name:        appName,
+				Description: "first app",
+				Services:    []models.ServiceConfig{},
+			}
+
 			err := store.Create(ctx, &input)
 			if err != nil {
 				t.Logf("First create error: %v", err)
 				return false
 			}
 
-			// Try to create a second app with the same owner and name
+			// Try to create a second app with the same org and name
 			duplicate := models.App{
 				ID:          uuid.New().String(),
-				OwnerID:     input.OwnerID,
-				Name:        input.Name,
+				OrgID:       orgID, // Same org
+				OwnerID:     ownerID,
+				Name:        appName, // Same name
 				Description: "duplicate",
 				Services:    []models.ServiceConfig{},
 			}
@@ -317,7 +334,7 @@ func TestAppNameUniqueness(t *testing.T) {
 
 			return true
 		},
-		genAppInput(),
+		genNonEmptyAlphaString(),
 	))
 
 	properties.TestingRun(t)
@@ -752,6 +769,232 @@ func TestAppOrganizationFiltering(t *testing.T) {
 
 			// Cleanup
 			store.Delete(ctx, app2.ID)
+			store.Delete(ctx, app3.ID)
+
+			return true
+		},
+		genNonEmptyAlphaString(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: backend-source-of-truth, Property 6: App Update Field Preservation**
+// *For any* app update request, fields not specified in the request SHALL retain
+// their previous values.
+// **Validates: Requirements 8.1, 8.3**
+func TestAppUpdateFieldPreservation(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Partial update preserves unspecified fields", prop.ForAll(
+		func(input models.App, newDescription string) bool {
+			ctx := context.Background()
+
+			// Create the app with initial values
+			err := store.Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Retrieve the app to get the current state
+			original, err := store.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get error: %v", err)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Store original values
+			originalName := original.Name
+			originalOwnerID := original.OwnerID
+			originalOrgID := original.OrgID
+			originalIconURL := original.IconURL
+			originalServicesLen := len(original.Services)
+
+			// Update only the description (simulating partial update)
+			original.Description = newDescription
+			err = store.Update(ctx, original)
+			if err != nil {
+				t.Logf("Update error: %v", err)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Retrieve the updated app
+			updated, err := store.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get after update error: %v", err)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify the description was updated
+			if updated.Description != newDescription {
+				t.Logf("Description not updated: got %s, want %s", updated.Description, newDescription)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify all other fields were preserved (Requirements: 8.3)
+			if updated.Name != originalName {
+				t.Logf("Name changed unexpectedly: got %s, want %s", updated.Name, originalName)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			if updated.OwnerID != originalOwnerID {
+				t.Logf("OwnerID changed unexpectedly: got %s, want %s", updated.OwnerID, originalOwnerID)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			if updated.OrgID != originalOrgID {
+				t.Logf("OrgID changed unexpectedly: got %s, want %s", updated.OrgID, originalOrgID)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			if updated.IconURL != originalIconURL {
+				t.Logf("IconURL changed unexpectedly: got %s, want %s", updated.IconURL, originalIconURL)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			if len(updated.Services) != originalServicesLen {
+				t.Logf("Services length changed unexpectedly: got %d, want %d", len(updated.Services), originalServicesLen)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify version was incremented
+			if updated.Version != original.Version {
+				t.Logf("Version not incremented correctly: got %d, want %d", updated.Version, original.Version)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Cleanup
+			store.Delete(ctx, input.ID)
+
+			return true
+		},
+		genAppInput(),
+		gen.AlphaString(), // new description
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: backend-source-of-truth, Property 7: App Name Uniqueness Within Organization**
+// *For any* organization, attempting to create or rename an app to a name that already
+// exists within that organization SHALL be rejected with a conflict error.
+// **Validates: Requirements 8.2**
+func TestAppNameUniquenessWithinOrganization(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Duplicate app names within same org are rejected", prop.ForAll(
+		func(ownerID string) bool {
+			ctx := context.Background()
+
+			// Create a single org ID for this test
+			orgID := uuid.New().String()
+			appName := "testapp"
+
+			// Create the first app in the org
+			app1 := models.App{
+				ID:          uuid.New().String(),
+				OrgID:       orgID,
+				OwnerID:     ownerID,
+				Name:        appName,
+				Description: "first app",
+				Services:    []models.ServiceConfig{},
+			}
+
+			err := store.Create(ctx, &app1)
+			if err != nil {
+				t.Logf("First create error: %v", err)
+				return false
+			}
+
+			// Try to create a second app with the same name in the same org
+			app2 := models.App{
+				ID:          uuid.New().String(),
+				OrgID:       orgID,
+				OwnerID:     ownerID,
+				Name:        appName, // Same name
+				Description: "duplicate app",
+				Services:    []models.ServiceConfig{},
+			}
+
+			err = store.Create(ctx, &app2)
+			if err != ErrDuplicateName {
+				t.Logf("Expected ErrDuplicateName for same org, got: %v", err)
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app2.ID)
+				return false
+			}
+
+			// Verify that the same name CAN be used in a different org
+			differentOrgID := uuid.New().String()
+			app3 := models.App{
+				ID:          uuid.New().String(),
+				OrgID:       differentOrgID,
+				OwnerID:     ownerID,
+				Name:        appName, // Same name, different org
+				Description: "app in different org",
+				Services:    []models.ServiceConfig{},
+			}
+
+			err = store.Create(ctx, &app3)
+			if err != nil {
+				t.Logf("Create in different org error: %v", err)
+				store.Delete(ctx, app1.ID)
+				return false
+			}
+
+			// Verify renaming to an existing name in the same org is rejected
+			app3.Name = "uniquename"
+			err = store.Update(ctx, &app3)
+			if err != nil {
+				t.Logf("Rename to unique name error: %v", err)
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			// Now try to rename app3 to the same name as app1 (should fail if same org)
+			// But since app3 is in a different org, this should succeed
+			app3Updated, _ := store.Get(ctx, app3.ID)
+			app3Updated.Name = appName
+			err = store.Update(ctx, app3Updated)
+			if err != nil {
+				t.Logf("Rename to same name in different org should succeed, got: %v", err)
+				store.Delete(ctx, app1.ID)
+				store.Delete(ctx, app3.ID)
+				return false
+			}
+
+			// Cleanup
+			store.Delete(ctx, app1.ID)
 			store.Delete(ctx, app3.ID)
 
 			return true
