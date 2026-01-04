@@ -15,6 +15,10 @@ var (
 
 	// ErrDuplicateKey is returned when attempting to create a resource with a duplicate key.
 	ErrDuplicateKey = errors.New("duplicate key")
+
+	// ErrConcurrentModification is returned when an optimistic locking conflict is detected.
+	// This occurs when the version field doesn't match during an update operation.
+	ErrConcurrentModification = errors.New("resource was modified by another request")
 )
 
 // isUniqueViolation checks if the error is a PostgreSQL unique constraint violation.
