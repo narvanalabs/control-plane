@@ -381,6 +381,23 @@ func (s *DeploymentStore) GetNextVersion(ctx context.Context, appID, serviceName
 	return int(maxVersion.Int64) + 1, nil
 }
 
+// CountByStatusAndOrg counts deployments by status filtered by organization.
+func (s *DeploymentStore) CountByStatusAndOrg(ctx context.Context, status models.DeploymentStatus, orgID string) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM deployments d
+		INNER JOIN apps a ON d.app_id = a.id
+		WHERE d.status = $1 AND a.org_id = $2 AND a.deleted_at IS NULL`
+
+	var count int
+	err := s.conn().QueryRowContext(ctx, query, status, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting deployments by status and org: %w", err)
+	}
+
+	return count, nil
+}
+
 // scanDeployments scans multiple deployment rows.
 func (s *DeploymentStore) scanDeployments(rows *sql.Rows) ([]*models.Deployment, error) {
 	var deployments []*models.Deployment

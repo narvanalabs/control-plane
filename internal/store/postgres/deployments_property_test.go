@@ -59,11 +59,13 @@ func runDeploymentMigrations(db *sql.DB) error {
 
 		CREATE TABLE apps (
 			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			org_id UUID,
 			owner_id VARCHAR(255) NOT NULL,
 			name VARCHAR(63) NOT NULL,
 			description TEXT,
 			services JSONB NOT NULL DEFAULT '[]',
 			icon_url TEXT,
+			version INTEGER NOT NULL DEFAULT 1,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			deleted_at TIMESTAMPTZ
