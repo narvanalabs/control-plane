@@ -114,8 +114,10 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
-// RequireOwnership returns a middleware that verifies the authenticated user owns the resource.
+// RequireOwnership returns a middleware that verifies the authenticated user owns the resource
+// or is a member of the app's organization.
 // It expects the appID to be in the URL path parameter. The appID can be either a UUID or an app name.
+// Requirements: 4.1, 4.2
 func RequireOwnership(st store.Store, logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -144,21 +146,47 @@ func RequireOwnership(st store.Store, logger *slog.Logger) func(http.Handler) ht
 				}
 			}
 
-			if app.OwnerID != userID {
-				logger.Debug("ownership check failed",
-					"user_id", userID,
-					"owner_id", app.OwnerID,
-					"app_id", app.ID,
-				)
-				writeForbidden(w, "Access denied")
+			// Check if user owns the app
+			if app.OwnerID == userID {
+				// Store the resolved app ID in context for handlers to use
+				ctx := context.WithValue(r.Context(), appIDKey, app.ID)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			// Store the resolved app ID in context for handlers to use
-			ctx := context.WithValue(r.Context(), appIDKey, app.ID)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			// Check if user is a member of the app's organization
+			if app.OrgID != "" {
+				isMember, err := st.Orgs().IsMember(r.Context(), app.OrgID, userID)
+				if err != nil {
+					logger.Error("failed to check org membership", "error", err, "org_id", app.OrgID, "user_id", userID)
+					writeInternalError(w, "Failed to verify access")
+					return
+				}
+				if isMember {
+					// Store the resolved app ID in context for handlers to use
+					ctx := context.WithValue(r.Context(), appIDKey, app.ID)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			// Log the failed access attempt
+			logger.Debug("ownership check failed",
+				"user_id", userID,
+				"owner_id", app.OwnerID,
+				"org_id", app.OrgID,
+				"app_id", app.ID,
+				"action", r.Method+" "+r.URL.Path,
+			)
+			writeForbidden(w, "Access denied")
 		})
 	}
+}
+
+func writeInternalError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusInternalServerError)
+	w.Write([]byte(`{"code":"internal_error","message":"` + escapeJSON(message) + `"}`))
 }
 
 // appIDKey is the context key for the resolved app ID.
