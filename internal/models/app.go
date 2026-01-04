@@ -18,6 +18,7 @@ const (
 )
 
 // ResourceTier represents predefined resource allocation levels.
+// Deprecated: Use ResourceSpec for direct resource specification instead.
 type ResourceTier string
 
 const (
@@ -27,6 +28,13 @@ const (
 	ResourceTierLarge  ResourceTier = "large"  // 2GB RAM, 2 CPU
 	ResourceTierXLarge ResourceTier = "xlarge" // 4GB RAM, 4 CPU
 )
+
+// ResourceSpec defines direct CPU and memory resource allocation.
+// This replaces ResourceTier for more flexible resource specification.
+type ResourceSpec struct {
+	CPU    string `json:"cpu"`    // CPU allocation, e.g., "0.5", "1", "2"
+	Memory string `json:"memory"` // Memory allocation, e.g., "256Mi", "1Gi"
+}
 
 // PortMapping defines a port mapping for a service.
 type PortMapping struct {
@@ -92,7 +100,8 @@ type ServiceConfig struct {
 	BuildConfig   *BuildConfig  `json:"build_config,omitempty" db:"build_config"`
 
 	// Runtime configuration
-	ResourceTier ResourceTier       `json:"resource_tier"`
+	ResourceTier ResourceTier       `json:"resource_tier,omitempty"`          // Deprecated: Use Resources instead
+	Resources    *ResourceSpec      `json:"resources,omitempty"`              // Direct CPU/memory specification
 	Replicas     int                `json:"replicas"`
 	Ports        []PortMapping      `json:"ports,omitempty"`
 	HealthCheck  *HealthCheckConfig `json:"health_check,omitempty"`
@@ -299,11 +308,13 @@ func buildFlakeURIFromGit(gitRepo, gitRef, flakeOutput string) string {
 // App represents a user-defined deployable unit that may contain one or more services.
 type App struct {
 	ID          string          `json:"id"`
-	OwnerID     string          `json:"owner_id"`
+	OrgID       string          `json:"org_id"`   // Organization ID for multi-tenancy
+	OwnerID     string          `json:"owner_id"` // User who created the app
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	IconURL     string          `json:"icon_url,omitempty"`
 	Services    []ServiceConfig `json:"services"`
+	Version     int             `json:"version"` // Version for optimistic locking
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 	DeletedAt   *time.Time      `json:"deleted_at,omitempty"`

@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // BuildStatus represents the current state of a build job.
 type BuildStatus string
@@ -181,9 +184,18 @@ type BuildJob struct {
 	DeploymentID string      `json:"deployment_id"`
 	AppID        string      `json:"app_id"`
 	ServiceName  string      `json:"service_name,omitempty"`
-	GitURL       string      `json:"git_url"`
-	GitRef       string      `json:"git_ref"`
-	FlakeOutput  string      `json:"flake_output"`
+
+	// Source information - explicit fields for clarity
+	// SourceType indicates whether this is a git, flake, or database source
+	// For git sources: GitURL contains the original git URL, FlakeURI contains the constructed flake URI
+	// For flake sources: FlakeURI contains the direct flake URI, GitURL is empty
+	// For database sources: Both GitURL and FlakeURI may be empty
+	SourceType SourceType `json:"source_type,omitempty" db:"source_type"`
+	GitURL     string     `json:"git_url"`
+	GitRef     string     `json:"git_ref"`
+	FlakeURI   string     `json:"flake_uri,omitempty" db:"flake_uri"` // Constructed or direct flake URI
+	FlakeOutput string    `json:"flake_output"`
+
 	BuildType    BuildType   `json:"build_type"`
 	Status       BuildStatus `json:"status"`
 	CreatedAt    time.Time   `json:"created_at"`
@@ -201,6 +213,61 @@ type BuildJob struct {
 	TimeoutSeconds int  `json:"timeout_seconds,omitempty" db:"timeout_seconds"`
 	RetryCount     int  `json:"retry_count,omitempty" db:"retry_count"`
 	RetryAsOCI     bool `json:"retry_as_oci,omitempty" db:"retry_as_oci"`
+}
+
+// ValidateBuildJobSource validates that the BuildJob source fields are consistent.
+// For git sources: GitURL must be non-empty, FlakeURI should contain the constructed flake URI
+// For flake sources: FlakeURI must be non-empty, GitURL should be empty
+// **Validates: Requirements 27.1, 27.2, 27.3**
+func (b *BuildJob) ValidateBuildJobSource() error {
+	switch b.SourceType {
+	case SourceTypeGit:
+		if b.GitURL == "" {
+			return &ValidationError{
+				Field:   "git_url",
+				Message: "git_url is required for git source type",
+			}
+		}
+		// FlakeURI should be set (constructed from git URL)
+		if b.FlakeURI == "" {
+			return &ValidationError{
+				Field:   "flake_uri",
+				Message: "flake_uri should be set for git source type (constructed from git URL)",
+			}
+		}
+	case SourceTypeFlake:
+		if b.FlakeURI == "" {
+			return &ValidationError{
+				Field:   "flake_uri",
+				Message: "flake_uri is required for flake source type",
+			}
+		}
+		// GitURL should be empty for direct flake sources
+		if b.GitURL != "" {
+			return &ValidationError{
+				Field:   "git_url",
+				Message: "git_url should be empty for flake source type",
+			}
+		}
+	case SourceTypeDatabase:
+		// Database sources may have empty GitURL and FlakeURI
+		// No validation needed
+	case "":
+		// Empty source type is allowed for backward compatibility
+		// but we should have at least GitURL or FlakeURI
+		if b.GitURL == "" && b.FlakeURI == "" {
+			return &ValidationError{
+				Field:   "source_type",
+				Message: "either source_type must be set, or git_url/flake_uri must be provided",
+			}
+		}
+	default:
+		return &ValidationError{
+			Field:   "source_type",
+			Message: fmt.Sprintf("invalid source type: %s", b.SourceType),
+		}
+	}
+	return nil
 }
 
 // BuildResult represents the output of a completed build.
