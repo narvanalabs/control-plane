@@ -13,10 +13,11 @@ import (
 	"github.com/narvanalabs/control-plane/internal/api/handlers"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/auth"
+	"github.com/narvanalabs/control-plane/internal/cleanup"
+	"github.com/narvanalabs/control-plane/internal/podman"
 	"github.com/narvanalabs/control-plane/internal/queue"
 	"github.com/narvanalabs/control-plane/internal/secrets"
 	"github.com/narvanalabs/control-plane/internal/store"
-	"github.com/narvanalabs/control-plane/internal/podman"
 	"github.com/narvanalabs/control-plane/pkg/config"
 )
 
@@ -306,6 +307,19 @@ func (s *Server) setupRouter() {
 		serverStatsHandler := handlers.NewServerStatsHandler(s.logger)
 		r.Get("/server/stats", serverStatsHandler.Get)
 		r.Get("/server/stats/stream", serverStatsHandler.Stream)
+
+		// Admin cleanup routes
+		// Requirements: 19.1, 19.2, 19.3, 19.4, 25.4, 26.4
+		podmanClientForCleanup := podman.NewClient(s.config.Worker.PodmanSocket, s.logger)
+		cleanupService := cleanup.NewService(s.store, podmanClientForCleanup, s.logger)
+		cleanupHandler := handlers.NewCleanupHandler(s.store, cleanupService, s.logger)
+		r.Route("/admin/cleanup", func(r chi.Router) {
+			r.Post("/containers", cleanupHandler.CleanupContainers)
+			r.Post("/images", cleanupHandler.CleanupImages)
+			r.Post("/nix-gc", cleanupHandler.NixGC)
+			r.Post("/deployments", cleanupHandler.ArchiveDeployments)
+			r.Post("/attic", cleanupHandler.CleanupAttic)
+		})
 	})
 
 	// Redirect root to Web UI
