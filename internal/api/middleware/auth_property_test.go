@@ -60,6 +60,15 @@ func (m *mockAppStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (m *mockAppStore) ListByOrg(ctx context.Context, orgID string) ([]*models.App, error) {
+	var result []*models.App
+	for _, app := range m.apps {
+		if app.OrgID == orgID && app.DeletedAt == nil {
+			result = append(result, app)
+		}
+	}
+	return result, nil
+}
 
 // mockStore implements store.Store for testing
 type mockStore struct {
