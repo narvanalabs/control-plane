@@ -89,14 +89,80 @@ func (m *mockAppStore) ListByOrg(ctx context.Context, orgID string) ([]*models.A
 	return result, nil
 }
 
+// emptyDeploymentStore implements store.DeploymentStore that returns empty results
+type emptyDeploymentStore struct{}
+
+func (m *emptyDeploymentStore) Create(ctx context.Context, deployment *models.Deployment) error {
+	return nil
+}
+
+func (m *emptyDeploymentStore) Get(ctx context.Context, id string) (*models.Deployment, error) {
+	return nil, nil
+}
+
+func (m *emptyDeploymentStore) List(ctx context.Context, appID string) ([]*models.Deployment, error) {
+	return []*models.Deployment{}, nil
+}
+
+func (m *emptyDeploymentStore) ListByNode(ctx context.Context, nodeID string) ([]*models.Deployment, error) {
+	return nil, nil
+}
+
+func (m *emptyDeploymentStore) ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error) {
+	return nil, nil
+}
+
+func (m *emptyDeploymentStore) Update(ctx context.Context, deployment *models.Deployment) error {
+	return nil
+}
+
+func (m *emptyDeploymentStore) ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error) {
+	return nil, nil
+}
+
+func (m *emptyDeploymentStore) CountByStatusAndOrg(ctx context.Context, status models.DeploymentStatus, orgID string) (int, error) {
+	return 0, nil
+}
+
+func (m *emptyDeploymentStore) GetNextVersion(ctx context.Context, appID, serviceName string) (int, error) {
+	return 1, nil
+}
+
+// emptySecretStore implements store.SecretStore that returns empty results
+type emptySecretStore struct{}
+
+func (m *emptySecretStore) Set(ctx context.Context, appID, key string, encryptedValue []byte) error {
+	return nil
+}
+
+func (m *emptySecretStore) Get(ctx context.Context, appID, key string) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *emptySecretStore) List(ctx context.Context, appID string) ([]string, error) {
+	return []string{}, nil
+}
+
+func (m *emptySecretStore) Delete(ctx context.Context, appID, key string) error {
+	return nil
+}
+
+func (m *emptySecretStore) GetAll(ctx context.Context, appID string) (map[string][]byte, error) {
+	return nil, nil
+}
+
 // mockStore implements store.Store for testing
 type mockStore struct {
-	appStore *mockAppStore
+	appStore        *mockAppStore
+	deploymentStore *emptyDeploymentStore
+	secretStore     *emptySecretStore
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		appStore: newMockAppStore(),
+		appStore:        newMockAppStore(),
+		deploymentStore: &emptyDeploymentStore{},
+		secretStore:     &emptySecretStore{},
 	}
 }
 
@@ -105,7 +171,7 @@ func (m *mockStore) Apps() store.AppStore {
 }
 
 func (m *mockStore) Deployments() store.DeploymentStore {
-	return nil
+	return m.deploymentStore
 }
 
 func (m *mockStore) Nodes() store.NodeStore {
@@ -117,7 +183,7 @@ func (m *mockStore) Builds() store.BuildStore {
 }
 
 func (m *mockStore) Secrets() store.SecretStore {
-	return nil
+	return m.secretStore
 }
 
 func (m *mockStore) Logs() store.LogStore {
@@ -480,6 +546,325 @@ func TestAppCRUDRoundTripHandler(t *testing.T) {
 		genUserID(),
 		genAppName(),
 		gen.AlphaString(), // description
+	))
+
+	properties.TestingRun(t)
+}
+
+// appMockDeploymentStore implements store.DeploymentStore for app deletion testing
+type appMockDeploymentStore struct {
+	deployments map[string]*models.Deployment
+}
+
+func newAppMockDeploymentStore() *appMockDeploymentStore {
+	return &appMockDeploymentStore{
+		deployments: make(map[string]*models.Deployment),
+	}
+}
+
+func (m *appMockDeploymentStore) Create(ctx context.Context, deployment *models.Deployment) error {
+	m.deployments[deployment.ID] = deployment
+	return nil
+}
+
+func (m *appMockDeploymentStore) Get(ctx context.Context, id string) (*models.Deployment, error) {
+	if d, ok := m.deployments[id]; ok {
+		return d, nil
+	}
+	return nil, nil
+}
+
+func (m *appMockDeploymentStore) List(ctx context.Context, appID string) ([]*models.Deployment, error) {
+	var result []*models.Deployment
+	for _, d := range m.deployments {
+		if d.AppID == appID {
+			result = append(result, d)
+		}
+	}
+	return result, nil
+}
+
+func (m *appMockDeploymentStore) ListByNode(ctx context.Context, nodeID string) ([]*models.Deployment, error) {
+	return nil, nil
+}
+
+func (m *appMockDeploymentStore) ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error) {
+	return nil, nil
+}
+
+func (m *appMockDeploymentStore) Update(ctx context.Context, deployment *models.Deployment) error {
+	m.deployments[deployment.ID] = deployment
+	return nil
+}
+
+func (m *appMockDeploymentStore) ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error) {
+	return nil, nil
+}
+
+func (m *appMockDeploymentStore) CountByStatusAndOrg(ctx context.Context, status models.DeploymentStatus, orgID string) (int, error) {
+	return 0, nil
+}
+
+func (m *appMockDeploymentStore) GetNextVersion(ctx context.Context, appID, serviceName string) (int, error) {
+	return 1, nil
+}
+
+// appMockSecretStore implements store.SecretStore for app deletion testing
+type appMockSecretStore struct {
+	secrets map[string]map[string][]byte // appID -> key -> value
+}
+
+func newAppMockSecretStore() *appMockSecretStore {
+	return &appMockSecretStore{
+		secrets: make(map[string]map[string][]byte),
+	}
+}
+
+func (m *appMockSecretStore) Set(ctx context.Context, appID, key string, encryptedValue []byte) error {
+	if m.secrets[appID] == nil {
+		m.secrets[appID] = make(map[string][]byte)
+	}
+	m.secrets[appID][key] = encryptedValue
+	return nil
+}
+
+func (m *appMockSecretStore) Get(ctx context.Context, appID, key string) ([]byte, error) {
+	if appSecrets, ok := m.secrets[appID]; ok {
+		if val, ok := appSecrets[key]; ok {
+			return val, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *appMockSecretStore) List(ctx context.Context, appID string) ([]string, error) {
+	var keys []string
+	if appSecrets, ok := m.secrets[appID]; ok {
+		for key := range appSecrets {
+			keys = append(keys, key)
+		}
+	}
+	return keys, nil
+}
+
+func (m *appMockSecretStore) Delete(ctx context.Context, appID, key string) error {
+	if appSecrets, ok := m.secrets[appID]; ok {
+		delete(appSecrets, key)
+	}
+	return nil
+}
+
+func (m *appMockSecretStore) GetAll(ctx context.Context, appID string) (map[string][]byte, error) {
+	if appSecrets, ok := m.secrets[appID]; ok {
+		return appSecrets, nil
+	}
+	return nil, nil
+}
+
+// appDeletionMockStore extends mockStore with deployment and secret support for app deletion testing
+type appDeletionMockStore struct {
+	appStore        *mockAppStore
+	deploymentStore *appMockDeploymentStore
+	secretStore     *appMockSecretStore
+}
+
+func newAppDeletionMockStore() *appDeletionMockStore {
+	return &appDeletionMockStore{
+		appStore:        newMockAppStore(),
+		deploymentStore: newAppMockDeploymentStore(),
+		secretStore:     newAppMockSecretStore(),
+	}
+}
+
+func (m *appDeletionMockStore) Apps() store.AppStore {
+	return m.appStore
+}
+
+func (m *appDeletionMockStore) Deployments() store.DeploymentStore {
+	return m.deploymentStore
+}
+
+func (m *appDeletionMockStore) Secrets() store.SecretStore {
+	return m.secretStore
+}
+
+func (m *appDeletionMockStore) Nodes() store.NodeStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) Builds() store.BuildStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) Logs() store.LogStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) Users() store.UserStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) GitHub() store.GitHubStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) GitHubAccounts() store.GitHubAccountStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) WithTx(ctx context.Context, fn func(store.Store) error) error {
+	return fn(m)
+}
+
+func (m *appDeletionMockStore) Orgs() store.OrgStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) Settings() store.SettingsStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) Domains() store.DomainStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) Invitations() store.InvitationStore {
+	return nil
+}
+
+func (m *appDeletionMockStore) Close() error {
+	return nil
+}
+
+// **Feature: backend-source-of-truth, Property 10: App Deletion Deployment Cleanup**
+// *For any* app deletion, all deployments with status "running", "pending", or "building"
+// SHALL be transitioned to "stopped" or "cancelled" before the app is soft-deleted.
+// **Validates: Requirements 11.1, 11.2**
+func TestAppDeletionDeploymentCleanup(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+	logger := slog.Default()
+
+	// Generator for deployment status
+	genDeploymentStatus := gen.OneConstOf(
+		models.DeploymentStatusPending,
+		models.DeploymentStatusBuilding,
+		models.DeploymentStatusRunning,
+		models.DeploymentStatusStopped,
+		models.DeploymentStatusFailed,
+	)
+
+	properties.Property("App deletion stops running and cancels pending/building deployments", prop.ForAll(
+		func(userID, appName string, deploymentStatuses []models.DeploymentStatus) bool {
+			// Skip if no deployments
+			if len(deploymentStatuses) == 0 {
+				return true
+			}
+
+			// Create a mock store with deployment support
+			st := newAppDeletionMockStore()
+			handler := NewAppHandler(st, logger)
+
+			// Create an app
+			reqBody := CreateAppRequest{
+				Name: appName,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			req := httptest.NewRequest("POST", "/v1/apps", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			handler.Create(rr, req)
+
+			if rr.Code != http.StatusCreated {
+				t.Logf("Create failed with status %d", rr.Code)
+				return false
+			}
+
+			var createdApp models.App
+			json.NewDecoder(rr.Body).Decode(&createdApp)
+
+			// Create deployments with various statuses
+			for i, status := range deploymentStatuses {
+				deployment := &models.Deployment{
+					ID:          "deployment-" + string(rune('a'+i)),
+					AppID:       createdApp.ID,
+					ServiceName: "service-" + string(rune('a'+i)),
+					Status:      status,
+				}
+				st.deploymentStore.Create(ctx, deployment)
+			}
+
+			// Add some secrets
+			st.secretStore.Set(ctx, createdApp.ID, "DB_PASSWORD", []byte("secret1"))
+			st.secretStore.Set(ctx, createdApp.ID, "API_KEY", []byte("secret2"))
+
+			// Delete the app
+			r := chi.NewRouter()
+			r.Route("/v1/apps/{appID}", func(r chi.Router) {
+				r.Delete("/", handler.Delete)
+			})
+
+			req = httptest.NewRequest("DELETE", "/v1/apps/"+createdApp.ID, nil)
+			ctx = context.WithValue(req.Context(), middleware.UserIDKey, userID)
+			req = req.WithContext(ctx)
+
+			rr = httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNoContent {
+				t.Logf("Delete failed with status %d: %s", rr.Code, rr.Body.String())
+				return false
+			}
+
+			// Verify all deployments have been properly transitioned
+			for _, deployment := range st.deploymentStore.deployments {
+				if deployment.AppID != createdApp.ID {
+					continue
+				}
+
+				switch deployment.Status {
+				case models.DeploymentStatusRunning:
+					// Running deployments should have been stopped
+					t.Logf("Running deployment %s was not stopped", deployment.ID)
+					return false
+				case models.DeploymentStatusPending, models.DeploymentStatusBuilding:
+					// Pending/building deployments should have been cancelled (failed)
+					t.Logf("Pending/building deployment %s was not cancelled", deployment.ID)
+					return false
+				case models.DeploymentStatusStopped, models.DeploymentStatusFailed:
+					// These are acceptable final states
+				}
+			}
+
+			// Verify secrets were cleaned up
+			secrets, _ := st.secretStore.List(ctx, createdApp.ID)
+			if len(secrets) > 0 {
+				t.Logf("Secrets were not cleaned up: %v", secrets)
+				return false
+			}
+
+			// Verify app was soft-deleted
+			if createdApp.DeletedAt == nil {
+				// Check the store directly
+				app, _ := st.appStore.Get(ctx, createdApp.ID)
+				if app != nil && app.DeletedAt == nil {
+					t.Logf("App was not soft-deleted")
+					return false
+				}
+			}
+
+			return true
+		},
+		genUserID(),
+		genAppName(),
+		gen.SliceOfN(5, genDeploymentStatus),
 	))
 
 	properties.TestingRun(t)
