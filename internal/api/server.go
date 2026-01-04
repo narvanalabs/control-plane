@@ -116,6 +116,11 @@ func (s *Server) setupRouter() {
 			w.Write([]byte(`{"status":"ok","user_id":"` + userID + `"}`))
 		})
 
+		// Platform configuration endpoint
+		// Requirements: 2.1
+		configHandler := handlers.NewConfigHandler(s.store, s.logger)
+		r.Get("/config", configHandler.GetConfig)
+
 		// Detection endpoint
 		detectHandler := handlers.NewDetectHandler(s.logger)
 		r.Post("/detect", detectHandler.Detect)
