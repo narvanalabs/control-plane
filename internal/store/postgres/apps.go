@@ -35,9 +35,9 @@ func (s *AppStore) Create(ctx context.Context, app *models.App) error {
 	}
 
 	query := `
-		INSERT INTO apps (id, owner_id, name, description, icon_url, services, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, created_at, updated_at`
+		INSERT INTO apps (id, org_id, owner_id, name, description, icon_url, services, version, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, version, created_at, updated_at`
 
 	now := time.Now().UTC()
 	if app.CreatedAt.IsZero() {
@@ -46,17 +46,28 @@ func (s *AppStore) Create(ctx context.Context, app *models.App) error {
 	if app.UpdatedAt.IsZero() {
 		app.UpdatedAt = now
 	}
+	if app.Version == 0 {
+		app.Version = 1
+	}
+
+	// Handle nullable org_id
+	var orgID interface{}
+	if app.OrgID != "" {
+		orgID = app.OrgID
+	}
 
 	err = s.conn().QueryRowContext(ctx, query,
 		app.ID,
+		orgID,
 		app.OwnerID,
 		app.Name,
 		app.Description,
 		app.IconURL,
 		servicesJSON,
+		app.Version,
 		app.CreatedAt,
 		app.UpdatedAt,
-	).Scan(&app.ID, &app.CreatedAt, &app.UpdatedAt)
+	).Scan(&app.ID, &app.Version, &app.CreatedAt, &app.UpdatedAt)
 
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -72,8 +83,8 @@ func (s *AppStore) Create(ctx context.Context, app *models.App) error {
 // Get retrieves an application by ID.
 func (s *AppStore) Get(ctx context.Context, id string) (*models.App, error) {
 	query := `
-		SELECT id, owner_id, name, COALESCE(description, ''), COALESCE(icon_url, ''), services, 
-		       created_at, updated_at, deleted_at
+		SELECT id, COALESCE(org_id::text, ''), owner_id, name, COALESCE(description, ''), COALESCE(icon_url, ''), services, 
+		       version, created_at, updated_at, deleted_at
 		FROM apps
 		WHERE id = $1 AND deleted_at IS NULL`
 
@@ -83,11 +94,13 @@ func (s *AppStore) Get(ctx context.Context, id string) (*models.App, error) {
 
 	err := s.conn().QueryRowContext(ctx, query, id).Scan(
 		&app.ID,
+		&app.OrgID,
 		&app.OwnerID,
 		&app.Name,
 		&app.Description,
 		&app.IconURL,
 		&servicesJSON,
+		&app.Version,
 		&app.CreatedAt,
 		&app.UpdatedAt,
 		&deletedAt,
@@ -114,8 +127,8 @@ func (s *AppStore) Get(ctx context.Context, id string) (*models.App, error) {
 // GetByName retrieves an application by owner ID and name.
 func (s *AppStore) GetByName(ctx context.Context, ownerID, name string) (*models.App, error) {
 	query := `
-		SELECT id, owner_id, name, COALESCE(description, ''), COALESCE(icon_url, ''), services, 
-		       created_at, updated_at, deleted_at
+		SELECT id, COALESCE(org_id::text, ''), owner_id, name, COALESCE(description, ''), COALESCE(icon_url, ''), services, 
+		       version, created_at, updated_at, deleted_at
 		FROM apps
 		WHERE owner_id = $1 AND name = $2 AND deleted_at IS NULL`
 
@@ -125,11 +138,13 @@ func (s *AppStore) GetByName(ctx context.Context, ownerID, name string) (*models
 
 	err := s.conn().QueryRowContext(ctx, query, ownerID, name).Scan(
 		&app.ID,
+		&app.OrgID,
 		&app.OwnerID,
 		&app.Name,
 		&app.Description,
 		&app.IconURL,
 		&servicesJSON,
+		&app.Version,
 		&app.CreatedAt,
 		&app.UpdatedAt,
 		&deletedAt,
@@ -156,8 +171,8 @@ func (s *AppStore) GetByName(ctx context.Context, ownerID, name string) (*models
 // List retrieves all applications for a given owner.
 func (s *AppStore) List(ctx context.Context, ownerID string) ([]*models.App, error) {
 	query := `
-		SELECT id, owner_id, name, COALESCE(description, ''), COALESCE(icon_url, ''), services, 
-		       created_at, updated_at, deleted_at
+		SELECT id, COALESCE(org_id::text, ''), owner_id, name, COALESCE(description, ''), COALESCE(icon_url, ''), services, 
+		       version, created_at, updated_at, deleted_at
 		FROM apps
 		WHERE owner_id = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC`
@@ -176,11 +191,13 @@ func (s *AppStore) List(ctx context.Context, ownerID string) ([]*models.App, err
 
 		err := rows.Scan(
 			&app.ID,
+			&app.OrgID,
 			&app.OwnerID,
 			&app.Name,
 			&app.Description,
 			&app.IconURL,
 			&servicesJSON,
+			&app.Version,
 			&app.CreatedAt,
 			&app.UpdatedAt,
 			&deletedAt,
@@ -208,17 +225,20 @@ func (s *AppStore) List(ctx context.Context, ownerID string) ([]*models.App, err
 }
 
 
-// Update updates an existing application.
+// Update updates an existing application with optimistic locking.
+// Returns ErrConcurrentModification if the version doesn't match.
 func (s *AppStore) Update(ctx context.Context, app *models.App) error {
 	servicesJSON, err := json.Marshal(app.Services)
 	if err != nil {
 		return fmt.Errorf("marshaling services: %w", err)
 	}
 
+	// Use optimistic locking: check version and increment on success
 	query := `
 		UPDATE apps
-		SET name = $2, description = $3, icon_url = $4, services = $5, updated_at = $6
-		WHERE id = $1 AND deleted_at IS NULL`
+		SET name = $2, description = $3, icon_url = $4, services = $5, 
+		    version = version + 1, updated_at = $6
+		WHERE id = $1 AND version = $7 AND deleted_at IS NULL`
 
 	app.UpdatedAt = time.Now().UTC()
 
@@ -229,6 +249,7 @@ func (s *AppStore) Update(ctx context.Context, app *models.App) error {
 		app.IconURL,
 		servicesJSON,
 		app.UpdatedAt,
+		app.Version,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -243,8 +264,21 @@ func (s *AppStore) Update(ctx context.Context, app *models.App) error {
 	}
 
 	if rowsAffected == 0 {
-		return ErrNotFound
+		// Check if the app exists to distinguish between not found and version mismatch
+		var exists bool
+		checkQuery := `SELECT EXISTS(SELECT 1 FROM apps WHERE id = $1 AND deleted_at IS NULL)`
+		if err := s.conn().QueryRowContext(ctx, checkQuery, app.ID).Scan(&exists); err != nil {
+			return fmt.Errorf("checking app existence: %w", err)
+		}
+		if !exists {
+			return ErrNotFound
+		}
+		// App exists but version didn't match - concurrent modification
+		return ErrConcurrentModification
 	}
+
+	// Increment the version in the app struct to reflect the new state
+	app.Version++
 
 	return nil
 }

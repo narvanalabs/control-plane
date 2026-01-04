@@ -72,11 +72,13 @@ func runMigrations(db *sql.DB) error {
 
 		CREATE TABLE apps (
 			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			org_id UUID,
 			owner_id VARCHAR(255) NOT NULL,
 			name VARCHAR(63) NOT NULL,
 			description TEXT,
 			services JSONB NOT NULL DEFAULT '[]',
 			icon_url TEXT,
+			version INTEGER NOT NULL DEFAULT 1,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			deleted_at TIMESTAMPTZ
@@ -84,6 +86,7 @@ func runMigrations(db *sql.DB) error {
 
 		CREATE UNIQUE INDEX idx_apps_owner_name_unique ON apps(owner_id, name) WHERE deleted_at IS NULL;
 		CREATE INDEX idx_apps_owner_id ON apps(owner_id) WHERE deleted_at IS NULL;
+		CREATE INDEX idx_apps_org_id ON apps(org_id) WHERE deleted_at IS NULL;
 	`
 	_, err := db.Exec(schema)
 	return err
@@ -500,6 +503,106 @@ func TestAppListFiltersDeleted(t *testing.T) {
 			return true
 		},
 		genNonEmptyAlphaString(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: backend-source-of-truth, Property 4: Optimistic Locking Conflict Detection**
+// *For any* app with version N, an update request with version M where M != N
+// SHALL be rejected with a conflict error.
+// **Validates: Requirements 7.2**
+func TestAppOptimisticLockingConflictDetection(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Update with wrong version is rejected", prop.ForAll(
+		func(input models.App) bool {
+			ctx := context.Background()
+
+			// Create the app (version starts at 1)
+			err := store.Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Retrieve the app to get the current version
+			retrieved, err := store.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get error: %v", err)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify initial version is 1
+			if retrieved.Version != 1 {
+				t.Logf("Expected initial version 1, got %d", retrieved.Version)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Simulate a concurrent modification by updating the app
+			retrieved.Description = "first update"
+			err = store.Update(ctx, retrieved)
+			if err != nil {
+				t.Logf("First update error: %v", err)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify version was incremented
+			if retrieved.Version != 2 {
+				t.Logf("Expected version 2 after update, got %d", retrieved.Version)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Now try to update with the old version (simulating stale data)
+			staleApp := &models.App{
+				ID:          input.ID,
+				OwnerID:     input.OwnerID,
+				Name:        input.Name,
+				Description: "stale update",
+				Services:    input.Services,
+				Version:     1, // Old version
+			}
+
+			err = store.Update(ctx, staleApp)
+			if err != ErrConcurrentModification {
+				t.Logf("Expected ErrConcurrentModification, got: %v", err)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify the app still has the first update's description
+			final, err := store.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Final get error: %v", err)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			if final.Description != "first update" {
+				t.Logf("Expected description 'first update', got '%s'", final.Description)
+				store.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Cleanup
+			store.Delete(ctx, input.ID)
+
+			return true
+		},
+		genAppInput(),
 	))
 
 	properties.TestingRun(t)
