@@ -350,3 +350,183 @@ func (c *Client) Exec(containerName string, command []string) *exec.Cmd {
 	args = append(args, command...)
 	return exec.Command("podman", args...)
 }
+
+
+// ContainerInfo holds information about a container.
+type ContainerInfo struct {
+	ID        string
+	Name      string
+	Image     string
+	Status    string
+	CreatedAt time.Time
+	StoppedAt time.Time
+}
+
+// ImageInfo holds information about an image.
+type ImageInfo struct {
+	ID        string
+	Tags      []string
+	Size      int64
+	CreatedAt time.Time
+}
+
+// ListStoppedContainers returns all stopped containers.
+func (c *Client) ListStoppedContainers(ctx context.Context) ([]ContainerInfo, error) {
+	c.logger.Debug("listing stopped containers")
+
+	// Use JSON format for reliable parsing
+	cmd := exec.CommandContext(ctx, "podman", "ps", "-a", "--filter", "status=exited", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.CreatedAt}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing stopped containers: %w", err)
+	}
+
+	var containers []ContainerInfo
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) < 5 {
+			continue
+		}
+
+		createdAt, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", parts[4])
+		
+		containers = append(containers, ContainerInfo{
+			ID:        parts[0],
+			Name:      parts[1],
+			Image:     parts[2],
+			Status:    parts[3],
+			CreatedAt: createdAt,
+			// StoppedAt is approximated from status or we use CreatedAt as fallback
+			StoppedAt: createdAt,
+		})
+	}
+
+	return containers, nil
+}
+
+// RemoveContainer removes a container by ID or name.
+func (c *Client) RemoveContainer(ctx context.Context, idOrName string) error {
+	c.logger.Debug("removing container", "id", idOrName)
+
+	cmd := exec.CommandContext(ctx, "podman", "rm", "-f", idOrName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("removing container: %w\nOutput: %s", err, string(output))
+	}
+
+	return nil
+}
+
+// ListImages returns all images.
+func (c *Client) ListImages(ctx context.Context) ([]ImageInfo, error) {
+	c.logger.Debug("listing images")
+
+	cmd := exec.CommandContext(ctx, "podman", "images", "--format", "{{.ID}}|{{.Repository}}:{{.Tag}}|{{.Size}}|{{.CreatedAt}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing images: %w", err)
+	}
+
+	var images []ImageInfo
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) < 4 {
+			continue
+		}
+
+		createdAt, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", parts[3])
+		
+		images = append(images, ImageInfo{
+			ID:        parts[0],
+			Tags:      []string{parts[1]},
+			CreatedAt: createdAt,
+		})
+	}
+
+	return images, nil
+}
+
+// ListDanglingImages returns images that are not tagged.
+func (c *Client) ListDanglingImages(ctx context.Context) ([]ImageInfo, error) {
+	c.logger.Debug("listing dangling images")
+
+	cmd := exec.CommandContext(ctx, "podman", "images", "--filter", "dangling=true", "--format", "{{.ID}}|{{.Repository}}:{{.Tag}}|{{.Size}}|{{.CreatedAt}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing dangling images: %w", err)
+	}
+
+	var images []ImageInfo
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) < 4 {
+			continue
+		}
+
+		createdAt, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", parts[3])
+		
+		images = append(images, ImageInfo{
+			ID:        parts[0],
+			Tags:      []string{parts[1]},
+			CreatedAt: createdAt,
+		})
+	}
+
+	return images, nil
+}
+
+// PruneContainers removes all stopped containers.
+func (c *Client) PruneContainers(ctx context.Context) (int, error) {
+	c.logger.Debug("pruning containers")
+
+	cmd := exec.CommandContext(ctx, "podman", "container", "prune", "-f")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("pruning containers: %w\nOutput: %s", err, string(output))
+	}
+
+	// Count removed containers from output
+	lines := strings.Split(string(output), "\n")
+	count := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" && !strings.Contains(line, "Total reclaimed space") {
+			count++
+		}
+	}
+
+	return count, nil
+}
+
+// PruneImages removes unused images.
+func (c *Client) PruneImages(ctx context.Context) (int, error) {
+	c.logger.Debug("pruning images")
+
+	cmd := exec.CommandContext(ctx, "podman", "image", "prune", "-f")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("pruning images: %w\nOutput: %s", err, string(output))
+	}
+
+	// Count removed images from output
+	lines := strings.Split(string(output), "\n")
+	count := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" && !strings.Contains(line, "Total reclaimed space") {
+			count++
+		}
+	}
+
+	return count, nil
+}
