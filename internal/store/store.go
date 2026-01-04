@@ -25,8 +25,12 @@ type OrgStore interface {
 	AddMember(ctx context.Context, orgID, userID string, role models.Role) error
 	// RemoveMember removes a user from an organization.
 	RemoveMember(ctx context.Context, orgID, userID string) error
+	// IsMember checks if a user is a member of an organization.
+	IsMember(ctx context.Context, orgID, userID string) (bool, error)
 	// GetDefault returns the default organization (first created).
 	GetDefault(ctx context.Context) (*models.Organization, error)
+	// GetDefaultForUser returns the user's default organization.
+	GetDefaultForUser(ctx context.Context, userID string) (*models.Organization, error)
 	// Count returns the total number of organizations.
 	Count(ctx context.Context) (int, error)
 	// ListMembers retrieves all members of an organization.
@@ -160,6 +164,9 @@ type AppStore interface {
 	GetByName(ctx context.Context, ownerID, name string) (*models.App, error)
 	// List retrieves all applications for a given owner.
 	List(ctx context.Context, ownerID string) ([]*models.App, error)
+	// ListByOrg retrieves all applications for a given organization.
+	// Excludes soft-deleted apps.
+	ListByOrg(ctx context.Context, orgID string) ([]*models.App, error)
 	// Update updates an existing application.
 	Update(ctx context.Context, app *models.App) error
 	// Delete soft-deletes an application by setting deleted_at.
@@ -184,6 +191,8 @@ type DeploymentStore interface {
 	// GetLatestSuccessful retrieves the most recent successful deployment for an app.
 	// ListByUser retrieves all deployments for all apps owned by a given user.
 	ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error)
+	// CountByStatusAndOrg counts deployments by status filtered by organization.
+	CountByStatusAndOrg(ctx context.Context, status models.DeploymentStatus, orgID string) (int, error)
 	// GetNextVersion returns the next version number for a service.
 	// Returns 1 for the first deployment, or max(version) + 1 for subsequent deployments.
 	// **Validates: Requirements 9.1, 9.2**
