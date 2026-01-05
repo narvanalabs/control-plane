@@ -1,8 +1,10 @@
 package validation
 
 import (
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
@@ -156,6 +158,252 @@ func TestLdflagsPassthrough(t *testing.T) {
 			return result != "" && strings.Contains(result, "\"")
 		},
 		genAlphanumericValue(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: ui-api-alignment, Property 11: Ldflags Variable Substitution**
+// For any ldflags containing substitution patterns (${version}, ${commit}, ${buildTime}),
+// the builder SHALL replace them with actual build-time values.
+// **Validates: Requirements 18.3**
+
+// genVersion generates a valid version string.
+func genVersion() gopter.Gen {
+	return gen.OneGenOf(
+		// Semantic versions
+		gen.IntRange(0, 99).FlatMap(func(major interface{}) gopter.Gen {
+			return gen.IntRange(0, 99).FlatMap(func(minor interface{}) gopter.Gen {
+				return gen.IntRange(0, 99).Map(func(patch int) string {
+					return strings.Join([]string{
+						strconv.Itoa(major.(int)),
+						strconv.Itoa(minor.(int)),
+						strconv.Itoa(patch),
+					}, ".")
+				})
+			}, nil)
+		}, nil),
+		// Version with v prefix
+		gen.IntRange(0, 99).FlatMap(func(major interface{}) gopter.Gen {
+			return gen.IntRange(0, 99).FlatMap(func(minor interface{}) gopter.Gen {
+				return gen.IntRange(0, 99).Map(func(patch int) string {
+					return "v" + strings.Join([]string{
+						strconv.Itoa(major.(int)),
+						strconv.Itoa(minor.(int)),
+						strconv.Itoa(patch),
+					}, ".")
+				})
+			}, nil)
+		}, nil),
+	)
+}
+
+// genCommitHash generates a valid git commit hash (short or full).
+func genCommitHash() gopter.Gen {
+	hexChars := "0123456789abcdef"
+	return gen.OneGenOf(
+		// Short hash (7 chars)
+		gen.SliceOfN(7, gen.IntRange(0, 15)).Map(func(indices []int) string {
+			result := make([]byte, len(indices))
+			for i, idx := range indices {
+				result[i] = hexChars[idx]
+			}
+			return string(result)
+		}),
+		// Full hash (40 chars)
+		gen.SliceOfN(40, gen.IntRange(0, 15)).Map(func(indices []int) string {
+			result := make([]byte, len(indices))
+			for i, idx := range indices {
+				result[i] = hexChars[idx]
+			}
+			return string(result)
+		}),
+	)
+}
+
+// genBuildTime generates a valid build time.
+func genBuildTime() gopter.Gen {
+	// Generate times within a reasonable range (2020-2030)
+	return gen.Int64Range(1577836800, 1893456000).Map(func(unix int64) time.Time {
+		return time.Unix(unix, 0).UTC()
+	})
+}
+
+// genLdflagsBuildContext generates a complete build context.
+func genLdflagsBuildContext() gopter.Gen {
+	return genVersion().FlatMap(func(version interface{}) gopter.Gen {
+		return genCommitHash().FlatMap(func(commit interface{}) gopter.Gen {
+			return genBuildTime().Map(func(buildTime time.Time) LdflagsBuildContext {
+				return LdflagsBuildContext{
+					Version:   version.(string),
+					Commit:    commit.(string),
+					BuildTime: buildTime,
+				}
+			})
+		}, nil)
+	}, nil)
+}
+
+// genLdflagsWithVariables generates ldflags strings containing substitution variables.
+func genLdflagsWithVariables() gopter.Gen {
+	// Templates with different variable combinations
+	templates := []string{
+		"-X main.version=${version}",
+		"-X main.commit=${commit}",
+		"-X main.buildTime=${buildTime}",
+		"-X main.version=${version} -X main.commit=${commit}",
+		"-X main.version=${version} -X main.commit=${commit} -X main.buildTime=${buildTime}",
+		"-s -w -X pkg/version.Version=${version}",
+		"-X internal/config.GitCommit=${commit} -trimpath",
+		"-X main.version=${version} -X main.gitCommit=${commit} -X main.buildDate=${buildTime}",
+	}
+	return gen.IntRange(0, len(templates)-1).Map(func(idx int) string {
+		return templates[idx]
+	})
+}
+
+// genLdflagsWithoutVariables generates ldflags strings without substitution variables.
+func genLdflagsWithoutVariables() gopter.Gen {
+	templates := []string{
+		"-s -w",
+		"-trimpath",
+		"-X main.version=1.0.0",
+		"-s -w -X main.commit=abc1234",
+		"-race -v",
+		"",
+	}
+	return gen.IntRange(0, len(templates)-1).Map(func(idx int) string {
+		return templates[idx]
+	})
+}
+
+// TestLdflagsVariableSubstitution tests Property 11: Ldflags Variable Substitution.
+func TestLdflagsVariableSubstitution(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 11.1: ${version} is replaced with actual version value
+	properties.Property("${version} is replaced with actual version value", prop.ForAll(
+		func(ctx LdflagsBuildContext) bool {
+			ldflags := "-X main.version=${version}"
+			result := SubstituteLdflagsVariables(ldflags, ctx)
+			// Result should contain the version value
+			return strings.Contains(result, ctx.Version) &&
+				// Result should NOT contain the placeholder
+				!strings.Contains(result, "${version}")
+		},
+		genLdflagsBuildContext(),
+	))
+
+	// Property 11.2: ${commit} is replaced with actual commit hash
+	properties.Property("${commit} is replaced with actual commit hash", prop.ForAll(
+		func(ctx LdflagsBuildContext) bool {
+			ldflags := "-X main.commit=${commit}"
+			result := SubstituteLdflagsVariables(ldflags, ctx)
+			// Result should contain the commit value
+			return strings.Contains(result, ctx.Commit) &&
+				// Result should NOT contain the placeholder
+				!strings.Contains(result, "${commit}")
+		},
+		genLdflagsBuildContext(),
+	))
+
+	// Property 11.3: ${buildTime} is replaced with RFC3339 formatted timestamp
+	properties.Property("${buildTime} is replaced with RFC3339 formatted timestamp", prop.ForAll(
+		func(ctx LdflagsBuildContext) bool {
+			ldflags := "-X main.buildTime=${buildTime}"
+			result := SubstituteLdflagsVariables(ldflags, ctx)
+			expectedTime := ctx.BuildTime.UTC().Format(time.RFC3339)
+			// Result should contain the formatted timestamp
+			return strings.Contains(result, expectedTime) &&
+				// Result should NOT contain the placeholder
+				!strings.Contains(result, "${buildTime}")
+		},
+		genLdflagsBuildContext(),
+	))
+
+	// Property 11.4: All variables in a multi-variable ldflags are substituted
+	properties.Property("all variables in multi-variable ldflags are substituted", prop.ForAll(
+		func(ctx LdflagsBuildContext) bool {
+			ldflags := "-X main.version=${version} -X main.commit=${commit} -X main.buildTime=${buildTime}"
+			result := SubstituteLdflagsVariables(ldflags, ctx)
+			expectedTime := ctx.BuildTime.UTC().Format(time.RFC3339)
+			// All values should be present
+			hasVersion := strings.Contains(result, ctx.Version)
+			hasCommit := strings.Contains(result, ctx.Commit)
+			hasBuildTime := strings.Contains(result, expectedTime)
+			// No placeholders should remain
+			noVersionPlaceholder := !strings.Contains(result, "${version}")
+			noCommitPlaceholder := !strings.Contains(result, "${commit}")
+			noBuildTimePlaceholder := !strings.Contains(result, "${buildTime}")
+			return hasVersion && hasCommit && hasBuildTime &&
+				noVersionPlaceholder && noCommitPlaceholder && noBuildTimePlaceholder
+		},
+		genLdflagsBuildContext(),
+	))
+
+	// Property 11.5: Non-variable parts of ldflags are preserved
+	properties.Property("non-variable parts of ldflags are preserved", prop.ForAll(
+		func(ctx LdflagsBuildContext) bool {
+			ldflags := "-s -w -X main.version=${version} -trimpath"
+			result := SubstituteLdflagsVariables(ldflags, ctx)
+			// Static parts should be preserved
+			return strings.Contains(result, "-s") &&
+				strings.Contains(result, "-w") &&
+				strings.Contains(result, "-trimpath") &&
+				strings.Contains(result, "-X main.version=")
+		},
+		genLdflagsBuildContext(),
+	))
+
+	// Property 11.6: Empty ldflags returns empty string
+	properties.Property("empty ldflags returns empty string", prop.ForAll(
+		func(ctx LdflagsBuildContext) bool {
+			result := SubstituteLdflagsVariables("", ctx)
+			return result == ""
+		},
+		genLdflagsBuildContext(),
+	))
+
+	// Property 11.7: Ldflags without variables are returned unchanged
+	properties.Property("ldflags without variables are returned unchanged", prop.ForAll(
+		func(ldflags string, ctx LdflagsBuildContext) bool {
+			result := SubstituteLdflagsVariables(ldflags, ctx)
+			return result == ldflags
+		},
+		genLdflagsWithoutVariables(),
+		genLdflagsBuildContext(),
+	))
+
+	// Property 11.8: HasLdflagsVariables correctly identifies ldflags with variables
+	properties.Property("HasLdflagsVariables correctly identifies ldflags with variables", prop.ForAll(
+		func(ldflags string) bool {
+			return HasLdflagsVariables(ldflags) == true
+		},
+		genLdflagsWithVariables(),
+	))
+
+	// Property 11.9: HasLdflagsVariables correctly identifies ldflags without variables
+	properties.Property("HasLdflagsVariables correctly identifies ldflags without variables", prop.ForAll(
+		func(ldflags string) bool {
+			return HasLdflagsVariables(ldflags) == false
+		},
+		genLdflagsWithoutVariables(),
+	))
+
+	// Property 11.10: Multiple occurrences of same variable are all replaced
+	properties.Property("multiple occurrences of same variable are all replaced", prop.ForAll(
+		func(ctx LdflagsBuildContext) bool {
+			ldflags := "-X main.v1=${version} -X main.v2=${version}"
+			result := SubstituteLdflagsVariables(ldflags, ctx)
+			// Count occurrences of version in result
+			versionCount := strings.Count(result, ctx.Version)
+			// Should have 2 occurrences (one for each placeholder)
+			return versionCount == 2 && !strings.Contains(result, "${version}")
+		},
+		genLdflagsBuildContext(),
 	))
 
 	properties.TestingRun(t)
