@@ -165,6 +165,7 @@ func (h *DetectHandler) cloneRepository(ctx context.Context, gitURL, gitRef, des
 }
 
 // handleDetectionError handles detection errors and writes appropriate responses.
+// **Validates: Requirements 19.6**
 func (h *DetectHandler) handleDetectionError(w http.ResponseWriter, err error) {
 	switch err {
 	case detector.ErrNoLanguageDetected:
@@ -188,6 +189,14 @@ func (h *DetectHandler) handleDetectionError(w http.ResponseWriter, err error) {
 		h.writeDetectionError(w, "Failed to access repository", "repository_access_failed", []string{
 			"Verify the repository URL is correct",
 			"Ensure the repository is publicly accessible",
+		})
+	case detector.ErrNoEntryPointsFound:
+		// **Validates: Requirements 19.6** - Clear error for no entry point found
+		h.writeDetectionError(w, "No entry points found in repository", "no_entry_points", []string{
+			"For Go: Add a main.go file in the root, cmd/*, apps/*, or services/* directories",
+			"For Node.js: Ensure package.json has a 'main' or 'bin' field, or add index.js/server.js",
+			"For Python: Add main.py, app.py, or configure entry points in pyproject.toml",
+			"For Rust: Add src/main.rs or configure binaries in Cargo.toml",
 		})
 	default:
 		h.writeDetectionError(w, "Detection failed: "+err.Error(), "detection_failed", []string{
