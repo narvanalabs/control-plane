@@ -1690,3 +1690,279 @@ func TestBuildJobSourceFieldConsistency(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: backend-source-of-truth, Property 16: Service Configuration Round-Trip**
+// For any valid service configuration, serializing to JSON and deserializing back
+// SHALL produce an equivalent configuration with all user-specified values preserved.
+// **Validates: Requirements 22.1, 22.3**
+func TestServiceConfigRoundTrip(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for ResourceSpec
+	genResourceSpec := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.OneConstOf("0.25", "0.5", "1", "2", "4"),
+			gen.OneConstOf("256Mi", "512Mi", "1Gi", "2Gi", "4Gi"),
+		).Map(func(vals []interface{}) *ResourceSpec {
+			return &ResourceSpec{
+				CPU:    vals[0].(string),
+				Memory: vals[1].(string),
+			}
+		})
+	}
+
+	// Generator for optional ResourceSpec
+	genOptionalResourceSpec := func() gopter.Gen {
+		return gen.Bool().FlatMap(func(v interface{}) gopter.Gen {
+			if v.(bool) {
+				return genResourceSpec()
+			}
+			return gen.Const((*ResourceSpec)(nil))
+		}, reflect.TypeOf((*ResourceSpec)(nil)))
+	}
+
+	// Generator for DatabaseConfig
+	genDatabaseConfig := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.OneConstOf("postgres", "mysql", "mariadb", "mongodb", "redis", "sqlite"),
+			gen.OneConstOf("14", "15", "16", "8.0", "10.6", "6.0", "7.0", "3"),
+		).Map(func(vals []interface{}) *DatabaseConfig {
+			return &DatabaseConfig{
+				Type:    vals[0].(string),
+				Version: vals[1].(string),
+			}
+		})
+	}
+
+	// Generator for optional DatabaseConfig
+	genOptionalDatabaseConfig := func() gopter.Gen {
+		return gen.Bool().FlatMap(func(v interface{}) gopter.Gen {
+			if v.(bool) {
+				return genDatabaseConfig()
+			}
+			return gen.Const((*DatabaseConfig)(nil))
+		}, reflect.TypeOf((*DatabaseConfig)(nil)))
+	}
+
+	// Generator for BuildConfig
+	genOptionalBuildConfig := func() gopter.Gen {
+		return gen.Bool().FlatMap(func(v interface{}) gopter.Gen {
+			if v.(bool) {
+				return genBuildConfig()
+			}
+			return gen.Const((*BuildConfig)(nil))
+		}, reflect.TypeOf((*BuildConfig)(nil)))
+	}
+
+	// Generator for complete ServiceConfig with all fields
+	genCompleteServiceConfig := func() gopter.Gen {
+		return genSourceType().FlatMap(func(v interface{}) gopter.Gen {
+			sourceType := v.(SourceType)
+			return gopter.CombineGens(
+				gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+				genResourceTier(),
+				genOptionalResourceSpec(),
+				gen.IntRange(1, 10),
+				gen.SliceOfN(3, genPortMapping()),
+				genOptionalHealthCheckConfig(),
+				gen.SliceOfN(3, gen.Identifier()),
+				genEnvVars(),
+				genGitRepo(),
+				genGitRef(),
+				genFlakeOutput(),
+				genFlakeURI(),
+				genImageRef(),
+				genOptionalDatabaseConfig(),
+				gen.OneConstOf(
+					BuildStrategyFlake,
+					BuildStrategyAutoGo,
+					BuildStrategyAutoRust,
+					BuildStrategyAutoNode,
+					BuildStrategyAutoPython,
+					BuildStrategyAuto,
+				),
+				genOptionalBuildConfig(),
+			).Map(func(vals []interface{}) ServiceConfig {
+				sc := ServiceConfig{
+					Name:          vals[0].(string),
+					SourceType:    sourceType,
+					ResourceTier:  vals[1].(ResourceTier),
+					Resources:     vals[2].(*ResourceSpec),
+					Replicas:      vals[3].(int),
+					Ports:         vals[4].([]PortMapping),
+					HealthCheck:   vals[5].(*HealthCheckConfig),
+					DependsOn:     vals[6].([]string),
+					EnvVars:       vals[7].(map[string]string),
+					BuildStrategy: vals[14].(BuildStrategy),
+					BuildConfig:   vals[15].(*BuildConfig),
+				}
+				// Set only the appropriate source field based on source type
+				switch sourceType {
+				case SourceTypeGit:
+					sc.GitRepo = vals[8].(string)
+					sc.GitRef = vals[9].(string)
+					sc.FlakeOutput = vals[10].(string)
+				case SourceTypeFlake:
+					sc.FlakeURI = vals[11].(string)
+				case SourceTypeImage:
+					sc.Image = vals[12].(string)
+				case SourceTypeDatabase:
+					sc.Database = vals[13].(*DatabaseConfig)
+					if sc.Database == nil {
+						// Ensure database config is set for database source type
+						sc.Database = &DatabaseConfig{Type: "postgres", Version: "16"}
+					}
+				}
+				return sc
+			})
+		}, reflect.TypeOf(ServiceConfig{}))
+	}
+
+	// Property: ServiceConfig JSON round-trip preserves all user-specified values
+	properties.Property("ServiceConfig JSON round-trip preserves all values", prop.ForAll(
+		func(original ServiceConfig) bool {
+			// Serialize to JSON
+			data, err := json.Marshal(original)
+			if err != nil {
+				t.Logf("Marshal error: %v", err)
+				return false
+			}
+
+			// Deserialize from JSON
+			var restored ServiceConfig
+			if err := json.Unmarshal(data, &restored); err != nil {
+				t.Logf("Unmarshal error: %v", err)
+				return false
+			}
+
+			// Use the Equals method for comparison
+			if !original.Equals(&restored) {
+				t.Logf("Original: %+v", original)
+				t.Logf("Restored: %+v", restored)
+				return false
+			}
+
+			return true
+		},
+		genCompleteServiceConfig(),
+	))
+
+	// Property: Empty optional fields are omitted in JSON
+	properties.Property("Empty optional fields are omitted in JSON", prop.ForAll(
+		func(name string) bool {
+			// Create a minimal ServiceConfig with only required fields
+			sc := ServiceConfig{
+				Name:       name,
+				SourceType: SourceTypeFlake,
+				FlakeURI:   "github:owner/repo",
+				Replicas:   1,
+			}
+
+			// Serialize to JSON
+			data, err := json.Marshal(sc)
+			if err != nil {
+				return false
+			}
+
+			jsonStr := string(data)
+
+			// Check that empty optional fields are not present
+			// These fields should be omitted when empty
+			omittedFields := []string{
+				`"git_repo"`,
+				`"git_ref"`,
+				`"flake_output"`,
+				`"image"`,
+				`"database"`,
+				`"build_strategy"`,
+				`"build_config"`,
+				`"resource_tier"`,
+				`"resources"`,
+				`"ports"`,
+				`"health_check"`,
+				`"env_vars"`,
+				`"depends_on"`,
+			}
+
+			for _, field := range omittedFields {
+				if findSubstring(jsonStr, field) {
+					t.Logf("Field %s should be omitted but was found in: %s", field, jsonStr)
+					return false
+				}
+			}
+
+			return true
+		},
+		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
+	))
+
+	// Property: User-specified values are preserved exactly
+	properties.Property("User-specified values are preserved exactly", prop.ForAll(
+		func(original ServiceConfig) bool {
+			// Clone the original to preserve it
+			clone := original.Clone()
+
+			// Serialize and deserialize
+			data, err := json.Marshal(original)
+			if err != nil {
+				return false
+			}
+
+			var restored ServiceConfig
+			if err := json.Unmarshal(data, &restored); err != nil {
+				return false
+			}
+
+			// Verify the clone equals the original (Clone works correctly)
+			if !clone.Equals(&original) {
+				t.Logf("Clone does not equal original")
+				return false
+			}
+
+			// Verify restored equals original
+			if !original.Equals(&restored) {
+				t.Logf("Restored does not equal original")
+				return false
+			}
+
+			return true
+		},
+		genCompleteServiceConfig(),
+	))
+
+	// Property: Double round-trip produces identical results
+	properties.Property("Double round-trip produces identical results", prop.ForAll(
+		func(original ServiceConfig) bool {
+			// First round-trip
+			data1, err := json.Marshal(original)
+			if err != nil {
+				return false
+			}
+
+			var restored1 ServiceConfig
+			if err := json.Unmarshal(data1, &restored1); err != nil {
+				return false
+			}
+
+			// Second round-trip
+			data2, err := json.Marshal(restored1)
+			if err != nil {
+				return false
+			}
+
+			var restored2 ServiceConfig
+			if err := json.Unmarshal(data2, &restored2); err != nil {
+				return false
+			}
+
+			// Both restored versions should be equal
+			return restored1.Equals(&restored2)
+		},
+		genCompleteServiceConfig(),
+	))
+
+	properties.TestingRun(t)
+}
