@@ -13,6 +13,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/dropdown"
 	"github.com/narvanalabs/control-plane/web/components/selectbox"
 	"github.com/narvanalabs/control-plane/web/components/table"
+	"github.com/narvanalabs/control-plane/web/components/textarea"
 	"github.com/narvanalabs/control-plane/web/api"
 )
 
@@ -281,8 +282,67 @@ templ Detail(data DetailData) {
 				}
 				
 				// Settings Tab
+				// **Validates: Requirements 7.1**
 				@tabs.Content(tabs.ContentProps{Value: "settings"}) {
-					<div class="pt-6">
+					<div class="pt-6 space-y-6">
+						// App Edit Form
+						// **Validates: Requirements 7.1**
+						@card.Card() {
+							@card.Header() {
+								@card.Title() { Application Settings }
+								@card.Description() { Update your application's name, description, and icon }
+							}
+							@card.Content() {
+								<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID) } class="space-y-4">
+									// Hidden version field for optimistic locking
+									// **Validates: Requirements 6.4**
+									<input type="hidden" name="version" value={ intToString(data.App.Version) } />
+									
+									<div class="space-y-2">
+										@label.Label(label.Props{For: "app_name"}) { Name }
+										@input.Input(input.Props{
+											ID:          "app_name",
+											Name:        "name",
+											Value:       data.App.Name,
+											Placeholder: "My Application",
+											Attributes:  templ.Attributes{"required": true},
+										})
+									</div>
+									
+									<div class="space-y-2">
+										@label.Label(label.Props{For: "app_description"}) { Description }
+										@textarea.Textarea(textarea.Props{
+											ID:          "app_description",
+											Name:        "description",
+											Value:       data.App.Description,
+											Placeholder: "A brief description of your application",
+											Rows:        3,
+										})
+									</div>
+									
+									<div class="space-y-2">
+										@label.Label(label.Props{For: "app_icon_url"}) { Icon URL }
+										@input.Input(input.Props{
+											ID:          "app_icon_url",
+											Name:        "icon_url",
+											Value:       data.App.IconURL,
+											Placeholder: "https://example.com/icon.png",
+										})
+										<p class="text-xs text-muted-foreground">
+											URL to an image to use as the app icon
+										</p>
+									</div>
+									
+									<div class="flex justify-end">
+										@button.Button(button.Props{Type: "submit"}) {
+											Save Changes
+										}
+									</div>
+								</form>
+							}
+						}
+						
+						// Danger Zone
 						@card.Card(card.Props{Class: "border-destructive/20"}) {
 							@card.Header() {
 								@card.Title(card.TitleProps{Class: "text-destructive"}) { Danger Zone }
