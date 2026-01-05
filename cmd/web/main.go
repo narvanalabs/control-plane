@@ -19,6 +19,7 @@ import (
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/web/api"
+	"github.com/narvanalabs/control-plane/web/layouts"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
 	"github.com/narvanalabs/control-plane/web/pages/auth"
@@ -352,6 +353,13 @@ func getAPIClient(r *http.Request) *api.Client {
 	if token != "" {
 		apiClient = apiClient.WithToken(token)
 	}
+	
+	// Include current organization in API requests
+	// **Validates: Requirements 13.1**
+	if org := layouts.GetCurrentOrg(r.Context()); org != nil {
+		apiClient = apiClient.WithOrg(org.ID)
+	}
+	
 	return apiClient
 }
 
