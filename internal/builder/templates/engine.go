@@ -162,7 +162,7 @@ func (e *DefaultTemplateEngine) ListTemplates() []string {
 func GetTemplateForStrategy(strategy models.BuildStrategy, config models.BuildConfig) string {
 	switch strategy {
 	case models.BuildStrategyAutoGo:
-		if config.CGOEnabled {
+		if config.CGOEnabled != nil && *config.CGOEnabled {
 			return "go-cgo.nix"
 		}
 		return "go.nix"

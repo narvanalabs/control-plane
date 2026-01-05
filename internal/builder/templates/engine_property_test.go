@@ -93,6 +93,7 @@ func TestGoTemplateRenderingProducesValidNix(t *testing.T) {
 				templateName = "go-cgo.nix"
 			}
 
+			cgoEnabled := input.CGOEnabled
 			data := TemplateData{
 				AppName:    input.AppName,
 				Version:    input.GoVersion,
@@ -100,7 +101,7 @@ func TestGoTemplateRenderingProducesValidNix(t *testing.T) {
 				Config: models.BuildConfig{
 					GoVersion:  input.GoVersion,
 					EntryPoint: input.EntryPoint,
-					CGOEnabled: input.CGOEnabled,
+					CGOEnabled: &cgoEnabled,
 				},
 			}
 
@@ -169,6 +170,7 @@ func TestTemplateIdempotency(t *testing.T) {
 				templateName = "go-cgo.nix"
 			}
 
+			cgoEnabled := input.CGOEnabled
 			data := TemplateData{
 				AppName:    input.AppName,
 				Version:    input.GoVersion,
@@ -176,7 +178,7 @@ func TestTemplateIdempotency(t *testing.T) {
 				Config: models.BuildConfig{
 					GoVersion:  input.GoVersion,
 					EntryPoint: input.EntryPoint,
-					CGOEnabled: input.CGOEnabled,
+					CGOEnabled: &cgoEnabled,
 				},
 			}
 
