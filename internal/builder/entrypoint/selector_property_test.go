@@ -715,3 +715,299 @@ func intToStr(i int) string {
 	}
 	return result
 }
+
+
+// **Feature: ui-api-alignment, Property 13: Entry Point Detection Completeness**
+// For any Go repository with main packages in standard locations (root, cmd/*, apps/*, services/*),
+// the detector SHALL find all of them.
+// **Validates: Requirements 19.1, 19.2, 19.3, 19.4**
+
+// EntryPointLocation represents a location where a main package can be placed.
+type EntryPointLocation struct {
+	DirType string // "root", "cmd", "apps", or "services"
+	Name    string // Name of the subdirectory (empty for root)
+}
+
+// genEntryPointLocation generates valid entry point locations.
+func genEntryPointLocation() gopter.Gen {
+	return gopter.CombineGens(
+		gen.OneConstOf("root", "cmd", "apps", "services"),
+		genValidEntryPointName(),
+	).Map(func(vals []interface{}) EntryPointLocation {
+		return EntryPointLocation{
+			DirType: vals[0].(string),
+			Name:    vals[1].(string),
+		}
+	})
+}
+
+// genEntryPointLocations generates a list of 1-5 entry point locations.
+func genEntryPointLocations() gopter.Gen {
+	return gen.SliceOfN(5, genEntryPointLocation()).SuchThat(func(locs []EntryPointLocation) bool {
+		// Ensure at least one location
+		return len(locs) >= 1
+	})
+}
+
+// createGoMainPackage creates a main package at the specified path.
+func createGoMainPackage(dir string, name string) error {
+	mainContent := `package main
+
+func main() {
+	println("` + name + `")
+}
+`
+	return os.WriteFile(filepath.Join(dir, "main.go"), []byte(mainContent), 0644)
+}
+
+// setupTestRepo creates a test repository with the specified entry point locations.
+func setupTestRepo(t *testing.T, locations []EntryPointLocation) (string, map[string]bool) {
+	dir := t.TempDir()
+
+	// Create go.mod
+	goModContent := "module github.com/example/test\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Track expected entry points
+	expected := make(map[string]bool)
+
+	for _, loc := range locations {
+		var entryPointPath string
+		var targetDir string
+
+		switch loc.DirType {
+		case "root":
+			targetDir = dir
+			entryPointPath = "."
+		case "cmd":
+			targetDir = filepath.Join(dir, "cmd", loc.Name)
+			entryPointPath = filepath.Join("cmd", loc.Name)
+		case "apps":
+			targetDir = filepath.Join(dir, "apps", loc.Name)
+			entryPointPath = filepath.Join("apps", loc.Name)
+		case "services":
+			targetDir = filepath.Join(dir, "services", loc.Name)
+			entryPointPath = filepath.Join("services", loc.Name)
+		}
+
+		// Create directory if needed
+		if targetDir != dir {
+			if err := os.MkdirAll(targetDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Create main package
+		if err := createGoMainPackage(targetDir, loc.Name); err != nil {
+			t.Fatal(err)
+		}
+
+		expected[entryPointPath] = true
+	}
+
+	return dir, expected
+}
+
+// TestEntryPointDetectionCompleteness tests Property 13: Entry Point Detection Completeness.
+// For any Go repository with main packages in standard locations (root, cmd/*, apps/*, services/*),
+// the detector SHALL find all of them.
+func TestEntryPointDetectionCompleteness(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: All entry points in standard locations are detected
+	properties.Property("all entry points in standard locations are detected", prop.ForAll(
+		func(locations []EntryPointLocation) bool {
+			// Setup test repository
+			dir, expected := setupTestRepo(t, locations)
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				// If no entry points expected, error is acceptable
+				if len(expected) == 0 {
+					return true
+				}
+				return false
+			}
+
+			// Check that all expected entry points are found
+			found := make(map[string]bool)
+			for _, ep := range entryPoints {
+				found[ep.Path] = true
+			}
+
+			// Verify all expected entry points are found
+			for expectedPath := range expected {
+				if !found[expectedPath] {
+					t.Logf("Missing entry point: %s", expectedPath)
+					return false
+				}
+			}
+
+			return true
+		},
+		genEntryPointLocations(),
+	))
+
+	// Property: Root main package is always detected when present
+	// **Validates: Requirements 19.1**
+	properties.Property("root main package is detected", prop.ForAll(
+		func(name string) bool {
+			dir := t.TempDir()
+
+			// Create go.mod
+			goModContent := "module github.com/example/test\n\ngo 1.21\n"
+			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+				return false
+			}
+
+			// Create main.go in root
+			if err := createGoMainPackage(dir, name); err != nil {
+				return false
+			}
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				return false
+			}
+
+			// Check that root entry point is found
+			for _, ep := range entryPoints {
+				if ep.Path == "." {
+					return true
+				}
+			}
+			return false
+		},
+		genValidEntryPointName(),
+	))
+
+	// Property: cmd/* entry points are detected
+	// **Validates: Requirements 19.2**
+	properties.Property("cmd/* entry points are detected", prop.ForAll(
+		func(name string) bool {
+			dir := t.TempDir()
+
+			// Create go.mod
+			goModContent := "module github.com/example/test\n\ngo 1.21\n"
+			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+				return false
+			}
+
+			// Create cmd/name directory with main package
+			cmdDir := filepath.Join(dir, "cmd", name)
+			if err := os.MkdirAll(cmdDir, 0755); err != nil {
+				return false
+			}
+			if err := createGoMainPackage(cmdDir, name); err != nil {
+				return false
+			}
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				return false
+			}
+
+			// Check that cmd entry point is found
+			expectedPath := filepath.Join("cmd", name)
+			for _, ep := range entryPoints {
+				if ep.Path == expectedPath {
+					return true
+				}
+			}
+			return false
+		},
+		genValidEntryPointName(),
+	))
+
+	// Property: apps/* entry points are detected
+	// **Validates: Requirements 19.3**
+	properties.Property("apps/* entry points are detected", prop.ForAll(
+		func(name string) bool {
+			dir := t.TempDir()
+
+			// Create go.mod
+			goModContent := "module github.com/example/test\n\ngo 1.21\n"
+			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+				return false
+			}
+
+			// Create apps/name directory with main package
+			appsDir := filepath.Join(dir, "apps", name)
+			if err := os.MkdirAll(appsDir, 0755); err != nil {
+				return false
+			}
+			if err := createGoMainPackage(appsDir, name); err != nil {
+				return false
+			}
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				return false
+			}
+
+			// Check that apps entry point is found
+			expectedPath := filepath.Join("apps", name)
+			for _, ep := range entryPoints {
+				if ep.Path == expectedPath {
+					return true
+				}
+			}
+			return false
+		},
+		genValidEntryPointName(),
+	))
+
+	// Property: services/* entry points are detected
+	// **Validates: Requirements 19.4**
+	properties.Property("services/* entry points are detected", prop.ForAll(
+		func(name string) bool {
+			dir := t.TempDir()
+
+			// Create go.mod
+			goModContent := "module github.com/example/test\n\ngo 1.21\n"
+			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+				return false
+			}
+
+			// Create services/name directory with main package
+			servicesDir := filepath.Join(dir, "services", name)
+			if err := os.MkdirAll(servicesDir, 0755); err != nil {
+				return false
+			}
+			if err := createGoMainPackage(servicesDir, name); err != nil {
+				return false
+			}
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				return false
+			}
+
+			// Check that services entry point is found
+			expectedPath := filepath.Join("services", name)
+			for _, ep := range entryPoints {
+				if ep.Path == expectedPath {
+					return true
+				}
+			}
+			return false
+		},
+		genValidEntryPointName(),
+	))
+
+	properties.TestingRun(t)
+}

@@ -146,11 +146,21 @@ func (s *Selector) Validate(ctx context.Context, repoPath string, entryPoint str
 	return nil
 }
 
+// GoEntryPointDirs lists directories to check for main packages in Go repositories.
+// **Validates: Requirements 19.1, 19.2, 19.3, 19.4**
+var GoEntryPointDirs = []string{
+	"cmd",      // Standard Go layout (cmd/*)
+	"apps",     // Alternative layout (apps/*)
+	"services", // Microservices layout (services/*)
+}
+
 // listGoEntryPoints finds all main packages in a Go repository.
+// **Validates: Requirements 19.1, 19.2, 19.3, 19.4**
 func (s *Selector) listGoEntryPoints(ctx context.Context, repoPath string) ([]EntryPoint, error) {
 	var entryPoints []EntryPoint
 
 	// Check for main.go in root
+	// **Validates: Requirements 19.1**
 	if hasGoMainPackage(repoPath) {
 		entryPoints = append(entryPoints, EntryPoint{
 			Path:        ".",
@@ -160,31 +170,34 @@ func (s *Selector) listGoEntryPoints(ctx context.Context, repoPath string) ([]En
 		})
 	}
 
-	// Check cmd/* directories
-	cmdDir := filepath.Join(repoPath, "cmd")
-	if info, err := os.Stat(cmdDir); err == nil && info.IsDir() {
-		entries, err := os.ReadDir(cmdDir)
-		if err != nil {
-			return entryPoints, nil // Return what we have
-		}
+	// Check all standard entry point directories
+	// **Validates: Requirements 19.2, 19.3, 19.4**
+	for _, dirName := range GoEntryPointDirs {
+		dir := filepath.Join(repoPath, dirName)
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				continue // Skip this directory but continue with others
+			}
 
-		for _, entry := range entries {
-			if entry.IsDir() {
-				subDir := filepath.Join(cmdDir, entry.Name())
-				if hasGoMainPackage(subDir) {
-					ep := EntryPoint{
-						Path:        filepath.Join("cmd", entry.Name()),
-						Name:        entry.Name(),
-						IsDefault:   false,
-						Description: fmt.Sprintf("Command binary: %s", entry.Name()),
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subDir := filepath.Join(dir, entry.Name())
+					if hasGoMainPackage(subDir) {
+						ep := EntryPoint{
+							Path:        filepath.Join(dirName, entry.Name()),
+							Name:        entry.Name(),
+							IsDefault:   false,
+							Description: fmt.Sprintf("Binary from %s: %s", dirName, entry.Name()),
+						}
+						entryPoints = append(entryPoints, ep)
 					}
-					entryPoints = append(entryPoints, ep)
 				}
 			}
 		}
 	}
 
-	// If we have cmd/* entries but no root main, mark the first cmd as default
+	// If we have entries but no root main, mark the best one as default
 	if len(entryPoints) > 0 && entryPoints[0].Path != "." {
 		// Apply default selection heuristics
 		defaultEP := s.SelectDefault(entryPoints)
