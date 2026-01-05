@@ -768,12 +768,16 @@ func genBuildConfig() gopter.Gen {
 	return gopter.CombineGens(
 		gen.AlphaString(),
 		gen.AlphaString(),
-		gen.Bool(),
+		gen.PtrOf(gen.Bool()),
 	).Map(func(vals []interface{}) models.BuildConfig {
+		var cgoEnabled *bool
+		if vals[2] != nil {
+			cgoEnabled = vals[2].(*bool)
+		}
 		return models.BuildConfig{
 			GoVersion:  vals[0].(string),
 			EntryPoint: vals[1].(string),
-			CGOEnabled: vals[2].(bool),
+			CGOEnabled: cgoEnabled,
 		}
 	})
 }
