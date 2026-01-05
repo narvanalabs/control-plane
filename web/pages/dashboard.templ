@@ -20,6 +20,7 @@ type DashboardData struct {
 	RunningBuilds     int
 	RecentDeployments []api.RecentDeployment
 	NodeHealth        []api.NodeHealth
+	Error             string // Error message when stats endpoint fails
 }
 
 // Dashboard renders the main dashboard page
@@ -30,6 +31,12 @@ templ Dashboard(data DashboardData) {
 				<h1 class="text-2xl font-bold">Dashboard</h1>
 				<p class="text-muted-foreground">Overview of your Narvana Control Plane</p>
 			</div>
+			
+			// Error State - Show when stats endpoint fails
+			// **Validates: Requirements 3.4**
+			if data.Error != "" {
+				@DashboardError(data.Error)
+			}
 			
 			// Empty State CTAs - Show when no apps or no nodes
 			if data.TotalApps == 0 || data.HealthyNodes == 0 {
@@ -161,6 +168,29 @@ templ EmptyStateNodes() {
 					@icon.Plus(icon.Props{Class: "size-4 mr-2"})
 					Add Node
 				}
+			</div>
+		}
+	}
+}
+
+// DashboardError renders an error state when the stats endpoint fails
+// **Validates: Requirements 3.4**
+templ DashboardError(errorMsg string) {
+	@card.Card(card.Props{Class: "border-destructive bg-destructive/10"}) {
+		@card.Content(card.ContentProps{Class: "py-6"}) {
+			<div class="flex items-center gap-4">
+				<div class="rounded-full bg-destructive/20 p-3">
+					@icon.CircleAlert(icon.Props{Class: "size-6 text-destructive"})
+				</div>
+				<div>
+					<h3 class="font-semibold text-destructive">Failed to load dashboard statistics</h3>
+					<p class="text-sm text-muted-foreground mt-1">
+						{ errorMsg }
+					</p>
+					<p class="text-sm text-muted-foreground mt-2">
+						Try refreshing the page or check the API server status.
+					</p>
+				</div>
 			</div>
 		}
 	}
