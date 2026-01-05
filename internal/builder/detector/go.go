@@ -17,6 +17,109 @@ import (
 // goVersionRegex matches the go directive in go.mod (e.g., "go 1.21" or "go 1.21.0").
 var goVersionRegex = regexp.MustCompile(`^go\s+(\d+\.\d+(?:\.\d+)?)`)
 
+// goWorkUseRegex matches the use directive in go.work (e.g., "use ./mymodule" or "use ./path/to/module").
+var goWorkUseRegex = regexp.MustCompile(`^\s*use\s+(\S+)`)
+
+// GoWorkspaceResult contains the result of Go workspace detection.
+// **Validates: Requirements 22.1, 22.4**
+type GoWorkspaceResult struct {
+	// IsWorkspace indicates whether a go.work file was found
+	IsWorkspace bool `json:"is_workspace"`
+
+	// GoVersion is the Go version specified in go.work (if any)
+	GoVersion string `json:"go_version,omitempty"`
+
+	// Modules lists the module paths specified in the use directives
+	Modules []string `json:"modules,omitempty"`
+}
+
+// DetectGoWorkspace checks if a repository contains a go.work file and parses its contents.
+// **Validates: Requirements 22.1, 22.4**
+func DetectGoWorkspace(repoPath string) (*GoWorkspaceResult, error) {
+	goWorkPath := filepath.Join(repoPath, "go.work")
+	if _, err := os.Stat(goWorkPath); os.IsNotExist(err) {
+		return &GoWorkspaceResult{IsWorkspace: false}, nil
+	}
+
+	result := &GoWorkspaceResult{
+		IsWorkspace: true,
+		Modules:     []string{},
+	}
+
+	// Parse go.work file
+	file, err := os.Open(goWorkPath)
+	if err != nil {
+		return result, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	inUseBlock := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		// Check for go version directive
+		if matches := goVersionRegex.FindStringSubmatch(line); len(matches) > 1 {
+			result.GoVersion = matches[1]
+			continue
+		}
+
+		// Check for use block start
+		if line == "use (" {
+			inUseBlock = true
+			continue
+		}
+
+		// Check for use block end
+		if line == ")" && inUseBlock {
+			inUseBlock = false
+			continue
+		}
+
+		// Parse use directives
+		if inUseBlock {
+			// Inside use block, each line is a module path
+			modulePath := strings.TrimSpace(line)
+			if modulePath != "" && !strings.HasPrefix(modulePath, "//") {
+				result.Modules = append(result.Modules, cleanModulePath(modulePath))
+			}
+		} else if matches := goWorkUseRegex.FindStringSubmatch(line); len(matches) > 1 {
+			// Single-line use directive
+			result.Modules = append(result.Modules, cleanModulePath(matches[1]))
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
+// cleanModulePath removes quotes and normalizes a module path from go.work.
+func cleanModulePath(path string) string {
+	// Remove surrounding quotes if present
+	path = strings.Trim(path, `"'`)
+	// Normalize path separators
+	path = filepath.Clean(path)
+	return path
+}
+
+// HasGoWorkspace checks if a repository contains a go.work file.
+// This is a convenience function for quick workspace detection.
+// **Validates: Requirements 22.1**
+func HasGoWorkspace(repoPath string) bool {
+	goWorkPath := filepath.Join(repoPath, "go.work")
+	_, err := os.Stat(goWorkPath)
+	return err == nil
+}
+
 // DetectGo checks for Go application markers.
 func (d *DefaultDetector) DetectGo(ctx context.Context, repoPath string) (*models.DetectionResult, error) {
 	goModPath := filepath.Join(repoPath, "go.mod")
@@ -39,6 +142,27 @@ func (d *DefaultDetector) DetectGo(ctx context.Context, repoPath string) (*model
 	} else {
 		result.Version = version
 		result.SuggestedConfig["go_version"] = version
+	}
+
+	// Detect Go workspace (go.work file)
+	// **Validates: Requirements 22.1, 22.4**
+	workspaceResult, err := DetectGoWorkspace(repoPath)
+	if err != nil {
+		slog.Warn("Go workspace detection failed",
+			"path", repoPath,
+			"error", err,
+		)
+		result.Warnings = append(result.Warnings, "Could not parse go.work file")
+	} else if workspaceResult.IsWorkspace {
+		result.SuggestedConfig["is_workspace"] = true
+		result.SuggestedConfig["workspace_modules"] = workspaceResult.Modules
+		result.Warnings = append(result.Warnings, "Go workspace detected - multi-module project")
+
+		// If go.work has a Go version, prefer it over go.mod version
+		if workspaceResult.GoVersion != "" {
+			result.Version = workspaceResult.GoVersion
+			result.SuggestedConfig["go_version"] = workspaceResult.GoVersion
+		}
 	}
 
 	// Detect main package locations
