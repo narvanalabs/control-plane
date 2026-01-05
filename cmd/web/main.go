@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
 	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/web/api"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
@@ -201,6 +202,9 @@ func main() {
 // Auth Middleware
 // ============================================================================
 
+// requireAuth validates the authentication token and ensures the user exists.
+// If validation fails, it clears all session cookies and redirects to login.
+// **Validates: Requirements 1.3, 1.4**
 func requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := getAuthToken(r)
@@ -208,30 +212,44 @@ func requireAuth(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		next.ServeHTTP(w, r)
+
+		// Validate token and user exists by calling GetUserProfile
+		client := getAPIClient(r)
+		user, err := client.GetUserProfile(r.Context())
+		if err != nil || user == nil {
+			// Invalid token or user doesn't exist - clear cookies and redirect
+			slog.Debug("auth validation failed", "error", err)
+			clearAllSessionCookies(w)
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+
+		// Store user in context for downstream handlers
+		ctx := context.WithValue(r.Context(), "user", user)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
+// userContextMiddleware loads organizations for the authenticated user.
+// Note: User is already loaded and validated by requireAuth middleware.
+// This middleware focuses on loading organization context.
+// **Validates: Requirements 2.3**
 func userContextMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := getAuthToken(r)
-		if token == "" {
+		ctx := r.Context()
+		
+		// User should already be in context from requireAuth
+		// If not, just continue (shouldn't happen in protected routes)
+		user, ok := ctx.Value("user").(*store.User)
+		if !ok || user == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		client := getAPIClient(r)
-		user, err := client.GetUserProfile(r.Context())
-		if err != nil {
-			slog.Debug("failed to get user profile for context", "error", err)
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), "user", user)
 		
 		// Load user's organizations
-		orgs, err := client.ListOrgs(r.Context())
+		orgs, err := client.ListOrgs(ctx)
 		if err == nil && len(orgs) > 0 {
 			// Convert to pointer slice for context
 			orgPtrs := make([]*models.Organization, len(orgs))
@@ -350,6 +368,28 @@ func setAuthCookie(w http.ResponseWriter, token string) {
 func clearAuthCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+}
+
+// clearAllSessionCookies clears all session-related cookies (auth_token and current_org).
+// This should be called when authentication fails to ensure consistent state.
+// **Validates: Requirements 15.1, 15.2, 15.3**
+func clearAllSessionCookies(w http.ResponseWriter) {
+	// Clear auth_token cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+	// Clear current_org cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "current_org",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
