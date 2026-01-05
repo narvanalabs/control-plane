@@ -28,7 +28,11 @@
           
           src = ./.;
           
-          {{- if .Config.EntryPoint }}
+          {{- if .Config.WorkspaceModule }}
+          # Build specific module in workspace
+          # **Validates: Requirements 22.3**
+          subPackages = [ "{{ .Config.WorkspaceModule }}" ];
+          {{- else if .Config.EntryPoint }}
           subPackages = [ "{{ .Config.EntryPoint }}" ];
           {{- else if .EntryPoint }}
           subPackages = [ "{{ .EntryPoint }}" ];
@@ -39,6 +43,11 @@
           
           # CGO is enabled for this build
           CGO_ENABLED = 1;
+          {{- if .Config.IsWorkspace }}
+          # Enable workspace mode
+          # **Validates: Requirements 22.4**
+          env.GOWORK = "on";
+          {{- end }}
           
           # Common CGO dependencies
           nativeBuildInputs = with pkgs; [
@@ -77,10 +86,35 @@
           {{- end }}
           
           # Ensure CGO can find libraries
+          # Pre-build hook: includes CGO setup and user-defined commands
+          # **Validates: Requirements 21.3, 21.5**
           preBuild = ''
             export CGO_CFLAGS="-I${pkgs.lib.getDev pkgs.stdenv.cc.libc}/include"
             export CGO_LDFLAGS="-L${pkgs.lib.getLib pkgs.stdenv.cc.libc}/lib"
+            {{- if .Config.IsWorkspace }}
+            # Go workspace support
+            # **Validates: Requirements 22.2, 22.4**
+            export GOWORK="$PWD/go.work"
+            # Sync workspace dependencies
+            go work sync || true
+            {{- end }}
+            {{- if .Config.PreBuildCommands }}
+            # User-defined pre-build commands
+            {{- range .Config.PreBuildCommands }}
+            {{ . }}
+            {{- end }}
+            {{- end }}
           '';
+          
+          {{- if .Config.PostBuildCommands }}
+          # Post-build hook: user-defined commands to run after successful build
+          # **Validates: Requirements 21.4, 21.6**
+          postBuild = ''
+            {{- range .Config.PostBuildCommands }}
+            {{ . }}
+            {{- end }}
+          '';
+          {{- end }}
           
           meta = with pkgs.lib; {
             description = "{{ .AppName }}";

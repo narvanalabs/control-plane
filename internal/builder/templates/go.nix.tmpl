@@ -16,7 +16,11 @@
           
           src = ./.;
           
-          {{- if .Config.EntryPoint }}
+          {{- if .Config.WorkspaceModule }}
+          # Build specific module in workspace
+          # **Validates: Requirements 22.3**
+          subPackages = [ "{{ .Config.WorkspaceModule }}" ];
+          {{- else if .Config.EntryPoint }}
           subPackages = [ "{{ .Config.EntryPoint }}" ];
           {{- else if .EntryPoint }}
           subPackages = [ "{{ .EntryPoint }}" ];
@@ -31,15 +35,35 @@
           
           # Force Go to use module mode and ignore any vendor directory
           # Also enable GOPROXY to allow downloading dependencies
+          # Pre-build hook: includes system setup and user-defined commands
+          # **Validates: Requirements 21.3, 21.5**
           preBuild = ''
             rm -rf vendor 2>/dev/null || true
             export GOFLAGS="-mod=mod"
             export GOPROXY="https://proxy.golang.org,direct"
+            {{- if .Config.IsWorkspace }}
+            # Go workspace support
+            # **Validates: Requirements 22.2, 22.4**
+            export GOWORK="$PWD/go.work"
+            # Sync workspace dependencies
+            go work sync || true
+            {{- end }}
+            {{- if .Config.PreBuildCommands }}
+            # User-defined pre-build commands
+            {{- range .Config.PreBuildCommands }}
+            {{ . }}
+            {{- end }}
+            {{- end }}
           '';
           
           # Allow Go to download newer toolchain if required
           env.GOTOOLCHAIN = "auto";
           env.CGO_ENABLED = "0";
+          {{- if .Config.IsWorkspace }}
+          # Enable workspace mode
+          # **Validates: Requirements 22.4**
+          env.GOWORK = "on";
+          {{- end }}
           
           # Disable sandbox to avoid /homeless-shelter purity check
           __noChroot = true;
@@ -62,6 +86,16 @@
             "-w"
             "-X main.version={{ default "0.1.0" .Version }}"
           ];
+          {{- end }}
+          
+          {{- if .Config.PostBuildCommands }}
+          # Post-build hook: user-defined commands to run after successful build
+          # **Validates: Requirements 21.4, 21.6**
+          postBuild = ''
+            {{- range .Config.PostBuildCommands }}
+            {{ . }}
+            {{- end }}
+          '';
           {{- end }}
           
           # Allow references to Go toolchain in output (needed for impure builds)
