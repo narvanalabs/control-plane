@@ -9,29 +9,6 @@
 
 A self-hosted Platform-as-a-Service (PaaS) control plane built with Go, designed for deploying and managing applications using Nix flakes and OCI containers. Narvana provides a modern, Nix-native approach to application deployment with automatic build detection, multi-tenancy support, and distributed node management.
 
-<!-- 
-## Screenshots
-
-### Dashboard
-![Dashboard](docs/screenshots/dashboard.png)
-*Main dashboard showing deployment overview, node health, and recent activity*
-
-### App Management
-![App Management](docs/screenshots/app-management.png)
-*Application and service management interface*
-
-### Build Logs
-![Build Logs](docs/screenshots/build-logs.png)
-*Real-time build log streaming*
--->
-
-<!--
-## Demo
-
-![Narvana Demo](docs/demo.gif)
-*Deploying a Go application from GitHub to a Narvana cluster*
--->
-
 ## Features
 
 - **Nix-Native Builds**: First-class support for Nix flakes with automatic flake generation for Go, Rust, Node.js, Python, and database services
@@ -273,13 +250,6 @@ make build
 ./bin/web &
 ```
 
-<!--
-### First Deployment
-
-![First Deployment](docs/screenshots/first-deployment.gif)
-*Creating your first app and deploying a service*
--->
-
 ## Configuration
 
 Configuration is managed through environment variables:
@@ -493,15 +463,7 @@ Services can specify resource limits directly:
 }
 ```
 
-Or use predefined tiers (deprecated):
-
-| Tier | CPU | Memory |
-|------|-----|--------|
-| nano | 0.25 | 256Mi |
-| small | 0.5 | 512Mi |
-| medium | 1 | 1Gi |
-| large | 2 | 2Gi |
-| xlarge | 4 | 4Gi |
+> **Note**: The predefined resource tiers (`nano`, `small`, `medium`, `large`, `xlarge`) are deprecated and will be removed in a future version. Use direct `resources` specification instead.
 
 ## Cleanup and Maintenance
 
@@ -521,22 +483,6 @@ curl -X POST http://localhost:8080/v1/admin/cleanup/nix-gc \
 curl -X POST http://localhost:8080/v1/admin/cleanup/deployments \
   -H "Authorization: Bearer $TOKEN"
 ```
-
-<!--
-## Web UI Screenshots
-
-### Dashboard Overview
-![Dashboard](docs/screenshots/dashboard-full.png)
-
-### Service Detail View
-![Service Detail](docs/screenshots/service-detail.png)
-
-### Build Logs
-![Build Logs](docs/screenshots/build-logs-streaming.png)
-
-### Node Management
-![Nodes](docs/screenshots/nodes-list.png)
--->
 
 ## Contributing
 
