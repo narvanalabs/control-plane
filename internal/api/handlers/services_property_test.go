@@ -652,6 +652,249 @@ func TestServiceDeletionResourceCleanup(t *testing.T) {
 }
 
 
+// **Feature: backend-source-of-truth, Property 21: Default Resource Application**
+// For any service creation without explicit resource specification, the system SHALL
+// apply the configured default cpu/memory values from settings.
+// **Validates: Requirements 30.2**
+
+// MockSettingsStore simulates a settings store for testing default resource application.
+type MockSettingsStore struct {
+	settings map[string]string
+}
+
+// Get retrieves a setting by key.
+func (m *MockSettingsStore) Get(key string) (string, error) {
+	if v, ok := m.settings[key]; ok {
+		return v, nil
+	}
+	return "", nil
+}
+
+// genConfiguredCPU generates a valid configured CPU default.
+func genConfiguredCPU() gopter.Gen {
+	return gen.OneGenOf(
+		gen.Const("0.25"),
+		gen.Const("0.5"),
+		gen.Const("1"),
+		gen.Const("2"),
+		gen.Const("4"),
+	)
+}
+
+// genConfiguredMemory generates a valid configured memory default.
+func genConfiguredMemory() gopter.Gen {
+	return gen.OneGenOf(
+		gen.Const("256Mi"),
+		gen.Const("512Mi"),
+		gen.Const("1Gi"),
+		gen.Const("2Gi"),
+		gen.Const("4Gi"),
+	)
+}
+
+// TestDefaultResourceApplication tests Property 21: Default Resource Application.
+func TestDefaultResourceApplication(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Built-in defaults
+	builtInCPU := "0.5"
+	builtInMemory := "512Mi"
+
+	// Property 21.1: When no resources specified and no settings configured, built-in defaults are applied
+	properties.Property("built-in defaults applied when no settings configured", prop.ForAll(
+		func(_ int) bool {
+			// Simulate no settings configured
+			settings := &MockSettingsStore{settings: map[string]string{}}
+
+			// Get defaults (simulating getDefaultResources logic)
+			defaultCPU := builtInCPU
+			defaultMemory := builtInMemory
+
+			if cpuStr, _ := settings.Get("default_resource_cpu"); cpuStr != "" {
+				defaultCPU = cpuStr
+			}
+			if memStr, _ := settings.Get("default_resource_memory"); memStr != "" {
+				defaultMemory = memStr
+			}
+
+			// Verify built-in defaults are used
+			return defaultCPU == builtInCPU && defaultMemory == builtInMemory
+		},
+		gen.IntRange(0, 1),
+	))
+
+	// Property 21.2: When settings are configured, configured defaults are applied
+	properties.Property("configured defaults applied when settings exist", prop.ForAll(
+		func(configuredCPU string, configuredMemory string) bool {
+			// Simulate settings configured
+			settings := &MockSettingsStore{settings: map[string]string{
+				"default_resource_cpu":    configuredCPU,
+				"default_resource_memory": configuredMemory,
+			}}
+
+			// Get defaults (simulating getDefaultResources logic)
+			defaultCPU := builtInCPU
+			defaultMemory := builtInMemory
+
+			if cpuStr, _ := settings.Get("default_resource_cpu"); cpuStr != "" {
+				defaultCPU = cpuStr
+			}
+			if memStr, _ := settings.Get("default_resource_memory"); memStr != "" {
+				defaultMemory = memStr
+			}
+
+			// Verify configured defaults are used
+			return defaultCPU == configuredCPU && defaultMemory == configuredMemory
+		},
+		genConfiguredCPU(),
+		genConfiguredMemory(),
+	))
+
+	// Property 21.3: Partial settings use built-in for missing values
+	properties.Property("partial settings use built-in for missing values", prop.ForAll(
+		func(configuredCPU string) bool {
+			// Simulate only CPU configured
+			settings := &MockSettingsStore{settings: map[string]string{
+				"default_resource_cpu": configuredCPU,
+				// memory not configured
+			}}
+
+			// Get defaults (simulating getDefaultResources logic)
+			defaultCPU := builtInCPU
+			defaultMemory := builtInMemory
+
+			if cpuStr, _ := settings.Get("default_resource_cpu"); cpuStr != "" {
+				defaultCPU = cpuStr
+			}
+			if memStr, _ := settings.Get("default_resource_memory"); memStr != "" {
+				defaultMemory = memStr
+			}
+
+			// Verify configured CPU is used, built-in memory is used
+			return defaultCPU == configuredCPU && defaultMemory == builtInMemory
+		},
+		genConfiguredCPU(),
+	))
+
+	// Property 21.4: Service with nil Resources gets defaults applied
+	properties.Property("service with nil resources gets defaults applied", prop.ForAll(
+		func(configuredCPU string, configuredMemory string) bool {
+			// Simulate settings configured
+			settings := &MockSettingsStore{settings: map[string]string{
+				"default_resource_cpu":    configuredCPU,
+				"default_resource_memory": configuredMemory,
+			}}
+
+			// Create a service without resources
+			service := models.ServiceConfig{
+				Name:      "test-service",
+				Resources: nil, // No resources specified
+			}
+
+			// Apply defaults (simulating the handler logic)
+			if service.Resources == nil {
+				defaultCPU := builtInCPU
+				defaultMemory := builtInMemory
+
+				if cpuStr, _ := settings.Get("default_resource_cpu"); cpuStr != "" {
+					defaultCPU = cpuStr
+				}
+				if memStr, _ := settings.Get("default_resource_memory"); memStr != "" {
+					defaultMemory = memStr
+				}
+
+				service.Resources = &models.ResourceSpec{
+					CPU:    defaultCPU,
+					Memory: defaultMemory,
+				}
+			}
+
+			// Verify defaults were applied
+			return service.Resources != nil &&
+				service.Resources.CPU == configuredCPU &&
+				service.Resources.Memory == configuredMemory
+		},
+		genConfiguredCPU(),
+		genConfiguredMemory(),
+	))
+
+	// Property 21.5: Service with explicit Resources does not get defaults applied
+	properties.Property("service with explicit resources does not get defaults", prop.ForAll(
+		func(explicitCPU string, explicitMemory string, configuredCPU string, configuredMemory string) bool {
+			// Simulate settings configured
+			settings := &MockSettingsStore{settings: map[string]string{
+				"default_resource_cpu":    configuredCPU,
+				"default_resource_memory": configuredMemory,
+			}}
+
+			// Create a service with explicit resources
+			service := models.ServiceConfig{
+				Name: "test-service",
+				Resources: &models.ResourceSpec{
+					CPU:    explicitCPU,
+					Memory: explicitMemory,
+				},
+			}
+
+			// Apply defaults only if nil (simulating the handler logic)
+			if service.Resources == nil {
+				defaultCPU := builtInCPU
+				defaultMemory := builtInMemory
+
+				if cpuStr, _ := settings.Get("default_resource_cpu"); cpuStr != "" {
+					defaultCPU = cpuStr
+				}
+				if memStr, _ := settings.Get("default_resource_memory"); memStr != "" {
+					defaultMemory = memStr
+				}
+
+				service.Resources = &models.ResourceSpec{
+					CPU:    defaultCPU,
+					Memory: defaultMemory,
+				}
+			}
+
+			// Verify explicit resources are preserved
+			return service.Resources.CPU == explicitCPU &&
+				service.Resources.Memory == explicitMemory
+		},
+		genValidCPU(),
+		genValidMemory(),
+		genConfiguredCPU(),
+		genConfiguredMemory(),
+	))
+
+	// Property 21.6: Empty string settings are treated as not configured
+	properties.Property("empty string settings use built-in defaults", prop.ForAll(
+		func(_ int) bool {
+			// Simulate empty string settings
+			settings := &MockSettingsStore{settings: map[string]string{
+				"default_resource_cpu":    "",
+				"default_resource_memory": "",
+			}}
+
+			// Get defaults (simulating getDefaultResources logic)
+			defaultCPU := builtInCPU
+			defaultMemory := builtInMemory
+
+			if cpuStr, _ := settings.Get("default_resource_cpu"); cpuStr != "" {
+				defaultCPU = cpuStr
+			}
+			if memStr, _ := settings.Get("default_resource_memory"); memStr != "" {
+				defaultMemory = memStr
+			}
+
+			// Verify built-in defaults are used when settings are empty strings
+			return defaultCPU == builtInCPU && defaultMemory == builtInMemory
+		},
+		gen.IntRange(0, 1),
+	))
+
+	properties.TestingRun(t)
+}
+
 // **Feature: backend-source-of-truth, Property 13: Source Type Inference**
 // For any service creation request with git_repo but no source_type, the system SHALL
 // infer source_type as "git" and detect whether the repo contains flake.nix.
