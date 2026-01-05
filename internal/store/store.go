@@ -209,6 +209,9 @@ type NodeStore interface {
 	List(ctx context.Context) ([]*models.Node, error)
 	// UpdateHeartbeat updates a node's last heartbeat timestamp and resource metrics.
 	UpdateHeartbeat(ctx context.Context, id string, resources *models.NodeResources) error
+	// UpdateHeartbeatWithDiskMetrics updates a node's heartbeat with detailed disk metrics.
+	// **Validates: Requirements 20.1**
+	UpdateHeartbeatWithDiskMetrics(ctx context.Context, id string, resources *models.NodeResources, diskMetrics *models.NodeDiskMetrics) error
 	// UpdateHealth updates a node's health status.
 	UpdateHealth(ctx context.Context, id string, healthy bool) error
 	// ListHealthy retrieves all healthy nodes.
