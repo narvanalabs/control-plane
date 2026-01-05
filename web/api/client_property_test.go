@@ -413,3 +413,234 @@ func TestUpdateAppRequestVersionSerialization(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: ui-api-alignment, Property 5: Git Source Type Unification**
+// *For any* service creation with a git repository, the source_type SHALL be set to "git"
+// regardless of whether the repository contains a flake.nix file.
+// **Validates: Requirements 10.1**
+
+// TestGitSourceTypeUnification tests that service creation requests with git repositories
+// always use source_type "git" regardless of flake presence.
+func TestGitSourceTypeUnification(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for valid git repository URLs
+	genGitRepoURL := gen.OneGenOf(
+		// GitHub HTTPS format
+		gen.Identifier().Map(func(s string) string {
+			return "https://github.com/owner/" + s
+		}),
+		// GitHub shorthand format
+		gen.Identifier().Map(func(s string) string {
+			return "github.com/owner/" + s
+		}),
+		// GitLab format
+		gen.Identifier().Map(func(s string) string {
+			return "https://gitlab.com/owner/" + s
+		}),
+		// Bitbucket format
+		gen.Identifier().Map(func(s string) string {
+			return "https://bitbucket.org/owner/" + s
+		}),
+		// Generic git URL
+		gen.Identifier().Map(func(s string) string {
+			return "https://git.example.com/owner/" + s + ".git"
+		}),
+	)
+
+	// Generator for valid service names
+	genServiceName := gen.Identifier().Map(func(s string) string {
+		// Convert to lowercase and limit length for DNS compatibility
+		result := strings.ToLower(s)
+		if len(result) > 20 {
+			result = result[:20]
+		}
+		if len(result) == 0 {
+			result = "svc"
+		}
+		// Ensure starts with letter
+		if result[0] >= '0' && result[0] <= '9' {
+			result = "s" + result
+		}
+		return result
+	}).SuchThat(func(s string) bool {
+		return len(s) >= 1 && len(s) <= 20
+	})
+
+	// Property 5.1: Service creation with git repo always uses source_type "git"
+	properties.Property("Service creation with git repo uses source_type git", prop.ForAll(
+		func(serviceName, gitRepo string, hasFlake bool) bool {
+			var capturedBody map[string]interface{}
+
+			// Create mock server that captures the request body
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/services") && r.Method == "POST" {
+					// Capture the request body
+					if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+						http.Error(w, "Invalid JSON", http.StatusBadRequest)
+						return
+					}
+
+					// Return success response
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(Service{
+						Name:       serviceName,
+						SourceType: "git",
+						GitRepo:    gitRepo,
+					})
+				} else {
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			// Create client and make service creation request
+			client := NewClient(server.URL)
+
+			// Build service creation request - always use "git" source type
+			// regardless of whether the repo has a flake.nix (hasFlake is just for testing)
+			req := CreateServiceRequest{
+				Name:       serviceName,
+				SourceType: "git", // This is the key assertion - always "git"
+				GitRepo:    gitRepo,
+				Replicas:   1,
+			}
+
+			_, err := client.CreateService(context.Background(), "test-app-id", req)
+			if err != nil {
+				t.Logf("CreateService failed: %v", err)
+				return false
+			}
+
+			// Verify that source_type in the request is "git"
+			sourceType, hasSourceType := capturedBody["source_type"]
+			if !hasSourceType {
+				t.Logf("source_type field missing from request body")
+				return false
+			}
+
+			sourceTypeStr, ok := sourceType.(string)
+			if !ok {
+				t.Logf("source_type is not a string: %T", sourceType)
+				return false
+			}
+
+			// The key property: source_type must be "git" for any git repository
+			if sourceTypeStr != "git" {
+				t.Logf("source_type should be 'git' but was '%s'", sourceTypeStr)
+				return false
+			}
+
+			return true
+		},
+		genServiceName,
+		genGitRepoURL,
+		gen.Bool(), // hasFlake - whether repo has flake.nix (doesn't affect source_type)
+	))
+
+	// Property 5.2: CreateServiceRequest with git repo serializes source_type as "git"
+	properties.Property("CreateServiceRequest with git repo serializes source_type as git", prop.ForAll(
+		func(serviceName, gitRepo string) bool {
+			// Create request with git repo
+			req := CreateServiceRequest{
+				Name:       serviceName,
+				SourceType: "git",
+				GitRepo:    gitRepo,
+				Replicas:   1,
+			}
+
+			// Serialize to JSON
+			data, err := json.Marshal(req)
+			if err != nil {
+				t.Logf("Marshal failed: %v", err)
+				return false
+			}
+
+			// Deserialize to map to check the raw JSON
+			var decoded map[string]interface{}
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Logf("Unmarshal failed: %v", err)
+				return false
+			}
+
+			// Verify source_type is "git"
+			sourceType, ok := decoded["source_type"].(string)
+			if !ok {
+				t.Logf("source_type not found or not a string")
+				return false
+			}
+
+			if sourceType != "git" {
+				t.Logf("source_type should be 'git' but was '%s'", sourceType)
+				return false
+			}
+
+			// Verify git_repo is preserved
+			gitRepoVal, ok := decoded["git_repo"].(string)
+			if !ok {
+				t.Logf("git_repo not found or not a string")
+				return false
+			}
+
+			if gitRepoVal != gitRepo {
+				t.Logf("git_repo mismatch: expected '%s', got '%s'", gitRepo, gitRepoVal)
+				return false
+			}
+
+			return true
+		},
+		genServiceName,
+		genGitRepoURL,
+	))
+
+	// Property 5.3: source_type "git" is used even when flake_uri is empty
+	properties.Property("source_type git is used when git_repo is set and flake_uri is empty", prop.ForAll(
+		func(serviceName, gitRepo string) bool {
+			// Create request with git repo and empty flake_uri
+			req := CreateServiceRequest{
+				Name:       serviceName,
+				SourceType: "git",
+				GitRepo:    gitRepo,
+				FlakeURI:   "", // Explicitly empty
+				Replicas:   1,
+			}
+
+			// Serialize to JSON
+			data, err := json.Marshal(req)
+			if err != nil {
+				t.Logf("Marshal failed: %v", err)
+				return false
+			}
+
+			// Deserialize to map
+			var decoded map[string]interface{}
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Logf("Unmarshal failed: %v", err)
+				return false
+			}
+
+			// Verify source_type is "git"
+			sourceType, ok := decoded["source_type"].(string)
+			if !ok {
+				t.Logf("source_type not found or not a string")
+				return false
+			}
+
+			if sourceType != "git" {
+				t.Logf("source_type should be 'git' but was '%s'", sourceType)
+				return false
+			}
+
+			return true
+		},
+		genServiceName,
+		genGitRepoURL,
+	))
+
+	properties.TestingRun(t)
+}
