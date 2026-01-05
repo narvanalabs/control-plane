@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/narvanalabs/control-plane/internal/builder/detector"
 	"github.com/narvanalabs/control-plane/internal/builder/hash"
 	"github.com/narvanalabs/control-plane/internal/builder/templates"
 	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/validation"
 )
 
 // AutoGoStrategyExecutor executes builds for Go applications by generating a flake.nix.
@@ -54,6 +56,13 @@ func (e *AutoGoStrategyExecutor) Supports(strategy models.BuildStrategy) bool {
 // GenerateFlake generates a flake.nix for a Go application.
 // **Validates: Requirements 16.2** - Sets CGO_ENABLED based on detection result
 func (e *AutoGoStrategyExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
+	return e.GenerateFlakeWithContext(ctx, detection, config, validation.DefaultLdflagsBuildContext())
+}
+
+// GenerateFlakeWithContext generates a flake.nix for a Go application with build context for ldflags substitution.
+// **Validates: Requirements 16.2** - Sets CGO_ENABLED based on detection result
+// **Validates: Requirements 18.3** - Performs ldflags variable substitution
+func (e *AutoGoStrategyExecutor) GenerateFlakeWithContext(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig, buildCtx validation.LdflagsBuildContext) (string, error) {
 	// Determine CGO setting:
 	// 1. If explicitly set in config, use that (user override)
 	// 2. Otherwise, use detection result from SuggestedConfig
@@ -75,13 +84,24 @@ func (e *AutoGoStrategyExecutor) GenerateFlake(ctx context.Context, detection *m
 		templateName = "go-cgo.nix"
 	}
 
+	// Perform ldflags variable substitution if ldflags contains variables
+	// **Validates: Requirements 18.3**
+	processedConfig := config
+	if config.Ldflags != "" && validation.HasLdflagsVariables(config.Ldflags) {
+		processedConfig.Ldflags = validation.SubstituteLdflagsVariables(config.Ldflags, buildCtx)
+		e.logger.Debug("substituted ldflags variables",
+			"original", config.Ldflags,
+			"substituted", processedConfig.Ldflags,
+		)
+	}
+
 	// Prepare template data
 	data := templates.TemplateData{
 		AppName:         getAppName(detection),
 		Version:         detection.Version,
 		Framework:       detection.Framework,
-		EntryPoint:      config.EntryPoint,
-		Config:          config,
+		EntryPoint:      processedConfig.EntryPoint,
+		Config:          processedConfig,
 		DetectionResult: detection,
 	}
 
@@ -137,10 +157,15 @@ func (e *AutoGoStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *model
 			logCallback(fmt.Sprintf("Entry points: %v", detection.EntryPoints))
 		}
 
-		// Generate the flake
+		// Generate the flake with build context for ldflags substitution
+		// **Validates: Requirements 18.3**
 		logCallback("=== Generating flake.nix ===")
 		config := e.getConfigFromJob(job)
-		flakeContent, err := e.GenerateFlake(ctx, detection, config)
+		
+		// Create build context for ldflags variable substitution
+		buildCtx := e.createBuildContext(job)
+		
+		flakeContent, err := e.GenerateFlakeWithContext(ctx, detection, config, buildCtx)
 		if err != nil {
 			return &BuildResult{Logs: logs}, err
 		}
@@ -171,6 +196,31 @@ func (e *AutoGoStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *model
 	default:
 		return nil, fmt.Errorf("%w: unknown build type %s", ErrBuildFailed, job.BuildType)
 	}
+}
+
+// createBuildContext creates a build context for ldflags variable substitution.
+// **Validates: Requirements 18.3**
+func (e *AutoGoStrategyExecutor) createBuildContext(job *models.BuildJob) validation.LdflagsBuildContext {
+	ctx := validation.LdflagsBuildContext{
+		Version:   "0.0.0-dev",
+		Commit:    "unknown",
+		BuildTime: time.Now(),
+	}
+
+	// Try to extract version from job if available
+	if job.BuildConfig != nil && job.BuildConfig.EnvironmentVars != nil {
+		if version, ok := job.BuildConfig.EnvironmentVars["VERSION"]; ok && version != "" {
+			ctx.Version = version
+		}
+	}
+
+	// Try to extract commit from git ref
+	if job.GitRef != "" {
+		// Use the git ref as commit (could be a branch, tag, or commit hash)
+		ctx.Commit = job.GitRef
+	}
+
+	return ctx
 }
 
 // detectFromJob performs Go detection based on job information.
