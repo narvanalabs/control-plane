@@ -121,6 +121,7 @@ func (s *Server) setupRouter() {
 		// Requirements: 2.1
 		configHandler := handlers.NewConfigHandler(s.store, s.logger)
 		r.Get("/config", configHandler.GetConfig)
+		r.Get("/config/defaults", configHandler.GetDefaults)
 
 		// Dashboard statistics endpoint
 		// Requirements: 1.1
