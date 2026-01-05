@@ -20,6 +20,7 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	token      string
+	orgID      string // Organization ID for X-Org-ID header
 }
 
 // NewClient creates a new API client.
@@ -38,6 +39,19 @@ func (c *Client) WithToken(token string) *Client {
 		baseURL:    c.baseURL,
 		httpClient: c.httpClient,
 		token:      token,
+		orgID:      c.orgID,
+	}
+}
+
+// WithOrg returns a new client with the specified organization ID.
+// The organization ID will be included in the X-Org-ID header for all requests.
+// **Validates: Requirements 13.1**
+func (c *Client) WithOrg(orgID string) *Client {
+	return &Client{
+		baseURL:    c.baseURL,
+		httpClient: c.httpClient,
+		token:      c.token,
+		orgID:      orgID,
 	}
 }
 
@@ -1065,6 +1079,9 @@ func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, string, error
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
+	if c.orgID != "" {
+		req.Header.Set("X-Org-ID", c.orgID)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1133,6 +1150,9 @@ func (c *Client) delete(ctx context.Context, path string) error {
 func (c *Client) doRequest(req *http.Request, result interface{}) error {
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if c.orgID != "" {
+		req.Header.Set("X-Org-ID", c.orgID)
 	}
 	req.Header.Set("Accept", "application/json")
 
