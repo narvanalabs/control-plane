@@ -793,3 +793,327 @@ func TestIsCGOPackageAccuracy(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+// **Feature: ui-api-alignment, Property 17: Go Workspace Detection**
+// For any repository containing a go.work file, the builder SHALL detect it as a workspace
+// and configure the build environment accordingly.
+// **Validates: Requirements 22.1, 22.4**
+
+// GoWorkspaceTestCase represents a test case for Go workspace detection.
+type GoWorkspaceTestCase struct {
+	// HasGoWork indicates if the project has a go.work file
+	HasGoWork bool
+	// GoVersion is the Go version in go.work (if any)
+	GoVersion string
+	// Modules lists the module paths in the workspace
+	Modules []string
+	// ModuleName is the main module name (for go.mod)
+	ModuleName string
+}
+
+// genWorkspaceModules generates a list of workspace module paths.
+func genWorkspaceModules() gopter.Gen {
+	return gen.OneConstOf(
+		[]string{"./api", "./worker"},
+		[]string{"./cmd/server", "./cmd/client"},
+		[]string{"./services/auth", "./services/api", "./services/worker"},
+		[]string{"./pkg/core", "./apps/web"},
+		[]string{"."},
+	)
+}
+
+// genGoWorkspaceTestCase generates test cases for Go workspace detection.
+func genGoWorkspaceTestCase() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Bool(),                                                    // HasGoWork
+		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
+		genWorkspaceModules(),                                         // Modules
+		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+	).Map(func(vals []interface{}) GoWorkspaceTestCase {
+		return GoWorkspaceTestCase{
+			HasGoWork:  vals[0].(bool),
+			GoVersion:  vals[1].(string),
+			Modules:    vals[2].([]string),
+			ModuleName: vals[3].(string),
+		}
+	})
+}
+
+// genWorkspaceWithGoWork generates test cases that have a go.work file.
+func genWorkspaceWithGoWork() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Const(true),                                               // HasGoWork = true
+		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
+		genWorkspaceModules(),                                         // Modules
+		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+	).Map(func(vals []interface{}) GoWorkspaceTestCase {
+		return GoWorkspaceTestCase{
+			HasGoWork:  vals[0].(bool),
+			GoVersion:  vals[1].(string),
+			Modules:    vals[2].([]string),
+			ModuleName: vals[3].(string),
+		}
+	})
+}
+
+// genWorkspaceWithoutGoWork generates test cases that do not have a go.work file.
+func genWorkspaceWithoutGoWork() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Const(false),                                              // HasGoWork = false
+		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
+		genWorkspaceModules(),                                         // Modules (not used)
+		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+	).Map(func(vals []interface{}) GoWorkspaceTestCase {
+		return GoWorkspaceTestCase{
+			HasGoWork:  vals[0].(bool),
+			GoVersion:  vals[1].(string),
+			Modules:    vals[2].([]string),
+			ModuleName: vals[3].(string),
+		}
+	})
+}
+
+// createGoWorkspaceTestRepo creates a temporary Go repository for workspace detection testing.
+func createGoWorkspaceTestRepo(t *testing.T, tc GoWorkspaceTestCase) string {
+	dir := t.TempDir()
+
+	// Create go.mod in root
+	goModContent := "module " + tc.ModuleName + "\n\ngo " + tc.GoVersion + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		t.Fatalf("failed to create go.mod: %v", err)
+	}
+
+	// Create main.go in root
+	mainContent := `package main
+
+func main() {
+	println("hello")
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(mainContent), 0644); err != nil {
+		t.Fatalf("failed to create main.go: %v", err)
+	}
+
+	// Create go.work if needed
+	if tc.HasGoWork {
+		var goWorkContent string
+		goWorkContent = "go " + tc.GoVersion + "\n\nuse (\n"
+		for _, mod := range tc.Modules {
+			goWorkContent += "\t" + mod + "\n"
+		}
+		goWorkContent += ")\n"
+
+		if err := os.WriteFile(filepath.Join(dir, "go.work"), []byte(goWorkContent), 0644); err != nil {
+			t.Fatalf("failed to create go.work: %v", err)
+		}
+
+		// Create module directories with go.mod files
+		for _, mod := range tc.Modules {
+			if mod == "." {
+				continue // Root module already created
+			}
+			modDir := filepath.Join(dir, mod)
+			if err := os.MkdirAll(modDir, 0755); err != nil {
+				t.Fatalf("failed to create module directory %s: %v", mod, err)
+			}
+
+			// Create go.mod for sub-module
+			subModContent := "module " + tc.ModuleName + "/" + filepath.Base(mod) + "\n\ngo " + tc.GoVersion + "\n"
+			if err := os.WriteFile(filepath.Join(modDir, "go.mod"), []byte(subModContent), 0644); err != nil {
+				t.Fatalf("failed to create go.mod in %s: %v", mod, err)
+			}
+
+			// Create a simple main.go
+			subMainContent := `package main
+
+func main() {
+	println("` + filepath.Base(mod) + `")
+}
+`
+			if err := os.WriteFile(filepath.Join(modDir, "main.go"), []byte(subMainContent), 0644); err != nil {
+				t.Fatalf("failed to create main.go in %s: %v", mod, err)
+			}
+		}
+	}
+
+	return dir
+}
+
+// TestGoWorkspaceDetection tests that Go workspaces are detected correctly.
+// **Feature: ui-api-alignment, Property 17: Go Workspace Detection**
+// **Validates: Requirements 22.1, 22.4**
+func TestGoWorkspaceDetection(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 17a: Repositories with go.work are detected as workspaces
+	properties.Property("repositories with go.work are detected as workspaces", prop.ForAll(
+		func(tc GoWorkspaceTestCase) bool {
+			dir := createGoWorkspaceTestRepo(t, tc)
+
+			result, err := DetectGoWorkspace(dir)
+			if err != nil {
+				return false
+			}
+
+			// If HasGoWork is true, IsWorkspace must be true
+			return result.IsWorkspace
+		},
+		genWorkspaceWithGoWork(),
+	))
+
+	// Property 17b: Repositories without go.work are not detected as workspaces
+	properties.Property("repositories without go.work are not detected as workspaces", prop.ForAll(
+		func(tc GoWorkspaceTestCase) bool {
+			dir := createGoWorkspaceTestRepo(t, tc)
+
+			result, err := DetectGoWorkspace(dir)
+			if err != nil {
+				return false
+			}
+
+			// If HasGoWork is false, IsWorkspace must be false
+			return !result.IsWorkspace
+		},
+		genWorkspaceWithoutGoWork(),
+	))
+
+	// Property 17c: Go version is extracted from go.work
+	properties.Property("Go version is extracted from go.work", prop.ForAll(
+		func(tc GoWorkspaceTestCase) bool {
+			dir := createGoWorkspaceTestRepo(t, tc)
+
+			result, err := DetectGoWorkspace(dir)
+			if err != nil {
+				return false
+			}
+
+			// Go version should match what was written to go.work
+			return result.GoVersion == tc.GoVersion
+		},
+		genWorkspaceWithGoWork(),
+	))
+
+	// Property 17d: Modules are extracted from go.work use directives
+	properties.Property("modules are extracted from go.work use directives", prop.ForAll(
+		func(tc GoWorkspaceTestCase) bool {
+			dir := createGoWorkspaceTestRepo(t, tc)
+
+			result, err := DetectGoWorkspace(dir)
+			if err != nil {
+				return false
+			}
+
+			// Number of modules should match
+			if len(result.Modules) != len(tc.Modules) {
+				return false
+			}
+
+			// Create a set of expected modules (normalized)
+			expectedSet := make(map[string]bool)
+			for _, mod := range tc.Modules {
+				expectedSet[filepath.Clean(mod)] = true
+			}
+
+			// Check all detected modules are expected
+			for _, mod := range result.Modules {
+				if !expectedSet[mod] {
+					return false
+				}
+			}
+
+			return true
+		},
+		genWorkspaceWithGoWork(),
+	))
+
+	// Property 17e: Workspace detection is deterministic
+	properties.Property("workspace detection is deterministic", prop.ForAll(
+		func(tc GoWorkspaceTestCase) bool {
+			dir := createGoWorkspaceTestRepo(t, tc)
+
+			result1, err1 := DetectGoWorkspace(dir)
+			result2, err2 := DetectGoWorkspace(dir)
+			result3, err3 := DetectGoWorkspace(dir)
+
+			if err1 != nil || err2 != nil || err3 != nil {
+				return false
+			}
+
+			// All results should be identical
+			return result1.IsWorkspace == result2.IsWorkspace &&
+				result2.IsWorkspace == result3.IsWorkspace &&
+				result1.GoVersion == result2.GoVersion &&
+				result2.GoVersion == result3.GoVersion &&
+				len(result1.Modules) == len(result2.Modules) &&
+				len(result2.Modules) == len(result3.Modules)
+		},
+		genGoWorkspaceTestCase(),
+	))
+
+	// Property 17f: HasGoWorkspace convenience function is consistent with DetectGoWorkspace
+	properties.Property("HasGoWorkspace is consistent with DetectGoWorkspace", prop.ForAll(
+		func(tc GoWorkspaceTestCase) bool {
+			dir := createGoWorkspaceTestRepo(t, tc)
+
+			hasWorkspace := HasGoWorkspace(dir)
+			result, err := DetectGoWorkspace(dir)
+			if err != nil {
+				return false
+			}
+
+			// HasGoWorkspace should return the same as result.IsWorkspace
+			return hasWorkspace == result.IsWorkspace
+		},
+		genGoWorkspaceTestCase(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// TestGoWorkspaceInDetectGo tests that workspace detection is integrated into DetectGo.
+// **Feature: ui-api-alignment, Property 17: Go Workspace Detection**
+// **Validates: Requirements 22.1, 22.4**
+func TestGoWorkspaceInDetectGo(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: DetectGo includes workspace information in SuggestedConfig
+	properties.Property("DetectGo includes workspace information in SuggestedConfig", prop.ForAll(
+		func(tc GoWorkspaceTestCase) bool {
+			dir := createGoWorkspaceTestRepo(t, tc)
+
+			detector := NewDetector()
+			result, err := detector.DetectGo(context.Background(), dir)
+			if err != nil || result == nil {
+				return false
+			}
+
+			// Check if is_workspace is set correctly in SuggestedConfig
+			isWorkspace, ok := result.SuggestedConfig["is_workspace"]
+			if tc.HasGoWork {
+				// Should have is_workspace = true
+				if !ok {
+					return false
+				}
+				if isWorkspaceBool, isBool := isWorkspace.(bool); !isBool || !isWorkspaceBool {
+					return false
+				}
+			} else {
+				// Should not have is_workspace or it should be false
+				if ok {
+					if isWorkspaceBool, isBool := isWorkspace.(bool); isBool && isWorkspaceBool {
+						return false
+					}
+				}
+			}
+
+			return true
+		},
+		genGoWorkspaceTestCase(),
+	))
+
+	properties.TestingRun(t)
+}
