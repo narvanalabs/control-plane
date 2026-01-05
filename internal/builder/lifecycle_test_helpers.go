@@ -842,6 +842,10 @@ func (m *MockNodeStore) UpdateHeartbeat(ctx context.Context, id string, resource
 	return nil
 }
 
+func (m *MockNodeStore) UpdateHeartbeatWithDiskMetrics(ctx context.Context, id string, resources *models.NodeResources, diskMetrics *models.NodeDiskMetrics) error {
+	return nil
+}
+
 func (m *MockNodeStore) UpdateHealth(ctx context.Context, id string, healthy bool) error {
 	return nil
 }
