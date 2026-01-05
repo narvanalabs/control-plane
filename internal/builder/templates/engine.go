@@ -107,6 +107,13 @@ func templateFuncs() template.FuncMap {
 		"hasSuffix": strings.HasSuffix,
 		"trimPrefix": strings.TrimPrefix,
 		"trimSuffix": strings.TrimSuffix,
+		// formatLdflags formats ldflags string for Nix template
+		// Converts a space-separated ldflags string into Nix list format
+		// e.g., "-s -w -X main.version=1.0" -> ""-s" "-w" "-X main.version=1.0""
+		// **Validates: Requirements 18.2**
+		"formatLdflags": func(ldflags string) string {
+			return FormatLdflagsForNix(ldflags)
+		},
 	}
 }
 
@@ -124,6 +131,60 @@ func (e *DefaultTemplateEngine) Render(ctx context.Context, templateName string,
 	}
 
 	return buf.String(), nil
+}
+
+// FormatLdflagsForNix converts a space-separated ldflags string into Nix list format.
+// It handles quoted strings and -X flags with values correctly.
+// e.g., "-s -w -X main.version=1.0" -> ""-s" "-w" "-X main.version=1.0""
+// **Validates: Requirements 18.2**
+func FormatLdflagsForNix(ldflags string) string {
+	if ldflags == "" {
+		return ""
+	}
+
+	// Parse ldflags respecting quoted strings and -X flags
+	parts := parseLdflags(ldflags)
+	if len(parts) == 0 {
+		return ""
+	}
+
+	// Format each part as a Nix string
+	var result []string
+	for _, part := range parts {
+		// Escape special characters for Nix strings
+		escaped := strings.ReplaceAll(part, "\\", "\\\\")
+		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+		escaped = strings.ReplaceAll(escaped, "${", "\\${")
+		result = append(result, fmt.Sprintf("\"%s\"", escaped))
+	}
+
+	return strings.Join(result, " ")
+}
+
+// parseLdflags parses a space-separated ldflags string into individual flags.
+// It handles -X flags specially, keeping the flag and its value together.
+// e.g., "-s -w -X main.version=1.0" -> ["-s", "-w", "-X main.version=1.0"]
+func parseLdflags(ldflags string) []string {
+	var result []string
+	parts := strings.Fields(ldflags)
+
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
+
+		// Handle -X flag which takes a value
+		if part == "-X" && i+1 < len(parts) {
+			// Combine -X with its value
+			result = append(result, part+" "+parts[i+1])
+			i++ // Skip the next part as we've consumed it
+		} else if strings.HasPrefix(part, "-X=") {
+			// Handle -X=value format
+			result = append(result, part)
+		} else {
+			result = append(result, part)
+		}
+	}
+
+	return result
 }
 
 // Validate checks if generated flake.nix is syntactically valid using nix flake check.
