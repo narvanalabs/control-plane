@@ -55,7 +55,7 @@ func (e *AutoGoStrategyExecutor) Supports(strategy models.BuildStrategy) bool {
 func (e *AutoGoStrategyExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
 	// Determine template name based on CGO
 	templateName := "go.nix"
-	if config.CGOEnabled {
+	if config.CGOEnabled != nil && *config.CGOEnabled {
 		templateName = "go-cgo.nix"
 	}
 
