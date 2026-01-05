@@ -15,10 +15,12 @@ import (
 
 // ServerData holds the data for the server settings page
 type ServerData struct {
-	Domain     string
-	PublicIP   string
-	SuccessMsg string
-	ErrorMsg   string
+	Domain           string
+	PublicIP         string
+	DefaultCPU       string
+	DefaultMemory    string
+	SuccessMsg       string
+	ErrorMsg         string
 }
 
 // Server renders the server settings page
@@ -99,6 +101,60 @@ templ Server(data ServerData) {
 						<div class="flex justify-end">
 							@button.Button(button.Props{Type: "submit"}) {
 								Save Configuration
+							}
+						</div>
+					</form>
+				}
+			}
+			
+			@separator.Separator()
+			
+			// Default Resources Section
+			// **Validates: Requirements 12.1, 12.2, 12.3**
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Default Resources
+					}
+					@card.Description() {
+						Configure default resource limits for new services
+					}
+				}
+				@card.Content() {
+					<form method="POST" action="/settings/server/resources" class="space-y-4">
+						@form.Item() {
+							@label.Label(label.Props{For: "default_cpu"}) {
+								Default CPU
+							}
+							@input.Input(input.Props{
+								ID:          "default_cpu",
+								Name:        "default_cpu",
+								Placeholder: "e.g. 0.5, 1, 2",
+								Value:       data.DefaultCPU,
+							})
+							@form.Description() {
+								Default CPU allocation for new services (e.g., 0.5, 1, 2 cores).
+							}
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "default_memory"}) {
+								Default Memory
+							}
+							@input.Input(input.Props{
+								ID:          "default_memory",
+								Name:        "default_memory",
+								Placeholder: "e.g. 256Mi, 512Mi, 1Gi",
+								Value:       data.DefaultMemory,
+							})
+							@form.Description() {
+								Default memory allocation for new services (e.g., 256Mi, 512Mi, 1Gi).
+							}
+						}
+						
+						<div class="flex justify-end">
+							@button.Button(button.Props{Type: "submit"}) {
+								Save Resources
 							}
 						</div>
 					</form>
