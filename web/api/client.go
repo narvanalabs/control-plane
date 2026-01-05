@@ -48,15 +48,16 @@ func (c *Client) WithToken(token string) *Client {
 // App represents an application from the API.
 type App struct {
 	ID          string    `json:"id"`
+	OrgID       string    `json:"org_id"`
 	OwnerID     string    `json:"owner_id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	IconURL     string    `json:"icon_url"`
-	Services     []Service `json:"services"`
-	ResourceTier string    `json:"resource_tier"`
-	Domains      []string  `json:"domains"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Services    []Service `json:"services"`
+	Version     int       `json:"version"` // For optimistic locking
+	Domains     []string  `json:"domains"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Service represents a service within an app.
@@ -66,16 +67,22 @@ type Service struct {
 	GitRepo    string `json:"git_repo,omitempty"`
 	GitRef     string `json:"git_ref,omitempty"`
 	FlakeURI   string `json:"flake_uri,omitempty"`
-	ImageRef   string          `json:"image_ref,omitempty"`
 	Database   *DatabaseConfig `json:"database,omitempty"`
 
 	// Build & Runtime
 	BuildStrategy BuildStrategy     `json:"build_strategy,omitempty"`
 	BuildConfig   *BuildConfig      `json:"build_config,omitempty"`
+	Resources     *ResourceSpec     `json:"resources,omitempty"` // Direct CPU/memory specification
 	Replicas      int               `json:"replicas"`
 	Port          int               `json:"port,omitempty"`          // Container port the app listens on
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	DependsOn     []string          `json:"depends_on,omitempty"`
+}
+
+// ResourceSpec represents direct resource allocation.
+type ResourceSpec struct {
+	CPU    string `json:"cpu"`    // e.g., "0.5", "1", "2"
+	Memory string `json:"memory"` // e.g., "256Mi", "1Gi"
 }
 
 // DatabaseConfig represents a database configuration.
@@ -169,6 +176,28 @@ type DashboardStats struct {
 	RunningBuilds     int
 }
 
+// DashboardStatsResponse holds pre-calculated dashboard statistics from the backend.
+type DashboardStatsResponse struct {
+	ActiveDeployments int               `json:"active_deployments"`
+	TotalApps         int               `json:"total_apps"`
+	TotalServices     int               `json:"total_services"`
+	NodeHealth        NodeHealthSummary `json:"node_health"`
+}
+
+// NodeHealthSummary holds node health statistics.
+type NodeHealthSummary struct {
+	Total     int `json:"total"`
+	Healthy   int `json:"healthy"`
+	Unhealthy int `json:"unhealthy"`
+}
+
+// GetDashboardStats fetches pre-calculated dashboard statistics from the backend.
+func (c *Client) GetDashboardStats(ctx context.Context) (*DashboardStatsResponse, error) {
+	var stats DashboardStatsResponse
+	err := c.Get(ctx, "/v1/dashboard/stats", &stats)
+	return &stats, err
+}
+
 // RecentDeployment holds data for recent deployments display.
 type RecentDeployment struct {
 	AppName     string
@@ -184,6 +213,34 @@ type NodeHealth struct {
 	Healthy    bool
 	CPUPercent int
 	MemPercent int
+}
+
+// ============================================================================
+// Platform Configuration Types
+// ============================================================================
+
+// PlatformConfig holds platform-wide configuration from the backend.
+type PlatformConfig struct {
+	Domain           string            `json:"domain"`
+	DefaultPorts     map[string]int    `json:"default_ports"`
+	StatusMappings   map[string]string `json:"status_mappings"`
+	DefaultResources ResourceSpec      `json:"default_resources"`
+	SupportedDBTypes []DatabaseTypeDef `json:"supported_db_types"`
+	MaxServicesPerApp int              `json:"max_services_per_app"`
+}
+
+// DatabaseTypeDef defines a supported database type.
+type DatabaseTypeDef struct {
+	Type     string   `json:"type"`
+	Versions []string `json:"versions"`
+	Default  string   `json:"default_version"`
+}
+
+// GetConfig fetches platform configuration from the backend.
+func (c *Client) GetConfig(ctx context.Context) (*PlatformConfig, error) {
+	var config PlatformConfig
+	err := c.Get(ctx, "/v1/config", &config)
+	return &config, err
 }
 
 // GetUserProfile retrieves the current user's profile.
@@ -253,16 +310,16 @@ type BuildConfig struct {
 
 // CreateServiceRequest is the request body for creating a service.
 type CreateServiceRequest struct {
-	Name       string         `json:"name"`
-	SourceType string         `json:"source_type"`
-	GitRepo    string         `json:"git_repo,omitempty"`
-	GitRef     string         `json:"git_ref,omitempty"`
-	FlakeURI   string         `json:"flake_uri,omitempty"`
-	ImageRef   string         `json:"image_ref,omitempty"`
-	BuildStrategy BuildStrategy   `json:"build_strategy,omitempty"`
-	BuildConfig   *BuildConfig    `json:"build_config,omitempty"`
-	Database      *DatabaseConfig `json:"database,omitempty"`
-	Replicas      int             `json:"replicas"`
+	Name          string            `json:"name"`
+	SourceType    string            `json:"source_type"`
+	GitRepo       string            `json:"git_repo,omitempty"`
+	GitRef        string            `json:"git_ref,omitempty"`
+	FlakeURI      string            `json:"flake_uri,omitempty"`
+	BuildStrategy BuildStrategy     `json:"build_strategy,omitempty"`
+	BuildConfig   *BuildConfig      `json:"build_config,omitempty"`
+	Database      *DatabaseConfig   `json:"database,omitempty"`
+	Resources     *ResourceSpec     `json:"resources,omitempty"` // Direct CPU/memory specification
+	Replicas      int               `json:"replicas"`
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	DependsOn     []string          `json:"depends_on,omitempty"`
 }
@@ -458,11 +515,10 @@ func (c *Client) DeleteApp(ctx context.Context, id string) error {
 
 // UpdateAppRequest is the request body for updating an app.
 type UpdateAppRequest struct {
-	Name         string   `json:"name,omitempty"`
-	Description  string   `json:"description,omitempty"`
-	IconURL      string   `json:"icon_url,omitempty"`
-	ResourceTier string   `json:"resource_tier,omitempty"`
-	Domains      []string `json:"domains,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	IconURL     *string `json:"icon_url,omitempty"`
+	Version     int     `json:"version"` // Required for optimistic locking
 }
 
 // ============================================================================
