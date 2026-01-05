@@ -927,59 +927,74 @@ func (c *Client) AcceptInvitation(ctx context.Context, token, password string) (
 // Dashboard Methods
 // ============================================================================
 
-// GetDashboardData fetches all dashboard data in parallel for better performance.
+// GetDashboardData fetches dashboard data from the backend statistics endpoint.
+// This uses the backend as the source of truth for statistics instead of calculating client-side.
+// **Validates: Requirements 3.1, 3.2, 3.3**
 func (c *Client) GetDashboardData(ctx context.Context) (*DashboardStats, []RecentDeployment, []NodeHealth, error) {
 	stats := &DashboardStats{}
 	var recentDeployments []RecentDeployment
 	var nodeHealth []NodeHealth
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var statsErr error
 
-	// 1. Fetch Apps and Nodes in parallel
+	// Fetch backend statistics and node details in parallel
 	wg.Add(2)
-	var apps []App
-	var nodes []Node
-	
+
+	// 1. Fetch pre-calculated statistics from backend (source of truth)
+	// **Validates: Requirements 3.1, 3.2**
 	go func() {
 		defer wg.Done()
-		if a, err := c.ListApps(ctx); err == nil {
+		backendStats, err := c.GetDashboardStats(ctx)
+		if err != nil {
 			mu.Lock()
-			apps = a
-			stats.TotalApps = len(apps)
+			statsErr = err
 			mu.Unlock()
+			return
 		}
+		mu.Lock()
+		stats.TotalApps = backendStats.TotalApps
+		stats.ActiveDeployments = backendStats.ActiveDeployments
+		stats.HealthyNodes = backendStats.NodeHealth.Healthy
+		mu.Unlock()
 	}()
 
+	// 2. Fetch node details for the node health display (need full node info for CPU/memory)
 	go func() {
 		defer wg.Done()
-		if n, err := c.ListNodes(ctx); err == nil {
-			mu.Lock()
-			nodes = n
-			for _, node := range nodes {
-				if node.Healthy {
-					stats.HealthyNodes++
-				}
-				nh := NodeHealth{
-					Name:    node.Hostname,
-					Address: node.Address,
-					Healthy: node.Healthy,
-				}
-				if node.Resources != nil && node.Resources.CPUTotal > 0 {
-					nh.CPUPercent = int(((node.Resources.CPUTotal - node.Resources.CPUAvailable) / node.Resources.CPUTotal) * 100)
-				}
-				if node.Resources != nil && node.Resources.MemoryTotal > 0 {
-					nh.MemPercent = int(((float64(node.Resources.MemoryTotal) - float64(node.Resources.MemoryAvailable)) / float64(node.Resources.MemoryTotal)) * 100)
-				}
-				nodeHealth = append(nodeHealth, nh)
-			}
-			mu.Unlock()
+		nodes, err := c.ListNodes(ctx)
+		if err != nil {
+			return
 		}
+		mu.Lock()
+		for _, node := range nodes {
+			nh := NodeHealth{
+				Name:    node.Hostname,
+				Address: node.Address,
+				Healthy: node.Healthy,
+			}
+			if node.Resources != nil && node.Resources.CPUTotal > 0 {
+				nh.CPUPercent = int(((node.Resources.CPUTotal - node.Resources.CPUAvailable) / node.Resources.CPUTotal) * 100)
+			}
+			if node.Resources != nil && node.Resources.MemoryTotal > 0 {
+				nh.MemPercent = int(((float64(node.Resources.MemoryTotal) - float64(node.Resources.MemoryAvailable)) / float64(node.Resources.MemoryTotal)) * 100)
+			}
+			nodeHealth = append(nodeHealth, nh)
+		}
+		mu.Unlock()
 	}()
 
 	wg.Wait()
 
-	// 2. Fetch recent deployments from all apps in parallel
-	if len(apps) > 0 {
+	// Return error if stats fetch failed
+	if statsErr != nil {
+		return nil, nil, nil, statsErr
+	}
+
+	// 3. Fetch recent deployments for display
+	// We still need to fetch deployments for the "recent deployments" list
+	apps, err := c.ListApps(ctx)
+	if err == nil && len(apps) > 0 {
 		wg.Add(len(apps))
 		for _, app := range apps {
 			go func(a App) {
@@ -989,9 +1004,6 @@ func (c *Client) GetDashboardData(ctx context.Context) (*DashboardStats, []Recen
 					mu.Lock()
 					defer mu.Unlock()
 					for _, d := range deployments {
-						if d.Status == "running" {
-							stats.ActiveDeployments++
-						}
 						// Add to recent (limit to first 10, then sorted/sliced later if needed)
 						if len(recentDeployments) < 10 {
 							recentDeployments = append(recentDeployments, RecentDeployment{
