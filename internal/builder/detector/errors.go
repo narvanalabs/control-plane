@@ -27,4 +27,8 @@ var (
 
 	// ErrInvalidPyProject is returned when pyproject.toml cannot be parsed.
 	ErrInvalidPyProject = errors.New("failed to parse pyproject.toml")
+
+	// ErrNoEntryPointsFound is returned when no entry points are detected in the repository.
+	// **Validates: Requirements 19.6**
+	ErrNoEntryPointsFound = errors.New("no entry points found in repository")
 )
