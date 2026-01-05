@@ -62,11 +62,19 @@
           tags = [ {{ range $i, $tag := .Config.BuildTags }}{{ if $i }} {{ end }}"{{ $tag }}"{{ end }} ];
           {{- end }}
           
+          # Ldflags for Go linker
+          # **Validates: Requirements 18.2, 18.4, 18.5**
+          {{- if .Config.Ldflags }}
+          # Custom ldflags override defaults
+          ldflags = [ {{ .Config.Ldflags | formatLdflags }} ];
+          {{- else }}
+          # Default ldflags: strip debug info and symbols for smaller binaries
           ldflags = [
             "-s"
             "-w"
-            "-X main.version=0.1.0"
+            "-X main.version={{ default "0.1.0" .Version }}"
           ];
+          {{- end }}
           
           # Ensure CGO can find libraries
           preBuild = ''
