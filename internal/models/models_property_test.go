@@ -1072,20 +1072,24 @@ func genBuildConfig() gopter.Gen {
 		gen.AlphaString(),                                    // EntryPoint
 		gen.IntRange(60, 3600),                               // BuildTimeout
 		gen.OneConstOf("1.21", "1.22", "1.23"),               // GoVersion
-		gen.Bool(),                                           // CGOEnabled
+		gen.PtrOf(gen.Bool()),                                // CGOEnabled (*bool)
 		gen.OneConstOf("18", "20", "22"),                     // NodeVersion
 		gen.OneConstOf("npm", "yarn", "pnpm"),                // PackageManager
 		gen.OneConstOf("2018", "2021", "2024"),               // RustEdition
 		gen.OneConstOf("3.10", "3.11", "3.12"),               // PythonVersion
 		gen.Bool(),                                           // AutoRetryAsOCI
 	).Map(func(vals []interface{}) *BuildConfig {
+		var cgoEnabled *bool
+		if vals[5] != nil {
+			cgoEnabled = vals[5].(*bool)
+		}
 		return &BuildConfig{
 			BuildCommand:   vals[0].(string),
 			StartCommand:   vals[1].(string),
 			EntryPoint:     vals[2].(string),
 			BuildTimeout:   vals[3].(int),
 			GoVersion:      vals[4].(string),
-			CGOEnabled:     vals[5].(bool),
+			CGOEnabled:     cgoEnabled,
 			NodeVersion:    vals[6].(string),
 			PackageManager: vals[7].(string),
 			RustEdition:    vals[8].(string),
