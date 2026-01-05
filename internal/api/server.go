@@ -227,9 +227,19 @@ func (s *Server) setupRouter() {
 			r.Get("/", nodeHandler.List)
 			r.Post("/register", nodeHandler.Register)
 			r.Post("/heartbeat", nodeHandler.Heartbeat)
-			r.Post("/{nodeID}/heartbeat", func(w http.ResponseWriter, req *http.Request) {
-				nodeID := chi.URLParam(req, "nodeID")
-				nodeHandler.HeartbeatByID(w, req, nodeID)
+			r.Route("/{nodeID}", func(r chi.Router) {
+				r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+					nodeID := chi.URLParam(req, "nodeID")
+					nodeHandler.Get(w, req, nodeID)
+				})
+				r.Get("/details", func(w http.ResponseWriter, req *http.Request) {
+					nodeID := chi.URLParam(req, "nodeID")
+					nodeHandler.GetDetails(w, req, nodeID)
+				})
+				r.Post("/heartbeat", func(w http.ResponseWriter, req *http.Request) {
+					nodeID := chi.URLParam(req, "nodeID")
+					nodeHandler.HeartbeatByID(w, req, nodeID)
+				})
 			})
 		})
 
