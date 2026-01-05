@@ -641,11 +641,7 @@ templ ServiceDetail(data ServiceDetailData) {
 					</div>
 				}
 				
-				// Terminal Tab - Interactive shell for running services
-				// **Validates: Requirements 23.1, 23.2, 23.3, 23.4, 23.5**
-				// NOTE: Terminal is now accessed via button in header, not as a tab
-				
-				// Secrets Tab - Database credentials (only for database services)
+				// Settings Tab
 				if isDatabaseService(data.Service) {
 					@tabs.Content(tabs.ContentProps{Value: "secrets"}) {
 						<div class="pt-4 space-y-6" id="secrets-tab" data-app-id={ data.App.ID } data-service-name={ data.Service.Name } data-db-type={ data.Service.Database.Type }>
@@ -1722,7 +1718,7 @@ templ ServiceDetail(data ServiceDetailData) {
 					</div>
 				}
 				
-				// Settings Tab
+				// Secrets Tab - Database credentials (only for database services)
 				@tabs.Content(tabs.ContentProps{Value: "settings"}) {
 					<div class="pt-4 space-y-6">
 						@card.Card() {
@@ -2036,6 +2032,119 @@ templ ServiceDetail(data ServiceDetailData) {
 		// Include live logs script for database services
 		if data.Service.SourceType == "database" {
 			<script src="/assets/js/live-logs.js"></script>
+		}
+		
+		// Terminal Dialog - shown when Terminal button is clicked for running non-database services
+		// **Validates: Requirements 23.1, 23.2, 23.3, 23.4, 23.5**
+		if data.ServiceState == models.ServiceStateRunning && data.Service.SourceType != "database" {
+			// Load JetBrains Mono font and xterm.js library for terminal
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+			<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
+			<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+			
+			<dialog 
+				id="terminal-dialog" 
+				class="fixed inset-0 m-auto rounded-lg border border-border bg-background p-0 backdrop:bg-black/50 max-w-5xl w-[95vw] max-h-[90vh] overflow-hidden shadow-lg"
+			>
+				// Dialog header
+				<div class="flex items-center justify-between border-b border-border px-6 py-4">
+					<div>
+						<h2 class="text-lg font-semibold flex items-center gap-2">
+							@icon.Terminal(icon.Props{Class: "size-5"})
+							Service Terminal
+						</h2>
+						<p class="text-sm text-muted-foreground mt-0.5">
+							Interactive shell session for { data.Service.Name }
+						</p>
+					</div>
+				</div>
+				
+				// Dialog content - terminal panel
+				<div class="px-6 py-4">
+					@TerminalPanelDialog(data)
+				</div>
+				
+				// Dialog footer with quick commands and close button
+				<div class="flex items-center justify-between border-t border-border px-6 py-4">
+					<div class="flex flex-1 items-center gap-2">
+						<p class="text-[10px] uppercase text-muted-foreground font-semibold">Common:</p>
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs dialog-terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "top\n"}}) { top }
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs dialog-terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "ps aux\n"}}) { ps }
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs dialog-terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "df -h\n"}}) { disk }
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs dialog-terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "free -m\n"}}) { ram }
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs dialog-terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "ls -la\n"}}) { ls }
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "h-7 text-xs dialog-terminal-quick-cmd", Attributes: templ.Attributes{"data-cmd": "env\n"}}) { env }
+					</div>
+					
+					// Close terminal button with confirmation
+					@button.Button(button.Props{
+						ID:      "terminal-close-btn",
+						Variant: button.VariantOutline,
+					}) { 
+						Close Terminal 
+					}
+				</div>
+			</dialog>
+			
+			// Close confirmation dialog
+			<dialog 
+				id="terminal-close-confirm-dialog" 
+				class="fixed inset-0 m-auto rounded-lg border border-border bg-background p-0 backdrop:bg-black/50 max-w-md w-[95vw] shadow-lg"
+			>
+				<div class="px-6 py-4">
+					<h3 class="text-lg font-semibold">Terminate Session?</h3>
+					<p class="text-sm text-muted-foreground mt-2">
+						Are you sure you want to close the terminal? All running processes in this session will be terminated.
+					</p>
+				</div>
+				<div class="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
+					@button.Button(button.Props{
+						ID:      "terminal-close-cancel-btn",
+						Variant: button.VariantGhost,
+					}) { 
+						Cancel 
+					}
+					@button.Button(button.Props{
+						ID:      "terminal-close-confirm-btn",
+						Variant: button.VariantDestructive,
+					}) { 
+						Terminate & Close 
+					}
+				</div>
+			</dialog>
+			
+			// Script to handle close confirmation
+			<script>
+				(function() {
+					const terminalDialog = document.getElementById('terminal-dialog');
+					const confirmDialog = document.getElementById('terminal-close-confirm-dialog');
+					const closeBtn = document.getElementById('terminal-close-btn');
+					const cancelBtn = document.getElementById('terminal-close-cancel-btn');
+					const confirmBtn = document.getElementById('terminal-close-confirm-btn');
+					
+					if (closeBtn && confirmDialog) {
+						closeBtn.addEventListener('click', () => {
+							confirmDialog.showModal();
+						});
+					}
+					
+					if (cancelBtn && confirmDialog) {
+						cancelBtn.addEventListener('click', () => {
+							confirmDialog.close();
+						});
+					}
+					
+					if (confirmBtn && terminalDialog && confirmDialog) {
+						confirmBtn.addEventListener('click', () => {
+							confirmDialog.close();
+							terminalDialog.close();
+						});
+					}
+				})();
+			</script>
 		}
 	}
 }
@@ -2778,6 +2887,20 @@ templ ServiceActionButtons(data ServiceDetailData) {
 			}
 		case models.ServiceStateRunning:
 			// Service is running - show Stop, Reload, Rebuild buttons
+			// Show Terminal button for non-database services
+			if data.Service.SourceType != "database" {
+				@button.Button(button.Props{
+					Type: "button",
+					Size: button.SizeSm,
+					Variant: button.VariantOutline,
+					Attributes: templ.Attributes{
+						"onclick": "document.getElementById('terminal-dialog').showModal()",
+					},
+				}) {
+					@icon.Terminal(icon.Props{Class: "size-4 mr-1"})
+					Terminal
+				}
+			}
 			<form 
 				method="POST" 
 				action={ templ.SafeURL("/apps/" + data.App.ID + "/services/" + data.Service.Name + "/stop") }
@@ -2976,6 +3099,323 @@ templ TerminalPanel(data ServiceDetailData) {
 	</div>
 }
 
+// TerminalPanelDialog renders the web terminal interface for use inside a dialog.
+// This version initializes the terminal when the dialog opens, not on page load.
+// **Validates: Requirements 23.1, 23.2, 23.3, 23.4, 23.5**
+templ TerminalPanelDialog(data ServiceDetailData) {
+	<div class="space-y-4">
+		// Terminal container with dark theme styling (matching server console)
+		<div class="rounded-md bg-zinc-950 border border-zinc-800 overflow-hidden">
+			// Terminal header bar
+			<div class="flex items-center justify-between px-3 py-1.5 bg-zinc-900/50 border-b border-zinc-800">
+				<div class="flex items-center gap-1.5">
+					<div class="size-2.5 rounded-full bg-red-500/20 border border-red-500/40"></div>
+					<div class="size-2.5 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
+					<div class="size-2.5 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
+					<span class="ml-2 text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
+						sh — { data.Service.Name }
+					</span>
+				</div>
+				<div class="flex items-center gap-2">
+					@badge.Badge(badge.Props{ID: "dialog-terminal-status", Variant: badge.VariantOutline, Class: "h-5 text-[10px] px-1.5 border-zinc-800"}) {
+						<span id="dialog-terminal-status-dot" class="mr-1 size-1.5 rounded-full bg-zinc-500"></span>
+						<span id="dialog-terminal-status-text">Waiting</span>
+					}
+					@button.Button(button.Props{
+						ID:      "dialog-terminal-reconnect-btn",
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+						Class:   "h-6 w-6 hidden text-zinc-400 hover:text-zinc-200",
+						Attributes: templ.Attributes{"title": "Reconnect"},
+					}) {
+						@icon.RefreshCw(icon.Props{Size: 12})
+					}
+				</div>
+			</div>
+			// xterm.js terminal container
+			<div 
+				id="dialog-service-terminal" 
+				class="h-[500px] w-full p-2"
+				data-app-id={ data.App.ID }
+				data-service-name={ data.Service.Name }
+			></div>
+		</div>
+	</div>
+	
+	// Terminal initialization script that runs when dialog opens
+	@TerminalDialogScript(data.App.ID, data.Service.Name)
+}
+
+// TerminalDialogScript renders the JavaScript for initializing the terminal when dialog opens.
+// **Validates: Requirements 23.3, 23.4, 23.5**
+templ TerminalDialogScript(appID string, serviceName string) {
+	<script>
+		(function() {
+			const dialog = document.getElementById('terminal-dialog');
+			const terminalContainer = document.getElementById('dialog-service-terminal');
+			if (!dialog || !terminalContainer) return;
+			
+			const appId = terminalContainer.dataset.appId;
+			const svcName = terminalContainer.dataset.serviceName;
+			
+			let term = null;
+			let fitAddon = null;
+			let ws = null;
+			let reconnectAttempts = 0;
+			let initialized = false;
+			const maxReconnectAttempts = 5;
+			const baseReconnectDelay = 1000;
+			
+			function getTerminalTheme() {
+				const isDark = document.documentElement.classList.contains('dark') || 
+					window.matchMedia('(prefers-color-scheme: dark)').matches;
+				
+				if (isDark) {
+					return {
+						background: '#09090b',
+						foreground: '#d4d4d8',
+						cursor: '#71717a',
+						cursorAccent: '#09090b',
+						selectionBackground: '#27272a',
+						selectionForeground: '#fafafa',
+						black: '#09090b',
+						red: '#ef4444',
+						green: '#22c55e',
+						yellow: '#f59e0b',
+						blue: '#3b82f6',
+						magenta: '#a855f7',
+						cyan: '#06b6d4',
+						white: '#fafafa',
+						brightBlack: '#71717a',
+						brightRed: '#f87171',
+						brightGreen: '#4ade80',
+						brightYellow: '#fbbf24',
+						brightBlue: '#60a5fa',
+						brightMagenta: '#c084fc',
+						brightCyan: '#22d3ee',
+						brightWhite: '#ffffff'
+					};
+				} else {
+					return {
+						background: '#fafafa',
+						foreground: '#18181b',
+						cursor: '#71717a',
+						cursorAccent: '#fafafa',
+						selectionBackground: '#e4e4e7',
+						selectionForeground: '#18181b',
+						black: '#18181b',
+						red: '#dc2626',
+						green: '#16a34a',
+						yellow: '#ca8a04',
+						blue: '#2563eb',
+						magenta: '#9333ea',
+						cyan: '#0891b2',
+						white: '#fafafa',
+						brightBlack: '#52525b',
+						brightRed: '#ef4444',
+						brightGreen: '#22c55e',
+						brightYellow: '#eab308',
+						brightBlue: '#3b82f6',
+						brightMagenta: '#a855f7',
+						brightCyan: '#06b6d4',
+						brightWhite: '#ffffff'
+					};
+				}
+			}
+			
+			function updateStatus(status, message) {
+				const dot = document.getElementById('dialog-terminal-status-dot');
+				const text = document.getElementById('dialog-terminal-status-text');
+				const reconnectBtn = document.getElementById('dialog-terminal-reconnect-btn');
+				
+				if (dot && text) {
+					switch (status) {
+						case 'connected':
+							dot.className = 'mr-1 size-1.5 rounded-full bg-emerald-500';
+							text.textContent = 'Connected';
+							if (reconnectBtn) reconnectBtn.classList.add('hidden');
+							break;
+						case 'connecting':
+							dot.className = 'mr-1 size-1.5 rounded-full bg-amber-500 animate-pulse';
+							text.textContent = message || 'Connecting';
+							if (reconnectBtn) reconnectBtn.classList.add('hidden');
+							break;
+						case 'disconnected':
+							dot.className = 'mr-1 size-1.5 rounded-full bg-red-500';
+							text.textContent = message || 'Disconnected';
+							if (reconnectBtn) reconnectBtn.classList.remove('hidden');
+							break;
+						case 'error':
+							dot.className = 'mr-1 size-1.5 rounded-full bg-red-500';
+							text.textContent = message || 'Error';
+							if (reconnectBtn) reconnectBtn.classList.remove('hidden');
+							break;
+					}
+				}
+			}
+			
+			function initTerminal() {
+				if (term) return;
+				
+				term = new Terminal({
+					cursorBlink: true,
+					cursorStyle: 'underline',
+					theme: getTerminalTheme(),
+					fontSize: 14,
+					lineHeight: 1.2,
+					fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
+					scrollback: 5000,
+					convertEol: true
+				});
+				
+				fitAddon = new FitAddon.FitAddon();
+				term.loadAddon(fitAddon);
+				term.open(terminalContainer);
+				
+				// Delay fit to ensure container is visible
+				setTimeout(() => {
+					fitAddon.fit();
+				}, 100);
+				
+				term.onData(data => {
+					if (ws && ws.readyState === WebSocket.OPEN) {
+						ws.send(data);
+					}
+				});
+				
+				window.addEventListener('resize', () => {
+					if (fitAddon && dialog.open) {
+						fitAddon.fit();
+						sendResize();
+					}
+				});
+			}
+			
+			function sendResize() {
+				if (ws && ws.readyState === WebSocket.OPEN && term) {
+					ws.send(JSON.stringify({
+						type: 'resize',
+						rows: term.rows,
+						cols: term.cols
+					}));
+				}
+			}
+			
+			function connect() {
+				if (ws && ws.readyState === WebSocket.OPEN) return;
+				
+				updateStatus('connecting');
+				
+				const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+				const wsUrl = `${protocol}//${window.location.host}/apps/${appId}/services/${svcName}/terminal/ws`;
+				
+				ws = new WebSocket(wsUrl);
+				ws.binaryType = 'arraybuffer';
+				
+				ws.onopen = () => {
+					reconnectAttempts = 0;
+					updateStatus('connected');
+					if (term) {
+						term.focus();
+						setTimeout(() => {
+							if (fitAddon) fitAddon.fit();
+							sendResize();
+						}, 50);
+					}
+				};
+				
+				ws.onmessage = (event) => {
+					if (term) {
+						term.write(new Uint8Array(event.data));
+					}
+				};
+				
+				ws.onclose = (event) => {
+					updateStatus('disconnected', 'Connection closed');
+					if (term) {
+						term.write('\r\n\x1b[31mTerminal connection closed.\x1b[0m\r\n');
+					}
+					
+					// Only auto-reconnect if dialog is still open
+					if (dialog.open && reconnectAttempts < maxReconnectAttempts) {
+						const delay = baseReconnectDelay * Math.pow(2, reconnectAttempts);
+						reconnectAttempts++;
+						updateStatus('connecting', `Reconnecting in ${delay/1000}s...`);
+						setTimeout(() => {
+							if (dialog.open) connect();
+						}, delay);
+					}
+				};
+				
+				ws.onerror = (error) => {
+					console.error('WebSocket error:', error);
+					updateStatus('error', 'Connection error');
+				};
+			}
+			
+			function cleanup() {
+				if (ws) {
+					ws.send(JSON.stringify({ type: 'terminate' }));
+					ws.close();
+					ws = null;
+				}
+			}
+			
+			// Initialize when dialog opens
+			dialog.addEventListener('open', () => {
+				if (!initialized) {
+					initTerminal();
+					initialized = true;
+				}
+				reconnectAttempts = 0;
+				connect();
+			});
+			
+			// Also handle the native showModal which doesn't fire 'open' event
+			const originalShowModal = dialog.showModal.bind(dialog);
+			dialog.showModal = function() {
+				originalShowModal();
+				if (!initialized) {
+					initTerminal();
+					initialized = true;
+				}
+				reconnectAttempts = 0;
+				connect();
+			};
+			
+			// Cleanup when dialog closes
+			dialog.addEventListener('close', () => {
+				cleanup();
+			});
+			
+			// Quick command buttons
+			document.querySelectorAll('.dialog-terminal-quick-cmd').forEach(btn => {
+				btn.addEventListener('click', () => {
+					const cmd = btn.getAttribute('data-cmd');
+					if (ws && ws.readyState === WebSocket.OPEN) {
+						ws.send(cmd);
+					}
+					if (term) term.focus();
+				});
+			});
+			
+			// Reconnect button
+			const reconnectBtn = document.getElementById('dialog-terminal-reconnect-btn');
+			if (reconnectBtn) {
+				reconnectBtn.addEventListener('click', () => {
+					reconnectAttempts = 0;
+					connect();
+				});
+			}
+			
+			// Cleanup on page unload
+			window.addEventListener('beforeunload', () => {
+				cleanup();
+			});
+		})();
+	</script>
+}
+
 // TerminalScript renders the JavaScript for initializing and managing the terminal.
 // **Validates: Requirements 23.3, 23.4, 23.5**
 templ TerminalScript(appID string, serviceName string) {
@@ -3154,7 +3594,7 @@ templ TerminalScript(appID string, serviceName string) {
 				updateStatus('connecting');
 				
 				const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-				const wsUrl = `${protocol}//${window.location.host}/api/v1/apps/${appId}/services/${svcName}/terminal/ws`;
+				const wsUrl = `${protocol}//${window.location.host}/apps/${appId}/services/${svcName}/terminal/ws`;
 				
 				ws = new WebSocket(wsUrl);
 				ws.binaryType = 'arraybuffer';
