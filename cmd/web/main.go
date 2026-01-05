@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -840,8 +841,25 @@ func handleUpdateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req := api.UpdateAppRequest{
-		ResourceTier: r.FormValue("resource_tier"),
+	// Build update request with pointer fields for optional values
+	req := api.UpdateAppRequest{}
+	
+	// Parse version for optimistic locking
+	if versionStr := r.FormValue("version"); versionStr != "" {
+		if version, err := strconv.Atoi(versionStr); err == nil {
+			req.Version = version
+		}
+	}
+	
+	// Only set fields that were provided
+	if name := r.FormValue("name"); name != "" {
+		req.Name = &name
+	}
+	if description := r.FormValue("description"); description != "" {
+		req.Description = &description
+	}
+	if iconURL := r.FormValue("icon_url"); iconURL != "" {
+		req.IconURL = &iconURL
 	}
 
 	_, err := client.UpdateApp(ctx, appID, req)
@@ -872,7 +890,6 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 		GitRepo:    r.FormValue("repo"),
 		GitRef:     r.FormValue("git_ref"),
 		FlakeURI:   r.FormValue("flake_uri"),
-		ImageRef:   r.FormValue("image_ref"),
 	}
 
 	// Handle web service with language selection
