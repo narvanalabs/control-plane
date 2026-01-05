@@ -144,7 +144,17 @@ templ Detail(data DetailData) {
 												</div>
 												<div>
 													<h3 class="font-semibold text-zinc-100">{ svc.Name }</h3>
-													<p class="text-xs text-muted-foreground capitalize">{ svc.SourceType }</p>
+													// Display friendly source type names
+													// **Validates: Requirements 10.3**
+													<p class="text-xs text-muted-foreground">
+														if svc.SourceType == "database" {
+															Database
+														} else if svc.SourceType == "image" {
+															Image (Legacy)
+														} else {
+															Git Repository
+														}
+													</p>
 												</div>
 											</div>
 											@icon.ArrowRight(icon.Props{Class: "size-4 text-zinc-700 group-hover:text-zinc-400 transition-colors"})
@@ -565,6 +575,23 @@ templ WebServiceDialog(data DetailData) {
 							@icon.Sparkles(icon.Props{Class: "size-4"})
 							<span>Auto-detected configuration</span>
 						</div>
+						
+						// Flake detection notice (hidden by default, shown when flake.nix is detected)
+						// **Validates: Requirements 10.2**
+						<div id="web-svc-flake-notice" class="hidden rounded-md bg-blue-500/10 border border-blue-500/20 p-3">
+							<div class="flex items-start gap-2">
+								<div class="size-5 rounded bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+									@icon.Sparkles(icon.Props{Class: "size-3 text-blue-400"})
+								</div>
+								<div>
+									<p class="text-sm font-medium text-blue-200">Nix Flake Detected</p>
+									<p class="text-xs text-blue-200/70 mt-0.5">
+										A flake.nix file was found in this repository. The build will automatically use the Nix flake configuration.
+									</p>
+								</div>
+							</div>
+						</div>
+						
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
 								@label.Label(label.Props{For: "web_svc_entry_point", Class: "text-xs"}) { Entry Point }
@@ -999,6 +1026,12 @@ templ AppDetailScript() {
 					detectedFields.classList.add('hidden');
 				}
 				
+				// Hide flake notice by default
+				const flakeNotice = document.getElementById('web-svc-flake-notice');
+				if (flakeNotice) {
+					flakeNotice.classList.add('hidden');
+				}
+				
 				try {
 					const response = await fetch('/api/detect', {
 						method: 'POST',
@@ -1040,6 +1073,14 @@ templ AppDetailScript() {
 							if (language) {
 								const hiddenLanguage = document.getElementById('hidden_web_svc_language');
 								if (hiddenLanguage) hiddenLanguage.value = language;
+							}
+						}
+						
+						// Show flake notice if flake.nix was detected
+						// **Validates: Requirements 10.2**
+						if (result.has_flake || result.strategy === 'flake') {
+							if (flakeNotice) {
+								flakeNotice.classList.remove('hidden');
 							}
 						}
 						
