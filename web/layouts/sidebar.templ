@@ -19,27 +19,20 @@ import (
 	"context"
 )
 
-// GetUser returns the user from the context or a default one
+// GetUser returns the user from the context or nil if not authenticated
 func GetUser(ctx context.Context) *store.User {
 	if u, ok := ctx.Value("user").(*store.User); ok {
 		return u
 	}
-	return &store.User{
-		Email: "admin@narvana.io",
-		Name:  "Admin",
-		Role:  store.RoleOwner,
-	}
+	return nil
 }
 
-// GetCurrentOrg returns the current organization from the context
+// GetCurrentOrg returns the current organization from the context or nil
 func GetCurrentOrg(ctx context.Context) *models.Organization {
 	if org, ok := ctx.Value("current_org").(*models.Organization); ok {
 		return org
 	}
-	return &models.Organization{
-		Name: "Default",
-		Slug: "default",
-	}
+	return nil
 }
 
 // GetUserOrgs returns the user's organizations from the context
@@ -78,60 +71,107 @@ templ SidebarLayout(activePath string) {
 			@sidebar.Header() {
 				@sidebar.Menu() {
 					@sidebar.MenuItem() {
-						@dropdown.Dropdown() {
-							@dropdown.Trigger() {
-								@sidebar.MenuButton(sidebar.MenuButtonProps{
-									Tooltip: "Switch Organization",
-								}) {
-									if currentOrg.IconURL != "" {
-										<img src={ currentOrg.IconURL } class="size-5 rounded" alt={ currentOrg.Name } />
-									} else {
-										@icon.Building(icon.Props{Class: "size-4"})
+						if currentOrg != nil {
+							@dropdown.Dropdown() {
+								@dropdown.Trigger() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Tooltip: "Switch Organization",
+									}) {
+										if currentOrg.IconURL != "" {
+											<img src={ currentOrg.IconURL } class="size-5 rounded" alt={ currentOrg.Name } />
+										} else {
+											@icon.Building(icon.Props{Class: "size-4"})
+										}
+										<span class="font-semibold truncate">{ currentOrg.Name }</span>
+										@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
 									}
-									<span class="font-semibold truncate">{ currentOrg.Name }</span>
-									@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
 								}
-							}
-							@dropdown.Content(dropdown.ContentProps{
-								Class:     "w-56",
-								Placement: dropdown.PlacementBottomStart,
-							}) {
-								@dropdown.Label() {
-									Organizations
-								}
-								for _, org := range userOrgs {
+								@dropdown.Content(dropdown.ContentProps{
+									Class:     "w-56",
+									Placement: dropdown.PlacementBottomStart,
+								}) {
+									@dropdown.Label() {
+										Organizations
+									}
+									for _, org := range userOrgs {
+										@dropdown.Item(dropdown.ItemProps{
+											Href: "/orgs/" + org.Slug + "/switch",
+										}) {
+											<span class="flex items-center">
+												if org.ID == currentOrg.ID {
+													@icon.Check(icon.Props{Size: 16, Class: "mr-2 text-primary"})
+												} else {
+													<span class="size-4 mr-2"></span>
+												}
+												{ org.Name }
+											</span>
+										}
+									}
+									@dropdown.Separator()
 									@dropdown.Item(dropdown.ItemProps{
-										Href: "/orgs/" + org.Slug + "/switch",
+										Href: "/orgs/" + currentOrg.ID,
 									}) {
 										<span class="flex items-center">
-											if org.ID == currentOrg.ID {
-												@icon.Check(icon.Props{Size: 16, Class: "mr-2 text-primary"})
-											} else {
-												<span class="size-4 mr-2"></span>
-											}
-											{ org.Name }
+											@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
+											Edit Organization
+										</span>
+									}
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-tui-dialog-trigger": "create-org-dialog",
+											"data-dialog-instance":    "create-org-dialog",
+										},
+									}) {
+										<span class="flex items-center">
+											@icon.Plus(icon.Props{Size: 16, Class: "mr-2"})
+											Create Organization
 										</span>
 									}
 								}
-								@dropdown.Separator()
-								@dropdown.Item(dropdown.ItemProps{
-									Href: "/orgs/" + currentOrg.ID,
-								}) {
-									<span class="flex items-center">
-										@icon.Settings(icon.Props{Size: 16, Class: "mr-2"})
-										Edit Organization
-									</span>
+							}
+						} else {
+							// Fallback UI when no organization is selected
+							@dropdown.Dropdown() {
+								@dropdown.Trigger() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Tooltip: "Select Organization",
+									}) {
+										@icon.Building(icon.Props{Class: "size-4"})
+										<span class="font-semibold truncate text-muted-foreground">No Organization</span>
+										@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
+									}
 								}
-								@dropdown.Item(dropdown.ItemProps{
-									Attributes: templ.Attributes{
-										"data-tui-dialog-trigger": "create-org-dialog",
-										"data-dialog-instance":    "create-org-dialog",
-									},
+								@dropdown.Content(dropdown.ContentProps{
+									Class:     "w-56",
+									Placement: dropdown.PlacementBottomStart,
 								}) {
-									<span class="flex items-center">
-										@icon.Plus(icon.Props{Size: 16, Class: "mr-2"})
-										Create Organization
-									</span>
+									@dropdown.Label() {
+										Organizations
+									}
+									if len(userOrgs) > 0 {
+										for _, org := range userOrgs {
+											@dropdown.Item(dropdown.ItemProps{
+												Href: "/orgs/" + org.Slug + "/switch",
+											}) {
+												<span class="flex items-center">
+													<span class="size-4 mr-2"></span>
+													{ org.Name }
+												</span>
+											}
+										}
+										@dropdown.Separator()
+									}
+									@dropdown.Item(dropdown.ItemProps{
+										Attributes: templ.Attributes{
+											"data-tui-dialog-trigger": "create-org-dialog",
+											"data-dialog-instance":    "create-org-dialog",
+										},
+									}) {
+										<span class="flex items-center">
+											@icon.Plus(icon.Props{Size: 16, Class: "mr-2"})
+											Create Organization
+										</span>
+									}
 								}
 							}
 						}
@@ -260,7 +300,7 @@ templ SidebarLayout(activePath string) {
 								<span>Notifications</span>
 							}
 						}
-						if user.Role == store.RoleOwner {
+						if user != nil && user.Role == store.RoleOwner {
 							@sidebar.MenuItem() {
 								@sidebar.MenuButton(sidebar.MenuButtonProps{
 									Href:     "/settings/users",
@@ -354,61 +394,82 @@ templ SidebarLayout(activePath string) {
 						</div>
 					}
 					@sidebar.MenuItem() {
-						@dropdown.Dropdown() {
-							@dropdown.Trigger() {
-								@sidebar.MenuButton(sidebar.MenuButtonProps{
-									Size: sidebar.MenuButtonSizeLg,
-								}) {
-									@avatar.Avatar(avatar.Props{Class: "size-8 rounded-lg"}) {
-										if user.AvatarURL != "" {
-											@avatar.Image(avatar.ImageProps{Src: user.AvatarURL, Alt: user.Name})
-										}
-										@avatar.Fallback(avatar.FallbackProps{}) {
-											if user.Name != "" {
-												{ user.Name[:2] }
-											} else {
-												{ user.Email[:2] }
+						if user != nil {
+							@dropdown.Dropdown() {
+								@dropdown.Trigger() {
+									@sidebar.MenuButton(sidebar.MenuButtonProps{
+										Size: sidebar.MenuButtonSizeLg,
+									}) {
+										@avatar.Avatar(avatar.Props{Class: "size-8 rounded-lg"}) {
+											if user.AvatarURL != "" {
+												@avatar.Image(avatar.ImageProps{Src: user.AvatarURL, Alt: user.Name})
 											}
+											@avatar.Fallback(avatar.FallbackProps{}) {
+												if user.Name != "" {
+													{ user.Name[:2] }
+												} else if user.Email != "" {
+													{ user.Email[:2] }
+												} else {
+													{ "??" }
+												}
+											}
+										}
+										<div class="grid flex-1 text-left text-sm leading-tight">
+											<span class="truncate font-medium">
+												if user.Name != "" {
+													{ user.Name }
+												} else {
+													{ user.Email }
+												}
+											</span>
+											<span class="truncate text-xs text-muted-foreground">{ user.Email }</span>
+										</div>
+										@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
+									}
+								}
+								@dropdown.Content(dropdown.ContentProps{
+									Class:     "w-56",
+									Placement: dropdown.PlacementTopStart,
+								}) {
+									@dropdown.Label() {
+										if user.Name != "" {
+											{ user.Name }
+										} else {
+											{ user.Email }
 										}
 									}
-									<div class="grid flex-1 text-left text-sm leading-tight">
-										<span class="truncate font-medium">
-											if user.Name != "" {
-												{ user.Name }
-											} else {
-												Admin
-											}
+									@dropdown.Separator()
+									@dropdown.Item(dropdown.ItemProps{Href: "/settings/profile"}) {
+										<span class="flex items-center">
+											@icon.User(icon.Props{Size: 16, Class: "mr-2"})
+											Profile
 										</span>
-										<span class="truncate text-xs text-muted-foreground">{ user.Email }</span>
-									</div>
-									@icon.ChevronsUpDown(icon.Props{Class: "ml-auto size-4"})
+									}
+									@dropdown.Separator()
+									@dropdown.Item(dropdown.ItemProps{Href: "/logout"}) {
+										<span class="flex items-center text-destructive">
+											@icon.LogOut(icon.Props{Size: 16, Class: "mr-2"})
+											Log out
+										</span>
+									}
 								}
 							}
-							@dropdown.Content(dropdown.ContentProps{
-								Class:     "w-56",
-								Placement: dropdown.PlacementTopStart,
+						} else {
+							// Fallback UI when user is nil - show login link
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:    "/login",
+								Size:    sidebar.MenuButtonSizeLg,
+								Tooltip: "Sign In",
 							}) {
-								@dropdown.Label() {
-									if user.Name != "" {
-										{ user.Name }
-									} else {
-										Admin
+								@avatar.Avatar(avatar.Props{Class: "size-8 rounded-lg"}) {
+									@avatar.Fallback(avatar.FallbackProps{}) {
+										@icon.User(icon.Props{Class: "size-4"})
 									}
 								}
-								@dropdown.Separator()
-								@dropdown.Item(dropdown.ItemProps{Href: "/settings/profile"}) {
-									<span class="flex items-center">
-										@icon.User(icon.Props{Size: 16, Class: "mr-2"})
-										Profile
-									</span>
-								}
-								@dropdown.Separator()
-								@dropdown.Item(dropdown.ItemProps{Href: "/logout"}) {
-									<span class="flex items-center text-destructive">
-										@icon.LogOut(icon.Props{Size: 16, Class: "mr-2"})
-										Log out
-									</span>
-								}
+								<div class="grid flex-1 text-left text-sm leading-tight">
+									<span class="truncate font-medium">Sign In</span>
+									<span class="truncate text-xs text-muted-foreground">Not authenticated</span>
+								</div>
 							}
 						}
 					}
