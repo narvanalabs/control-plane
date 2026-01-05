@@ -164,6 +164,10 @@ type BuildConfig struct {
 	PreBuildCommands  []string `json:"pre_build_commands,omitempty"`  // Commands to run before build
 	PostBuildCommands []string `json:"post_build_commands,omitempty"` // Commands to run after build
 
+	// Go workspace support **Validates: Requirements 22.1, 22.2, 22.3, 22.4**
+	IsWorkspace     bool   `json:"is_workspace,omitempty"`      // True if go.work file detected
+	WorkspaceModule string `json:"workspace_module,omitempty"`  // Selected module to build in workspace
+
 	// Node.js-specific
 	NodeVersion    string `json:"node_version,omitempty"`
 	PackageManager string `json:"package_manager,omitempty"` // npm, yarn, pnpm
