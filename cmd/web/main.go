@@ -496,16 +496,26 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
 	ctx := r.Context()
 
-	stats, recent, nodesHealth, _ := client.GetDashboardData(ctx)
+	stats, recent, nodesHealth, err := client.GetDashboardData(ctx)
 
-	pages.Dashboard(pages.DashboardData{
-		TotalApps:         stats.TotalApps,
-		ActiveDeployments: stats.ActiveDeployments,
-		HealthyNodes:      stats.HealthyNodes,
-		RunningBuilds:     stats.RunningBuilds,
+	// Handle error gracefully by displaying error state instead of zeros
+	// **Validates: Requirements 3.4**
+	data := pages.DashboardData{
 		RecentDeployments: recent,
 		NodeHealth:        nodesHealth,
-	}).Render(ctx, w)
+	}
+
+	if err != nil {
+		slog.Error("failed to fetch dashboard stats", "error", err)
+		data.Error = "Unable to load statistics from the server"
+	} else if stats != nil {
+		data.TotalApps = stats.TotalApps
+		data.ActiveDeployments = stats.ActiveDeployments
+		data.HealthyNodes = stats.HealthyNodes
+		data.RunningBuilds = stats.RunningBuilds
+	}
+
+	pages.Dashboard(data).Render(ctx, w)
 }
 
 // ============================================================================
