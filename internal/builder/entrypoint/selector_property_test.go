@@ -1011,3 +1011,377 @@ func TestEntryPointDetectionCompleteness(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: ui-api-alignment, Property 14: Multi-Binary Detection**
+// For any repository containing multiple main packages, the builder SHALL detect all of them
+// and allow selection of which to build.
+// **Validates: Requirements 20.1, 20.2**
+
+// MultiBinaryConfig represents a configuration for a multi-binary repository.
+type MultiBinaryConfig struct {
+	RootMain     bool     // Whether to include a main package in root
+	CmdBinaries  []string // Names of binaries in cmd/
+	AppsBinaries []string // Names of binaries in apps/
+	SvcBinaries  []string // Names of binaries in services/
+}
+
+// genMultiBinaryConfig generates configurations for multi-binary repositories.
+func genMultiBinaryConfig() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Bool(),                                                    // RootMain
+		gen.SliceOfN(3, genValidEntryPointName()),                     // CmdBinaries (0-3)
+		gen.SliceOfN(2, genValidEntryPointName()),                     // AppsBinaries (0-2)
+		gen.SliceOfN(2, genValidEntryPointName()),                     // SvcBinaries (0-2)
+	).Map(func(vals []interface{}) MultiBinaryConfig {
+		// Deduplicate names within each category
+		cmdBinaries := deduplicateStrings(vals[1].([]string))
+		appsBinaries := deduplicateStrings(vals[2].([]string))
+		svcBinaries := deduplicateStrings(vals[3].([]string))
+
+		return MultiBinaryConfig{
+			RootMain:     vals[0].(bool),
+			CmdBinaries:  cmdBinaries,
+			AppsBinaries: appsBinaries,
+			SvcBinaries:  svcBinaries,
+		}
+	}).SuchThat(func(cfg MultiBinaryConfig) bool {
+		// Ensure at least 2 entry points for multi-binary testing
+		total := 0
+		if cfg.RootMain {
+			total++
+		}
+		total += len(cfg.CmdBinaries) + len(cfg.AppsBinaries) + len(cfg.SvcBinaries)
+		return total >= 2
+	})
+}
+
+// deduplicateStrings removes duplicate strings from a slice.
+func deduplicateStrings(strs []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(strs))
+	for _, s := range strs {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// setupMultiBinaryRepo creates a test repository with multiple binaries.
+func setupMultiBinaryRepo(t *testing.T, cfg MultiBinaryConfig) (string, int) {
+	dir := t.TempDir()
+
+	// Create go.mod
+	goModContent := "module github.com/example/multibinary\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedCount := 0
+
+	// Create root main if configured
+	if cfg.RootMain {
+		if err := createGoMainPackage(dir, "root"); err != nil {
+			t.Fatal(err)
+		}
+		expectedCount++
+	}
+
+	// Create cmd/* binaries
+	for _, name := range cfg.CmdBinaries {
+		cmdDir := filepath.Join(dir, "cmd", name)
+		if err := os.MkdirAll(cmdDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := createGoMainPackage(cmdDir, name); err != nil {
+			t.Fatal(err)
+		}
+		expectedCount++
+	}
+
+	// Create apps/* binaries
+	for _, name := range cfg.AppsBinaries {
+		appsDir := filepath.Join(dir, "apps", name)
+		if err := os.MkdirAll(appsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := createGoMainPackage(appsDir, name); err != nil {
+			t.Fatal(err)
+		}
+		expectedCount++
+	}
+
+	// Create services/* binaries
+	for _, name := range cfg.SvcBinaries {
+		svcDir := filepath.Join(dir, "services", name)
+		if err := os.MkdirAll(svcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := createGoMainPackage(svcDir, name); err != nil {
+			t.Fatal(err)
+		}
+		expectedCount++
+	}
+
+	return dir, expectedCount
+}
+
+// TestMultiBinaryDetection tests Property 14: Multi-Binary Detection.
+// For any repository containing multiple main packages, the builder SHALL detect all of them
+// and allow selection of which to build.
+func TestMultiBinaryDetection(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: All binaries in a multi-binary repository are detected
+	// **Validates: Requirements 20.1**
+	properties.Property("all binaries in multi-binary repository are detected", prop.ForAll(
+		func(cfg MultiBinaryConfig) bool {
+			// Setup multi-binary repository
+			dir, expectedCount := setupMultiBinaryRepo(t, cfg)
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				t.Logf("Detection error: %v", err)
+				return false
+			}
+
+			// Verify we found all expected entry points
+			if len(entryPoints) != expectedCount {
+				t.Logf("Expected %d entry points, got %d", expectedCount, len(entryPoints))
+				return false
+			}
+
+			return true
+		},
+		genMultiBinaryConfig(),
+	))
+
+	// Property: Each detected entry point can be selected for building
+	// **Validates: Requirements 20.2**
+	properties.Property("each detected entry point can be selected", prop.ForAll(
+		func(cfg MultiBinaryConfig) bool {
+			// Setup multi-binary repository
+			dir, _ := setupMultiBinaryRepo(t, cfg)
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				return false
+			}
+
+			// Verify each entry point can be validated (i.e., selected for building)
+			for _, ep := range entryPoints {
+				if err := selector.Validate(context.Background(), dir, ep.Path); err != nil {
+					t.Logf("Entry point %s failed validation: %v", ep.Path, err)
+					return false
+				}
+			}
+
+			return true
+		},
+		genMultiBinaryConfig(),
+	))
+
+	// Property: Detection returns unique entry points (no duplicates)
+	properties.Property("detection returns unique entry points", prop.ForAll(
+		func(cfg MultiBinaryConfig) bool {
+			// Setup multi-binary repository
+			dir, _ := setupMultiBinaryRepo(t, cfg)
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				return false
+			}
+
+			// Check for duplicates
+			seen := make(map[string]bool)
+			for _, ep := range entryPoints {
+				if seen[ep.Path] {
+					t.Logf("Duplicate entry point detected: %s", ep.Path)
+					return false
+				}
+				seen[ep.Path] = true
+			}
+
+			return true
+		},
+		genMultiBinaryConfig(),
+	))
+
+	// Property: Exactly one entry point is marked as default
+	properties.Property("exactly one entry point is marked as default", prop.ForAll(
+		func(cfg MultiBinaryConfig) bool {
+			// Setup multi-binary repository
+			dir, _ := setupMultiBinaryRepo(t, cfg)
+
+			// Detect entry points
+			selector := NewSelector()
+			entryPoints, err := selector.ListEntryPoints(context.Background(), dir, "go")
+			if err != nil {
+				return false
+			}
+
+			// Count defaults
+			defaultCount := 0
+			for _, ep := range entryPoints {
+				if ep.IsDefault {
+					defaultCount++
+				}
+			}
+
+			if defaultCount != 1 {
+				t.Logf("Expected exactly 1 default, got %d", defaultCount)
+				return false
+			}
+
+			return true
+		},
+		genMultiBinaryConfig(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// TestMultiBinaryDetectionEdgeCases tests edge cases for multi-binary detection.
+func TestMultiBinaryDetectionEdgeCases(t *testing.T) {
+	selector := NewSelector()
+	ctx := context.Background()
+
+	t.Run("single binary repository", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create go.mod
+		goModContent := "module github.com/example/single\n\ngo 1.21\n"
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create single cmd/api binary
+		cmdDir := filepath.Join(dir, "cmd", "api")
+		if err := os.MkdirAll(cmdDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := createGoMainPackage(cmdDir, "api"); err != nil {
+			t.Fatal(err)
+		}
+
+		entryPoints, err := selector.ListEntryPoints(ctx, dir, "go")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(entryPoints) != 1 {
+			t.Errorf("expected 1 entry point, got %d", len(entryPoints))
+		}
+
+		if !entryPoints[0].IsDefault {
+			t.Error("single entry point should be marked as default")
+		}
+	})
+
+	t.Run("mixed directory types", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create go.mod
+		goModContent := "module github.com/example/mixed\n\ngo 1.21\n"
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create binaries in different directories
+		dirs := map[string]string{
+			"cmd/api":      "api",
+			"apps/worker":  "worker",
+			"services/rpc": "rpc",
+		}
+
+		for path, name := range dirs {
+			fullPath := filepath.Join(dir, path)
+			if err := os.MkdirAll(fullPath, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := createGoMainPackage(fullPath, name); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		entryPoints, err := selector.ListEntryPoints(ctx, dir, "go")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(entryPoints) != 3 {
+			t.Errorf("expected 3 entry points, got %d", len(entryPoints))
+		}
+
+		// Verify all paths are found
+		foundPaths := make(map[string]bool)
+		for _, ep := range entryPoints {
+			foundPaths[ep.Path] = true
+		}
+
+		expectedPaths := []string{"cmd/api", "apps/worker", "services/rpc"}
+		for _, expected := range expectedPaths {
+			if !foundPaths[expected] {
+				t.Errorf("expected to find entry point at %s", expected)
+			}
+		}
+	})
+
+	t.Run("root plus cmd binaries", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create go.mod
+		goModContent := "module github.com/example/rootcmd\n\ngo 1.21\n"
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create root main
+		if err := createGoMainPackage(dir, "root"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create cmd/cli binary
+		cmdDir := filepath.Join(dir, "cmd", "cli")
+		if err := os.MkdirAll(cmdDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := createGoMainPackage(cmdDir, "cli"); err != nil {
+			t.Fatal(err)
+		}
+
+		entryPoints, err := selector.ListEntryPoints(ctx, dir, "go")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(entryPoints) != 2 {
+			t.Errorf("expected 2 entry points, got %d", len(entryPoints))
+		}
+
+		// Root should be default when present
+		var rootEP *EntryPoint
+		for i := range entryPoints {
+			if entryPoints[i].Path == "." {
+				rootEP = &entryPoints[i]
+				break
+			}
+		}
+
+		if rootEP == nil {
+			t.Error("expected to find root entry point")
+		} else if !rootEP.IsDefault {
+			t.Error("root entry point should be marked as default")
+		}
+	})
+}
