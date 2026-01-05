@@ -134,6 +134,12 @@ func main() {
 		r.Get("/api/server/stats", handleServerStats)
 		r.Get("/api/server/stats/stream", handleServerStatsStream)
 
+		// Cleanup API proxy (for manual cleanup triggers)
+		// **Validates: Requirements 11.6**
+		r.Post("/api/admin/cleanup/containers", handleCleanupContainersProxy)
+		r.Post("/api/admin/cleanup/images", handleCleanupImagesProxy)
+		r.Post("/api/admin/cleanup/nix-gc", handleCleanupNixGCProxy)
+
 		// User profile proxy
 		r.Get("/api/user/profile", handleUserProfile)
 		r.Patch("/api/user/profile", handleUpdateUserProfile)
@@ -163,6 +169,8 @@ func main() {
 		r.Post("/settings/profile", handleUpdateProfile)
 		r.Get("/settings/ssh-keys", handleSettingsSSHKeys)
 		r.Get("/settings/notifications", handleSettingsNotifications)
+		r.Get("/settings/cleanup", handleSettingsCleanup)
+		r.Post("/settings/cleanup", handleSettingsCleanupUpdate)
 		
 		// Users management routes (admin only)
 		r.Get("/settings/users", handleSettingsUsers)
@@ -2119,6 +2127,129 @@ func handleSettingsNotifications(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	settings_page.Notifications(data).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Cleanup Settings Handlers
+// ============================================================================
+
+// handleSettingsCleanup renders the cleanup settings page.
+// **Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5**
+func handleSettingsCleanup(w http.ResponseWriter, r *http.Request) {
+	client := getAPIClient(r)
+	settings, err := client.GetSettings(r.Context())
+	if err != nil {
+		// If settings don't exist yet or API fails, show empty
+		settings = make(map[string]string)
+	}
+
+	data := settings_page.CleanupSettingsData{
+		ContainerRetention:  settings["cleanup_container_retention"],
+		ImageRetention:      settings["cleanup_image_retention"],
+		NixGCInterval:       settings["cleanup_nix_gc_interval"],
+		DeploymentRetention: settings["cleanup_deployment_retention"],
+		SuccessMsg:          r.URL.Query().Get("success"),
+		ErrorMsg:            r.URL.Query().Get("error"),
+	}
+	settings_page.Cleanup(data).Render(r.Context(), w)
+}
+
+// handleSettingsCleanupUpdate updates the cleanup settings.
+// **Validates: Requirements 11.1**
+func handleSettingsCleanupUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/settings/cleanup?error=Invalid+form", http.StatusFound)
+		return
+	}
+
+	containerRetention := r.FormValue("container_retention")
+	imageRetention := r.FormValue("image_retention")
+	nixGCInterval := r.FormValue("nix_gc_interval")
+	deploymentRetention := r.FormValue("deployment_retention")
+
+	client := getAPIClient(r)
+	err := client.UpdateSettings(r.Context(), map[string]string{
+		"cleanup_container_retention":  containerRetention,
+		"cleanup_image_retention":      imageRetention,
+		"cleanup_nix_gc_interval":      nixGCInterval,
+		"cleanup_deployment_retention": deploymentRetention,
+	})
+
+	if err != nil {
+		http.Redirect(w, r, "/settings/cleanup?error="+url.QueryEscape("Failed to update settings: "+err.Error()), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/settings/cleanup?success=Settings+updated+successfully", http.StatusFound)
+}
+
+// handleCleanupContainersProxy proxies container cleanup requests to the backend.
+// **Validates: Requirements 11.6**
+func handleCleanupContainersProxy(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = "/v1/admin/cleanup/containers"
+	proxy.ServeHTTP(w, r)
+}
+
+// handleCleanupImagesProxy proxies image cleanup requests to the backend.
+// **Validates: Requirements 11.6**
+func handleCleanupImagesProxy(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = "/v1/admin/cleanup/images"
+	proxy.ServeHTTP(w, r)
+}
+
+// handleCleanupNixGCProxy proxies Nix garbage collection requests to the backend.
+// **Validates: Requirements 11.6**
+func handleCleanupNixGCProxy(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	
+	r.URL.Path = "/v1/admin/cleanup/nix-gc"
+	proxy.ServeHTTP(w, r)
 }
 
 // ============================================================================
