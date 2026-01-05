@@ -52,10 +52,26 @@ func (e *AutoGoStrategyExecutor) Supports(strategy models.BuildStrategy) bool {
 
 
 // GenerateFlake generates a flake.nix for a Go application.
+// **Validates: Requirements 16.2** - Sets CGO_ENABLED based on detection result
 func (e *AutoGoStrategyExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
+	// Determine CGO setting:
+	// 1. If explicitly set in config, use that (user override)
+	// 2. Otherwise, use detection result from SuggestedConfig
+	// **Validates: Requirements 16.5** - User config overrides auto-detection
+	cgoEnabled := false
+	if config.CGOEnabled != nil {
+		// User explicitly set CGO - honor their choice
+		cgoEnabled = *config.CGOEnabled
+	} else if detection != nil && detection.SuggestedConfig != nil {
+		// Use auto-detected CGO setting
+		if detected, ok := detection.SuggestedConfig["cgo_enabled"].(bool); ok {
+			cgoEnabled = detected
+		}
+	}
+
 	// Determine template name based on CGO
 	templateName := "go.nix"
-	if config.CGOEnabled != nil && *config.CGOEnabled {
+	if cgoEnabled {
 		templateName = "go-cgo.nix"
 	}
 
