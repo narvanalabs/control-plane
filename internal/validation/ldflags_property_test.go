@@ -408,3 +408,143 @@ func TestLdflagsVariableSubstitution(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: ui-api-alignment, Property 12: Ldflags Override**
+// For any build configuration with custom ldflags, the builder SHALL use those
+// instead of default ldflags (-s -w).
+// **Validates: Requirements 18.5**
+
+// genCustomLdflags generates custom ldflags that are different from defaults.
+func genCustomLdflags() gopter.Gen {
+	// Generate ldflags that are clearly different from the default "-s -w"
+	customLdflags := []string{
+		"-X main.version=1.0.0",
+		"-X main.commit=abc1234",
+		"-X main.buildTime=2024-01-01T00:00:00Z",
+		"-X pkg/version.Version=2.0.0 -X pkg/version.Commit=def5678",
+		"-trimpath",
+		"-race",
+		"-v",
+		"-X main.version=custom -trimpath",
+		"-X internal/config.GitCommit=xyz9999 -X internal/config.BuildDate=2025-01-01",
+	}
+	return gen.IntRange(0, len(customLdflags)-1).Map(func(idx int) string {
+		return customLdflags[idx]
+	})
+}
+
+// TestLdflagsOverride tests Property 12: Ldflags Override.
+func TestLdflagsOverride(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 12.1: Custom ldflags are used instead of defaults when provided
+	properties.Property("custom ldflags are used instead of defaults when provided", prop.ForAll(
+		func(customLdflags string) bool {
+			// When custom ldflags are provided, they should be used
+			result := templates.FormatLdflagsForNix(customLdflags)
+
+			// The result should contain the custom ldflags content
+			// and should NOT be the default "-s" "-w" format
+			hasCustomContent := strings.Contains(result, customLdflags) ||
+				containsAllParts(result, customLdflags)
+
+			return hasCustomContent
+		},
+		genCustomLdflags(),
+	))
+
+	// Property 12.2: Empty ldflags allows defaults to be used (no override)
+	properties.Property("empty ldflags allows defaults to be used", prop.ForAll(
+		func(_ int) bool {
+			// When ldflags is empty, FormatLdflagsForNix returns empty
+			// This allows the template to use default ldflags
+			result := templates.FormatLdflagsForNix("")
+			return result == ""
+		},
+		gen.IntRange(0, 1), // Dummy generator
+	))
+
+	// Property 12.3: Custom ldflags completely replace defaults (no merging)
+	properties.Property("custom ldflags completely replace defaults (no merging)", prop.ForAll(
+		func(customLdflags string) bool {
+			result := templates.FormatLdflagsForNix(customLdflags)
+
+			// If custom ldflags don't contain -s or -w, the result shouldn't either
+			// This verifies that defaults are not merged with custom ldflags
+			if !strings.Contains(customLdflags, "-s") && !strings.Contains(customLdflags, "-w") {
+				// Result should not have -s or -w added automatically
+				// (they would only be there if they were in the input)
+				return !strings.Contains(result, "\"-s\"") || strings.Contains(customLdflags, "-s")
+			}
+			return true
+		},
+		genCustomLdflags(),
+	))
+
+	// Property 12.4: Custom ldflags with -X flags override default -X flags
+	properties.Property("custom ldflags with -X flags override default -X flags", prop.ForAll(
+		func(version string, commit string) bool {
+			customLdflags := "-X main.version=" + version + " -X main.commit=" + commit
+			result := templates.FormatLdflagsForNix(customLdflags)
+
+			// The result should contain the custom version and commit
+			hasVersion := strings.Contains(result, version)
+			hasCommit := strings.Contains(result, commit)
+
+			return hasVersion && hasCommit
+		},
+		genVersion(),
+		genCommitHash(),
+	))
+
+	// Property 12.5: Custom ldflags preserve all specified flags
+	properties.Property("custom ldflags preserve all specified flags", prop.ForAll(
+		func(customLdflags string) bool {
+			result := templates.FormatLdflagsForNix(customLdflags)
+
+			// All parts of the custom ldflags should be in the result
+			parts := strings.Fields(customLdflags)
+			for _, part := range parts {
+				if !strings.Contains(result, part) {
+					return false
+				}
+			}
+			return true
+		},
+		genCustomLdflags(),
+	))
+
+	// Property 12.6: Custom ldflags with only -X flags don't include default -s -w
+	properties.Property("custom ldflags with only -X flags don't include default -s -w", prop.ForAll(
+		func(version string) bool {
+			// Custom ldflags with only -X flag (no -s or -w)
+			customLdflags := "-X main.version=" + version
+			result := templates.FormatLdflagsForNix(customLdflags)
+
+			// The result should contain the version but not have -s or -w added
+			hasVersion := strings.Contains(result, version)
+			// -s and -w should not be present unless they were in the input
+			noDefaultS := !strings.Contains(result, "\"-s\"")
+			noDefaultW := !strings.Contains(result, "\"-w\"")
+
+			return hasVersion && noDefaultS && noDefaultW
+		},
+		genVersion(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// containsAllParts checks if the result contains all parts of the ldflags string.
+func containsAllParts(result, ldflags string) bool {
+	parts := strings.Fields(ldflags)
+	for _, part := range parts {
+		if !strings.Contains(result, part) {
+			return false
+		}
+	}
+	return true
+}
