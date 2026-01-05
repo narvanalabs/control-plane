@@ -234,20 +234,30 @@ type NodeHealth struct {
 // ============================================================================
 
 // PlatformConfig holds platform-wide configuration from the backend.
+// **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
 type PlatformConfig struct {
-	Domain           string            `json:"domain"`
-	DefaultPorts     map[string]int    `json:"default_ports"`
-	StatusMappings   map[string]string `json:"status_mappings"`
-	DefaultResources ResourceSpec      `json:"default_resources"`
-	SupportedDBTypes []DatabaseTypeDef `json:"supported_db_types"`
-	MaxServicesPerApp int              `json:"max_services_per_app"`
+	Domain            string                   `json:"domain"`
+	DefaultPorts      map[string]int           `json:"default_ports"`
+	StatusMappings    map[string]StatusMapping `json:"status_mappings"`
+	DefaultResources  ResourceSpec             `json:"default_resources"`
+	SupportedDBTypes  []DatabaseTypeDef        `json:"supported_db_types"`
+	MaxServicesPerApp int                      `json:"max_services_per_app"`
 }
 
-// DatabaseTypeDef defines a supported database type.
+// StatusMapping defines how a status should be displayed in the UI.
+// **Validates: Requirements 4.3**
+type StatusMapping struct {
+	Label string `json:"label"`
+	Color string `json:"color"`
+	Icon  string `json:"icon,omitempty"`
+}
+
+// DatabaseTypeDef defines a supported database type with its versions.
+// **Validates: Requirements 4.4**
 type DatabaseTypeDef struct {
-	Type     string   `json:"type"`
-	Versions []string `json:"versions"`
-	Default  string   `json:"default_version"`
+	Type           string   `json:"type"`
+	Versions       []string `json:"versions"`
+	DefaultVersion string   `json:"default_version"`
 }
 
 // GetConfig fetches platform configuration from the backend.
