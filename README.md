@@ -1,121 +1,557 @@
 # Narvana Control Plane
 
-The control plane manages applications, services, deployments, and coordinates with node agents.
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Nix](https://img.shields.io/badge/Nix-Flakes-5277C3?style=flat&logo=nixos&logoColor=white)](https://nixos.org/)
+[![gRPC](https://img.shields.io/badge/gRPC-Protocol-244c5a?style=flat&logo=google&logoColor=white)](https://grpc.io/)
+[![Tests](https://img.shields.io/badge/Tests-Passing-success?style=flat)](#running-tests)
 
-## Development Setup
+A self-hosted Platform-as-a-Service (PaaS) control plane built with Go, designed for deploying and managing applications using Nix flakes and OCI containers. Narvana provides a modern, Nix-native approach to application deployment with automatic build detection, multi-tenancy support, and distributed node management.
 
-### Prerequisites
-- [Nix](https://nixos.org/download.html) with flakes enabled
+<!-- 
+## Screenshots
 
-### Quick Start
+### Dashboard
+![Dashboard](docs/screenshots/dashboard.png)
+*Main dashboard showing deployment overview, node health, and recent activity*
 
-**Local Development (Nix):**
-```bash
-# Enter the development shell (starts PostgreSQL automatically)
-nix develop
+### App Management
+![App Management](docs/screenshots/app-management.png)
+*Application and service management interface*
 
-# Run migrations and start all services
-make dev-all
-```
+### Build Logs
+![Build Logs](docs/screenshots/build-logs.png)
+*Real-time build log streaming*
+-->
 
-**VPS Deployment (One-Click):**
-Run this command on your Azure VPS to install everything (API, Worker, UI, Caddy, Postgres):
-```bash
-curl -sSL https://raw.githubusercontent.com/narvanalabs/control-plane/master/scripts/install.sh | sudo bash
-```
+<!--
+## Demo
 
-That's it! The API server runs on `http://localhost:8080` and gRPC on port `9090`.
+![Narvana Demo](docs/demo.gif)
+*Deploying a Go application from GitHub to a Narvana cluster*
+-->
 
-### DNS Setup (for Wildcard Domains)
+## Features
 
-To access deployed services via wildcard domains (e.g., `myapp-api.narvana.local:8088`), you need to configure local DNS:
-
-```bash
-# One-time setup (requires sudo)
-sudo ./scripts/setup-dns.sh
-```
-
-This script will:
-- Install dnsmasq (if not already installed)
-- Configure wildcard DNS for `*.narvana.local` → `127.0.0.1`
-- Set up resolver configuration for your OS (Linux/macOS)
-- Start/restart the dnsmasq service
-
-After setup, you can access services at: `http://{app-name}-{service-name}.narvana.local:8088`
-
-**Note:** `/etc/hosts` does NOT support wildcards, so dnsmasq is required for automatic routing.
-
-### Individual Services
-
-If you prefer running services separately:
-
-```bash
-# Terminal 1: API server
-make dev-api
-
-# Terminal 2: Build worker
-make dev-worker
-```
-
-### Available Commands
-
-```bash
-make help          # Show all commands
-make dev-all       # Run all services (recommended)
-make dev-api       # Run API server only
-make dev-worker    # Run worker only
-make dev-stop      # Stop all services
-make test          # Run tests
-make db-stop       # Stop PostgreSQL
-```
-
-## Production Deployment
-
-### Using systemd
-
-1. Build the binaries:
-   ```bash
-   make build
-   ```
-
-2. Copy binaries to `/opt/narvana/control-plane/bin/`
-
-3. Copy and configure environment:
-   ```bash
-   sudo cp deploy/control-plane.env.example /etc/narvana/control-plane.env
-   sudo chmod 600 /etc/narvana/control-plane.env
-   # Edit with your production values
-   ```
-
-4. Install systemd services:
-   ```bash
-   sudo cp deploy/*.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable narvana-api narvana-worker
-   sudo systemctl start narvana-api narvana-worker
-   ```
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
-| `JWT_SECRET` | Yes | - | JWT signing key (min 32 chars) |
-| `API_PORT` | No | 8080 | HTTP API port |
-| `GRPC_PORT` | No | 9090 | gRPC port for agents |
-
-See `deploy/control-plane.env.example` for all options.
+- **Nix-Native Builds**: First-class support for Nix flakes with automatic flake generation for Go, Rust, Node.js, Python, and database services
+- **Dual Build Modes**: Support for both pure Nix store paths and OCI container images
+- **Auto-Detection**: Automatic language and framework detection with intelligent build strategy selection
+- **Multi-Tenancy**: Organization-based resource isolation with role-based access control
+- **Distributed Scheduling**: Intelligent node placement based on health, capacity, and cache locality
+- **gRPC Node Communication**: Bidirectional streaming for real-time deployment commands and status updates
+- **Binary Caching**: Integration with [Attic](https://github.com/zhaofengli/attic) for Nix binary cache acceleration
+- **Secrets Management**: SOPS-based encryption for application secrets using age keys
+- **Custom Domains**: Support for custom domain mappings with wildcard certificates
+- **Real-time Logs**: SSE-based log streaming for builds and runtime
 
 ## Architecture
 
+### System Overview
+
+```mermaid
+graph TB
+    subgraph "Control Plane"
+        WebUI["Web UI<br/>:8090"]
+        API["API Server<br/>:8080 HTTP<br/>:9090 gRPC"]
+        Worker["Build Worker"]
+        Scheduler["Scheduler"]
+    end
+    
+    subgraph "Data Layer"
+        PG[(PostgreSQL)]
+        Attic["Attic<br/>Binary Cache"]
+    end
+    
+    subgraph "Compute Nodes"
+        Node1["Node Agent 1<br/>(Podman)"]
+        Node2["Node Agent 2<br/>(Podman)"]
+        Node3["Node Agent N<br/>(Podman)"]
+    end
+    
+    WebUI --> API
+    API --> PG
+    API --> Scheduler
+    Worker --> PG
+    Worker --> Attic
+    Scheduler --> PG
+    
+    API <-->|"gRPC<br/>Bidirectional"| Node1
+    API <-->|"gRPC<br/>Bidirectional"| Node2
+    API <-->|"gRPC<br/>Bidirectional"| Node3
+    
+    Node1 --> Attic
+    Node2 --> Attic
+    Node3 --> Attic
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Control Plane                        │
-├─────────────────────┬───────────────────────────────────┤
-│     API Server      │         Build Worker              │
-│  (HTTP + gRPC)      │    (processes build queue)        │
-├─────────────────────┴───────────────────────────────────┤
-│                     PostgreSQL                          │
-│            (apps, services, deployments)                │
-└─────────────────────────────────────────────────────────┘
+
+### Deployment Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant Queue
+    participant Worker
+    participant Scheduler
+    participant Node
+    participant Attic
+    
+    User->>API: POST /deploy
+    API->>Queue: Enqueue build job
+    API-->>User: 202 Accepted
+    
+    Worker->>Queue: Dequeue job
+    Worker->>Worker: Detect strategy
+    Worker->>Worker: Generate flake
+    Worker->>Worker: Build artifact
+    Worker->>Attic: Push to cache
+    Worker->>API: Update status: built
+    
+    Scheduler->>API: Poll built deployments
+    Scheduler->>Scheduler: Select optimal node
+    Scheduler->>Node: Deploy command (gRPC)
+    
+    Node->>Attic: Pull artifact
+    Node->>Node: Start container
+    Node->>API: Status: running
 ```
+
+### Build Strategy Selection
+
+```mermaid
+flowchart TD
+    Start([Source Code]) --> HasFlake{Has flake.nix?}
+    
+    HasFlake -->|Yes| UseFlake[Use Flake Strategy]
+    HasFlake -->|No| HasDockerfile{Has Dockerfile?}
+    
+    HasDockerfile -->|Yes| UseDockerfile[Use Dockerfile Strategy]
+    HasDockerfile -->|No| DetectLang[Detect Language]
+    
+    DetectLang --> Go{Go?}
+    DetectLang --> Rust{Rust?}
+    DetectLang --> Node{Node.js?}
+    DetectLang --> Python{Python?}
+    
+    Go -->|Yes| AutoGo[auto-go]
+    Rust -->|Yes| AutoRust[auto-rust]
+    Node -->|Yes| AutoNode[auto-node]
+    Python -->|Yes| AutoPython[auto-python]
+    
+    Go -->|No| Rust
+    Rust -->|No| Node
+    Node -->|No| Python
+    Python -->|No| Nixpacks[Use Nixpacks]
+    
+    UseFlake --> Build([Build Artifact])
+    UseDockerfile --> Build
+    AutoGo --> Build
+    AutoRust --> Build
+    AutoNode --> Build
+    AutoPython --> Build
+    Nixpacks --> Build
+```
+
+### Deployment State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: Create deployment
+    pending --> building: Worker picks up
+    building --> built: Build succeeds
+    building --> failed: Build fails
+    built --> scheduled: Node assigned
+    scheduled --> starting: Agent starts container
+    starting --> running: Container healthy
+    starting --> failed: Start fails
+    running --> stopping: Stop requested
+    stopping --> stopped: Container stopped
+    running --> failed: Container crashes
+    stopped --> [*]
+    failed --> [*]
+```
+
+### Data Model
+
+```mermaid
+erDiagram
+    Organization ||--o{ App : contains
+    Organization ||--o{ User : has_members
+    User ||--o{ App : owns
+    App ||--o{ Service : contains
+    App ||--o{ Secret : has
+    App ||--o{ Domain : has
+    Service ||--o{ Deployment : has
+    Deployment ||--o| BuildJob : triggers
+    Deployment ||--o| Node : runs_on
+    Node ||--o{ Deployment : hosts
+    
+    Organization {
+        uuid id PK
+        string name
+        string slug UK
+        string description
+    }
+    
+    App {
+        uuid id PK
+        uuid org_id FK
+        string owner_id FK
+        string name
+        int version
+        jsonb services
+    }
+    
+    Deployment {
+        uuid id PK
+        uuid app_id FK
+        string service_name
+        int version
+        string status
+        uuid node_id FK
+        string artifact
+    }
+    
+    Node {
+        uuid id PK
+        string hostname
+        string address
+        boolean healthy
+        jsonb resources
+    }
+```
+
+## Requirements
+
+- [Nix](https://nixos.org/download.html) with flakes enabled
+- Go 1.24+
+- PostgreSQL 15+
+- Podman (for OCI builds and container runtime)
+
+## Quick Start
+
+### Using Nix (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/narvanalabs/control-plane.git
+cd control-plane
+
+# Enter the development shell (starts PostgreSQL automatically)
+nix develop
+
+# Run database migrations
+make migrate-up
+
+# Start all services (API, Worker, Web UI, Attic cache)
+make dev-all
+```
+
+The development environment will be available at:
+- Web UI: http://localhost:8090
+- API: http://localhost:8080
+- gRPC: localhost:9090
+
+### Manual Setup
+
+```bash
+# Install dependencies
+go mod download
+
+# Set required environment variables
+export DATABASE_URL="postgres://user:pass@localhost:5432/narvana?sslmode=disable"
+export JWT_SECRET="your-secret-key-minimum-32-characters-long"
+
+# Run migrations
+make migrate-up
+
+# Build and run
+make build
+./bin/api &
+./bin/worker &
+./bin/web &
+```
+
+<!--
+### First Deployment
+
+![First Deployment](docs/screenshots/first-deployment.gif)
+*Creating your first app and deploying a service*
+-->
+
+## Configuration
+
+Configuration is managed through environment variables:
+
+### Core Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgres://localhost:5432/narvana?sslmode=disable` |
+| `JWT_SECRET` | Secret key for JWT tokens (min 32 chars) | Required |
+| `JWT_EXPIRY` | Token expiration duration | `24h` |
+| `API_PORT` | HTTP API server port | `8080` |
+| `GRPC_PORT` | gRPC server port | `9090` |
+| `API_HOST` | API server bind address | `0.0.0.0` |
+
+### Build Worker Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WORKER_WORKDIR` | Build working directory | `/tmp/narvana-builds` |
+| `WORKER_MAX_CONCURRENCY` | Max concurrent builds | `4` |
+| `BUILD_TIMEOUT` | Build timeout duration | `30m` |
+| `PODMAN_SOCKET` | Podman socket path | `unix:///run/user/1000/podman/podman.sock` |
+| `ATTIC_ENDPOINT` | Attic binary cache URL | `http://localhost:5000` |
+
+### Scheduler Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SCHEDULER_HEALTH_THRESHOLD` | Node health check threshold | `30s` |
+| `SCHEDULER_MAX_RETRIES` | Max deployment retries | `5` |
+| `SCHEDULER_RETRY_BACKOFF` | Retry backoff duration | `5s` |
+| `SCHEDULER_DEPLOYMENT_TIMEOUT` | Deployment scheduling timeout | `30m` |
+
+### Secrets Encryption (SOPS)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SOPS_AGE_PUBLIC_KEY` | Age public key for encryption | Optional |
+| `SOPS_AGE_PRIVATE_KEY` | Age private key for decryption | Optional |
+
+## Project Structure
+
+```
+.
+├── api/proto/              # gRPC protocol definitions
+├── cmd/
+│   ├── api/                # API server entry point
+│   ├── web/                # Web UI server entry point
+│   └── worker/             # Build worker entry point
+├── internal/
+│   ├── api/                # HTTP API handlers and middleware
+│   ├── auth/               # Authentication and RBAC
+│   ├── builder/            # Build system (Nix, OCI, strategies)
+│   ├── cleanup/            # Resource cleanup services
+│   ├── grpc/               # gRPC server and node management
+│   ├── models/             # Domain models
+│   ├── queue/              # Build job queue
+│   ├── scheduler/          # Deployment scheduler
+│   ├── secrets/            # SOPS secrets management
+│   ├── store/              # Database access layer
+│   └── validation/         # Input validation services
+├── migrations/             # SQL migrations
+├── pkg/
+│   ├── config/             # Configuration loading
+│   └── logger/             # Structured logging
+├── web/                    # Web UI (templ templates)
+├── flake.nix               # Nix flake for development
+└── Makefile                # Build and development commands
+```
+
+## Build Strategies
+
+Narvana supports multiple build strategies:
+
+| Strategy | Description | Build Type |
+|----------|-------------|------------|
+| `flake` | Use existing `flake.nix` in repository | Nix or OCI |
+| `auto-go` | Auto-generate flake for Go projects | Nix or OCI |
+| `auto-rust` | Auto-generate flake for Rust projects | Nix or OCI |
+| `auto-node` | Auto-generate flake for Node.js projects | Nix or OCI |
+| `auto-python` | Auto-generate flake for Python projects | Nix or OCI |
+| `auto-database` | Auto-generate flake for database services | Nix |
+| `dockerfile` | Build from Dockerfile | OCI only |
+| `nixpacks` | Use Nixpacks for detection and building | OCI only |
+| `auto` | Automatic strategy detection | Varies |
+
+## API Overview
+
+### Authentication
+
+```bash
+# Register (first user becomes owner)
+curl -X POST http://localhost:8080/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "password": "secure-password"}'
+
+# Login
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "password": "secure-password"}'
+```
+
+### Apps and Services
+
+```bash
+# Create an app
+curl -X POST http://localhost:8080/v1/apps \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-app", "description": "My application"}'
+
+# Create a service
+curl -X POST http://localhost:8080/v1/apps/$APP_ID/services \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "api",
+    "source_type": "git",
+    "git_repo": "github.com/myorg/myrepo",
+    "build_strategy": "auto-go"
+  }'
+
+# Deploy a service
+curl -X POST http://localhost:8080/v1/apps/$APP_ID/services/api/deploy \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Node Management
+
+```bash
+# List nodes
+curl http://localhost:8080/v1/nodes \
+  -H "Authorization: Bearer $TOKEN"
+
+# Register a node (from node agent)
+curl -X POST http://localhost:8080/v1/nodes/register \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hostname": "node-1",
+    "address": "192.168.1.100",
+    "grpc_port": 9090
+  }'
+```
+
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests
+make test
+
+# Run unit tests only
+make test-unit
+
+# Run property-based tests
+make test-property
+```
+
+### Code Generation
+
+```bash
+# Generate protobuf files
+make proto
+
+# Generate templ templates (for web UI)
+cd web && templ generate
+```
+
+### Database Migrations
+
+```bash
+# Apply migrations
+make migrate-up
+
+# Check migration status
+make db-status
+```
+
+### Linting
+
+```bash
+make lint
+```
+
+## Supported Databases
+
+Narvana can provision managed database services:
+
+| Type | Supported Versions | Default Port |
+|------|-------------------|--------------|
+| PostgreSQL | 14, 15, 16 | 5432 |
+| MySQL | 8.0 | 3306 |
+| MariaDB | 10, 11 | 3306 |
+| MongoDB | 6.0, 7.0 | 27017 |
+| Redis | 6, 7 | 6379 |
+| SQLite | 3 | N/A |
+
+## Resource Specifications
+
+Services can specify resource limits directly:
+
+```json
+{
+  "resources": {
+    "cpu": "0.5",
+    "memory": "512Mi"
+  }
+}
+```
+
+Or use predefined tiers (deprecated):
+
+| Tier | CPU | Memory |
+|------|-----|--------|
+| nano | 0.25 | 256Mi |
+| small | 0.5 | 512Mi |
+| medium | 1 | 1Gi |
+| large | 2 | 2Gi |
+| xlarge | 4 | 4Gi |
+
+## Cleanup and Maintenance
+
+Narvana includes automatic cleanup services:
+
+```bash
+# Manual cleanup endpoints (admin only)
+curl -X POST http://localhost:8080/v1/admin/cleanup/containers \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -X POST http://localhost:8080/v1/admin/cleanup/images \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -X POST http://localhost:8080/v1/admin/cleanup/nix-gc \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -X POST http://localhost:8080/v1/admin/cleanup/deployments \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+<!--
+## Web UI Screenshots
+
+### Dashboard Overview
+![Dashboard](docs/screenshots/dashboard-full.png)
+
+### Service Detail View
+![Service Detail](docs/screenshots/service-detail.png)
+
+### Build Logs
+![Build Logs](docs/screenshots/build-logs-streaming.png)
+
+### Node Management
+![Nodes](docs/screenshots/nodes-list.png)
+-->
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  Built with ❄️ Nix and 💙 Go
+</p>
