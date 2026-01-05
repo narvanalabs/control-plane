@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -113,6 +114,203 @@ type ServiceConfig struct {
 type DatabaseConfig struct {
 	Type    string `json:"type"`    // e.g., "sqlite", "postgres"
 	Version string `json:"version"` // e.g., "3", "16"
+}
+
+// DefaultResourceSpec returns the default resource specification.
+// These defaults are used when no resources are specified.
+func DefaultResourceSpec() *ResourceSpec {
+	return &ResourceSpec{
+		CPU:    "0.5",
+		Memory: "512Mi",
+	}
+}
+
+// ApplyDefaults applies default values to a ServiceConfig after deserialization.
+// This ensures consistent behavior when optional fields are not specified.
+// It does NOT modify user-specified values.
+func (s *ServiceConfig) ApplyDefaults() {
+	// Apply default replicas if not set (0 means not specified)
+	if s.Replicas <= 0 {
+		s.Replicas = 1
+	}
+
+	// Apply default git ref for git sources
+	if s.SourceType == SourceTypeGit && s.GitRef == "" {
+		s.GitRef = "main"
+	}
+
+	// Apply default flake output for git sources
+	if s.SourceType == SourceTypeGit && s.FlakeOutput == "" {
+		s.FlakeOutput = fmt.Sprintf("packages.%s.default", GetCurrentSystem())
+	}
+}
+
+// ValidateAndApplyDefaults validates the ServiceConfig and applies defaults.
+// This is the recommended way to process a ServiceConfig after deserialization.
+// It first validates the configuration, then applies defaults for any missing optional fields.
+// Returns an error if validation fails.
+func (s *ServiceConfig) ValidateAndApplyDefaults() error {
+	// First validate the configuration
+	if err := s.Validate(); err != nil {
+		return err
+	}
+
+	// Then apply defaults (Validate already applies some defaults for git sources)
+	s.ApplyDefaults()
+
+	return nil
+}
+
+// ParseServiceConfigJSON parses a JSON byte slice into a ServiceConfig,
+// applies defaults, and validates the result.
+// This is the recommended way to deserialize a ServiceConfig from JSON.
+func ParseServiceConfigJSON(data []byte) (*ServiceConfig, error) {
+	var sc ServiceConfig
+	if err := json.Unmarshal(data, &sc); err != nil {
+		return nil, fmt.Errorf("failed to parse service config JSON: %w", err)
+	}
+
+	if err := sc.ValidateAndApplyDefaults(); err != nil {
+		return nil, err
+	}
+
+	return &sc, nil
+}
+
+// Clone creates a deep copy of the ServiceConfig.
+// This is useful for preserving the original configuration before modifications.
+func (s *ServiceConfig) Clone() ServiceConfig {
+	clone := *s
+
+	// Deep copy pointer fields
+	if s.Database != nil {
+		dbCopy := *s.Database
+		clone.Database = &dbCopy
+	}
+
+	if s.BuildConfig != nil {
+		bcCopy := *s.BuildConfig
+		clone.BuildConfig = &bcCopy
+	}
+
+	if s.Resources != nil {
+		resCopy := *s.Resources
+		clone.Resources = &resCopy
+	}
+
+	if s.HealthCheck != nil {
+		hcCopy := *s.HealthCheck
+		clone.HealthCheck = &hcCopy
+	}
+
+	// Deep copy slices
+	if s.Ports != nil {
+		clone.Ports = make([]PortMapping, len(s.Ports))
+		copy(clone.Ports, s.Ports)
+	}
+
+	if s.DependsOn != nil {
+		clone.DependsOn = make([]string, len(s.DependsOn))
+		copy(clone.DependsOn, s.DependsOn)
+	}
+
+	// Deep copy map
+	if s.EnvVars != nil {
+		clone.EnvVars = make(map[string]string, len(s.EnvVars))
+		for k, v := range s.EnvVars {
+			clone.EnvVars[k] = v
+		}
+	}
+
+	return clone
+}
+
+// Equals compares two ServiceConfig instances for equality.
+// This is used for round-trip testing to verify serialization consistency.
+func (s *ServiceConfig) Equals(other *ServiceConfig) bool {
+	if s == nil && other == nil {
+		return true
+	}
+	if s == nil || other == nil {
+		return false
+	}
+
+	// Compare basic fields
+	if s.Name != other.Name ||
+		s.SourceType != other.SourceType ||
+		s.GitRepo != other.GitRepo ||
+		s.GitRef != other.GitRef ||
+		s.FlakeOutput != other.FlakeOutput ||
+		s.FlakeURI != other.FlakeURI ||
+		s.Image != other.Image ||
+		s.BuildStrategy != other.BuildStrategy ||
+		s.ResourceTier != other.ResourceTier ||
+		s.Replicas != other.Replicas {
+		return false
+	}
+
+	// Compare Database
+	if (s.Database == nil) != (other.Database == nil) {
+		return false
+	}
+	if s.Database != nil && (s.Database.Type != other.Database.Type || s.Database.Version != other.Database.Version) {
+		return false
+	}
+
+	// Compare Resources
+	if (s.Resources == nil) != (other.Resources == nil) {
+		return false
+	}
+	if s.Resources != nil && (s.Resources.CPU != other.Resources.CPU || s.Resources.Memory != other.Resources.Memory) {
+		return false
+	}
+
+	// Compare HealthCheck
+	if (s.HealthCheck == nil) != (other.HealthCheck == nil) {
+		return false
+	}
+	if s.HealthCheck != nil {
+		if s.HealthCheck.Path != other.HealthCheck.Path ||
+			s.HealthCheck.Port != other.HealthCheck.Port ||
+			s.HealthCheck.IntervalSeconds != other.HealthCheck.IntervalSeconds ||
+			s.HealthCheck.TimeoutSeconds != other.HealthCheck.TimeoutSeconds ||
+			s.HealthCheck.Retries != other.HealthCheck.Retries {
+			return false
+		}
+	}
+
+	// Compare Ports (order matters)
+	if len(s.Ports) != len(other.Ports) {
+		return false
+	}
+	for i := range s.Ports {
+		if s.Ports[i].ContainerPort != other.Ports[i].ContainerPort ||
+			s.Ports[i].Protocol != other.Ports[i].Protocol {
+			return false
+		}
+	}
+
+	// Compare DependsOn (order matters)
+	if len(s.DependsOn) != len(other.DependsOn) {
+		return false
+	}
+	for i := range s.DependsOn {
+		if s.DependsOn[i] != other.DependsOn[i] {
+			return false
+		}
+	}
+
+	// Compare EnvVars
+	if len(s.EnvVars) != len(other.EnvVars) {
+		return false
+	}
+	for k, v := range s.EnvVars {
+		if otherV, ok := other.EnvVars[k]; !ok || v != otherV {
+			return false
+		}
+	}
+
+	return true
 }
 
 // GetCurrentSystem returns the Nix system string for the current platform.
