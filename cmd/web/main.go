@@ -841,6 +841,9 @@ func handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/apps?success=App+deleted+successfully", http.StatusSeeOther)
 }
 
+// handleUpdateApp updates an application's metadata.
+// Uses pointer fields for optional values and includes version for optimistic locking.
+// **Validates: Requirements 7.2**
 func handleUpdateApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	client := getAPIClient(r)
@@ -852,20 +855,24 @@ func handleUpdateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build update request with pointer fields for optional values
+	// **Validates: Requirements 6.2**
 	req := api.UpdateAppRequest{}
 	
 	// Parse version for optimistic locking
+	// **Validates: Requirements 6.1, 6.4**
 	if versionStr := r.FormValue("version"); versionStr != "" {
 		if version, err := strconv.Atoi(versionStr); err == nil {
 			req.Version = version
 		}
 	}
 	
-	// Only set fields that were provided
+	// Only set fields that were provided (pointer fields for optional values)
 	if name := r.FormValue("name"); name != "" {
 		req.Name = &name
 	}
-	if description := r.FormValue("description"); description != "" {
+	// Description can be empty to clear it
+	if r.Form.Has("description") {
+		description := r.FormValue("description")
 		req.Description = &description
 	}
 	if iconURL := r.FormValue("icon_url"); iconURL != "" {
@@ -874,10 +881,17 @@ func handleUpdateApp(w http.ResponseWriter, r *http.Request) {
 
 	_, err := client.UpdateApp(ctx, appID, req)
 	if err != nil {
-		http.Redirect(w, r, fmt.Sprintf("/apps/%s?error=%s", appID, url.QueryEscape(err.Error())), http.StatusSeeOther)
+		// Detect version conflict (409 Conflict) and display user-friendly message
+		// **Validates: Requirements 6.5, 7.4**
+		errorMsg := err.Error()
+		if strings.Contains(errorMsg, "(409)") || strings.Contains(strings.ToLower(errorMsg), "conflict") {
+			errorMsg = "This app was modified by another user. Please refresh the page and try again."
+		}
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s?error=%s", appID, url.QueryEscape(errorMsg)), http.StatusSeeOther)
 		return
 	}
 
+	// **Validates: Requirements 7.3**
 	http.Redirect(w, r, fmt.Sprintf("/apps/%s?success=App+updated+successfully", appID), http.StatusSeeOther)
 }
 
