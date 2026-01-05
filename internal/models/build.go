@@ -152,7 +152,17 @@ type BuildConfig struct {
 
 	// Go-specific
 	GoVersion  string `json:"go_version,omitempty"`
-	CGOEnabled bool   `json:"cgo_enabled,omitempty"`
+	CGOEnabled *bool  `json:"cgo_enabled,omitempty"` // Explicit CGO control (nil = auto-detect) **Validates: Requirements 16.5**
+
+	// Go build tags (e.g., ["integration", "debug"]) **Validates: Requirements 17.1**
+	BuildTags []string `json:"build_tags,omitempty"`
+
+	// Custom ldflags for Go linker (e.g., "-X main.version=1.0.0") **Validates: Requirements 18.1**
+	Ldflags string `json:"ldflags,omitempty"`
+
+	// Pre/post build hooks **Validates: Requirements 21.1, 21.2**
+	PreBuildCommands  []string `json:"pre_build_commands,omitempty"`  // Commands to run before build
+	PostBuildCommands []string `json:"post_build_commands,omitempty"` // Commands to run after build
 
 	// Node.js-specific
 	NodeVersion    string `json:"node_version,omitempty"`
@@ -165,9 +175,9 @@ type BuildConfig struct {
 	PythonVersion string `json:"python_version,omitempty"`
 
 	// Framework-specific options
-	NextJSOptions  *NextJSOptions  `json:"nextjs_options,omitempty"`
-	DjangoOptions  *DjangoOptions  `json:"django_options,omitempty"`
-	FastAPIOptions *FastAPIOptions `json:"fastapi_options,omitempty"`
+	NextJSOptions   *NextJSOptions   `json:"nextjs_options,omitempty"`
+	DjangoOptions   *DjangoOptions   `json:"django_options,omitempty"`
+	FastAPIOptions  *FastAPIOptions  `json:"fastapi_options,omitempty"`
 	DatabaseOptions *DatabaseOptions `json:"database_options,omitempty"`
 
 	// Advanced options
