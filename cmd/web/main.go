@@ -171,6 +171,7 @@ func main() {
 		r.Get("/settings/notifications", handleSettingsNotifications)
 		r.Get("/settings/cleanup", handleSettingsCleanup)
 		r.Post("/settings/cleanup", handleSettingsCleanupUpdate)
+		r.Post("/settings/server/resources", handleSettingsServerResourcesUpdate)
 		
 		// Users management routes (admin only)
 		r.Get("/settings/users", handleSettingsUsers)
@@ -437,6 +438,124 @@ func clearAllSessionCookies(w http.ResponseWriter) {
 		HttpOnly: true,
 		MaxAge:   -1,
 	})
+}
+
+// ============================================================================
+// Error Handling Helpers
+// ============================================================================
+
+// APIError represents a parsed API error with status code and message.
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+// parseAPIError extracts the status code and message from an API error.
+// API errors are in the format: "API error (status_code): message"
+// **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
+func parseAPIError(err error) *APIError {
+	if err == nil {
+		return nil
+	}
+	
+	errStr := err.Error()
+	
+	// Try to parse "API error (XXX): message" format
+	if strings.HasPrefix(errStr, "API error (") {
+		// Find the closing parenthesis
+		closeIdx := strings.Index(errStr, ")")
+		if closeIdx > 11 { // len("API error (") = 11
+			codeStr := errStr[11:closeIdx]
+			if code, parseErr := strconv.Atoi(codeStr); parseErr == nil {
+				message := ""
+				if len(errStr) > closeIdx+2 { // ": " after the closing paren
+					message = strings.TrimPrefix(errStr[closeIdx+1:], ": ")
+				}
+				return &APIError{
+					StatusCode: code,
+					Message:    extractUserFriendlyMessage(message),
+				}
+			}
+		}
+	}
+	
+	// Fallback: return the error as-is with status 0 (unknown)
+	return &APIError{
+		StatusCode: 0,
+		Message:    errStr,
+	}
+}
+
+// extractUserFriendlyMessage attempts to extract a user-friendly message from the API response.
+// The backend may return JSON with an "error" or "message" field.
+func extractUserFriendlyMessage(rawMessage string) string {
+	rawMessage = strings.TrimSpace(rawMessage)
+	if rawMessage == "" {
+		return "An unexpected error occurred"
+	}
+	
+	// Try to parse as JSON to extract error message
+	if strings.HasPrefix(rawMessage, "{") {
+		var jsonErr struct {
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(rawMessage), &jsonErr); err == nil {
+			if jsonErr.Error != "" {
+				return jsonErr.Error
+			}
+			if jsonErr.Message != "" {
+				return jsonErr.Message
+			}
+		}
+	}
+	
+	return rawMessage
+}
+
+// isAuthenticationError checks if the error is a 401 Unauthorized error.
+// **Validates: Requirements 14.3**
+func isAuthenticationError(err error) bool {
+	apiErr := parseAPIError(err)
+	return apiErr != nil && apiErr.StatusCode == 401
+}
+
+// isAuthorizationError checks if the error is a 403 Forbidden error.
+// **Validates: Requirements 14.4**
+func isAuthorizationError(err error) bool {
+	apiErr := parseAPIError(err)
+	return apiErr != nil && apiErr.StatusCode == 403
+}
+
+// handleAPIError processes an API error and returns the appropriate redirect URL.
+// It handles authentication (401) and authorization (403) errors specially.
+// **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
+func handleAPIError(w http.ResponseWriter, r *http.Request, err error, defaultRedirect string) {
+	apiErr := parseAPIError(err)
+	
+	// Handle authentication errors - redirect to login
+	// **Validates: Requirements 14.3**
+	if apiErr.StatusCode == 401 {
+		slog.Debug("authentication error, redirecting to login", "error", err)
+		clearAllSessionCookies(w)
+		http.Redirect(w, r, "/login?error="+url.QueryEscape("Your session has expired. Please log in again."), http.StatusFound)
+		return
+	}
+	
+	// Handle authorization errors - display forbidden message
+	// **Validates: Requirements 14.4**
+	if apiErr.StatusCode == 403 {
+		errorMsg := "You don't have permission to perform this action"
+		if apiErr.Message != "" && apiErr.Message != "An unexpected error occurred" {
+			errorMsg = apiErr.Message
+		}
+		http.Redirect(w, r, defaultRedirect+"?error="+url.QueryEscape(errorMsg), http.StatusFound)
+		return
+	}
+	
+	// For other errors, display the specific error message from the backend
+	// **Validates: Requirements 14.1, 14.2**
+	http.Redirect(w, r, defaultRedirect+"?error="+url.QueryEscape(apiErr.Message), http.StatusFound)
 }
 
 // ============================================================================
@@ -812,6 +931,9 @@ func handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 	apps.ServiceDetail(data).Render(ctx, w)
 }
 
+// handleUpdateService updates an existing service.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleUpdateService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
@@ -846,13 +968,16 @@ func handleUpdateService(w http.ResponseWriter, r *http.Request) {
 
 	_, err := client.UpdateService(ctx, appID, serviceName, req)
 	if err != nil {
-		http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?error=%s", appID, serviceName, url.QueryEscape(err.Error())), http.StatusSeeOther)
+		handleAPIError(w, r, err, fmt.Sprintf("/apps/%s/services/%s", appID, serviceName))
 		return
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?success=Service+updated+successfully", appID, serviceName), http.StatusSeeOther)
 }
 
+// handleDeleteService deletes a service from an app (DELETE method).
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleDeleteService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
@@ -861,13 +986,16 @@ func handleDeleteService(w http.ResponseWriter, r *http.Request) {
 
 	err := client.DeleteService(ctx, appID, serviceName)
 	if err != nil {
-		http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?error=%s", appID, serviceName, url.QueryEscape(err.Error())), http.StatusSeeOther)
+		handleAPIError(w, r, err, fmt.Sprintf("/apps/%s/services/%s", appID, serviceName))
 		return
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/apps/%s?success=Service+deleted+successfully", appID), http.StatusSeeOther)
 }
 
+// handleDeleteApp deletes an application.
+// Displays specific error message from backend on failure.
+// **Validates: Requirements 14.1**
 func handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	client := getAPIClient(r)
@@ -875,7 +1003,9 @@ func handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 
 	err := client.DeleteApp(ctx, appID)
 	if err != nil {
-		http.Redirect(w, r, fmt.Sprintf("/apps/%s?error=%s", appID, url.QueryEscape(err.Error())), http.StatusSeeOther)
+		// Use the new error handling to display specific backend messages
+		// and handle auth/authz errors appropriately
+		handleAPIError(w, r, err, fmt.Sprintf("/apps/%s", appID))
 		return
 	}
 
@@ -1051,7 +1181,9 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
 	service, err := client.CreateService(r.Context(), appID, req)
 	if err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		// Use improved error handling for actionable messages
+		// **Validates: Requirements 14.2**
+		handleAPIError(w, r, err, "/apps/"+appID)
 		return
 	}
 
@@ -1673,90 +1805,114 @@ func handleServiceConsoleWS(w http.ResponseWriter, r *http.Request) {
 	<-errChan
 }
 
+// handleDeployService triggers a deployment for a service.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleDeployService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
 	client := getAPIClient(r)
 	if _, err := client.Deploy(r.Context(), appID, serviceName); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID+"/services/"+serviceName)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Deployment+initiated", http.StatusFound)
 }
 
+// handleStopService stops a running service.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleStopService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
 	client := getAPIClient(r)
 	if err := client.StopService(r.Context(), appID, serviceName); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID+"/services/"+serviceName)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Service+stopped", http.StatusFound)
 }
 
+// handleStartService starts a stopped service.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleStartService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
 	client := getAPIClient(r)
 	if err := client.StartService(r.Context(), appID, serviceName); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID+"/services/"+serviceName)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Service+started", http.StatusFound)
 }
 
+// handleReloadService restarts a service without rebuilding.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleReloadService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
 	client := getAPIClient(r)
 	if err := client.ReloadService(r.Context(), appID, serviceName); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID+"/services/"+serviceName)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Service+reloading", http.StatusFound)
 }
 
+// handleRetryService retries a failed deployment.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleRetryService(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
 	client := getAPIClient(r)
 	if err := client.RetryService(r.Context(), appID, serviceName); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID+"/services/"+serviceName)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?success=Retry+initiated", http.StatusFound)
 }
 
+// handleDeleteServicePost deletes a service from an app.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleDeleteServicePost(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	serviceName := chi.URLParam(r, "serviceName")
 	client := getAPIClient(r)
 	if err := client.DeleteService(r.Context(), appID, serviceName); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"/services/"+serviceName+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID+"/services/"+serviceName)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"?success=Service+deleted", http.StatusFound)
 }
 
+// handleCreateSecret creates a new secret for an app.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	key := r.FormValue("key")
 	value := r.FormValue("value")
 	client := getAPIClient(r)
 	if err := client.CreateSecret(r.Context(), appID, key, value); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"?success=Secret+created", http.StatusFound)
 }
 
+// handleDeleteSecret deletes a secret from an app.
+// Displays actionable error messages on failure.
+// **Validates: Requirements 14.2**
 func handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	key := chi.URLParam(r, "key")
 	client := getAPIClient(r)
 	if err := client.DeleteSecret(r.Context(), appID, key); err != nil {
-		http.Redirect(w, r, "/apps/"+appID+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		handleAPIError(w, r, err, "/apps/"+appID)
 		return
 	}
 	http.Redirect(w, r, "/apps/"+appID+"?success=Secret+deleted", http.StatusFound)
@@ -1991,8 +2147,12 @@ func handleSettingsServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := settings_page.ServerData{
-		Domain:   settings["server_domain"],
-		PublicIP: settings["public_ip"],
+		Domain:        settings["server_domain"],
+		PublicIP:      settings["public_ip"],
+		DefaultCPU:    settings["default_resource_cpu"],
+		DefaultMemory: settings["default_resource_memory"],
+		SuccessMsg:    r.URL.Query().Get("success"),
+		ErrorMsg:      r.URL.Query().Get("error"),
 	}
 	settings_page.Server(data).Render(r.Context(), w)
 }
@@ -2024,6 +2184,31 @@ func handleSettingsServerUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settings_page.Server(data).Render(r.Context(), w)
+}
+
+// handleSettingsServerResourcesUpdate updates the default resource settings.
+// **Validates: Requirements 12.1**
+func handleSettingsServerResourcesUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/settings/server?error=Invalid+form", http.StatusFound)
+		return
+	}
+
+	defaultCPU := r.FormValue("default_cpu")
+	defaultMemory := r.FormValue("default_memory")
+
+	client := getAPIClient(r)
+	err := client.UpdateSettings(r.Context(), map[string]string{
+		"default_resource_cpu":    defaultCPU,
+		"default_resource_memory": defaultMemory,
+	})
+
+	if err != nil {
+		http.Redirect(w, r, "/settings/server?error="+url.QueryEscape("Failed to update resource settings: "+err.Error()), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/settings/server?success=Resource+settings+updated+successfully", http.StatusFound)
 }
 
 func handleSettingsAPIKeys(w http.ResponseWriter, r *http.Request) {
