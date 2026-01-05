@@ -3,9 +3,9 @@ package detector
 import (
 	"bufio"
 	"context"
-	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,15 +16,6 @@ import (
 
 // goVersionRegex matches the go directive in go.mod (e.g., "go 1.21" or "go 1.21.0").
 var goVersionRegex = regexp.MustCompile(`^go\s+(\d+\.\d+(?:\.\d+)?)`)
-
-// cgoImports is a list of packages that indicate CGO usage.
-var cgoImports = map[string]bool{
-	"C":                     true,
-	"unsafe":                true, // Often used with CGO
-	"runtime/cgo":           true,
-	"database/sql":          true, // Often uses CGO drivers
-	"github.com/mattn/go-sqlite3": true,
-}
 
 // DetectGo checks for Go application markers.
 func (d *DefaultDetector) DetectGo(ctx context.Context, repoPath string) (*models.DetectionResult, error) {
@@ -144,65 +135,22 @@ func hasMainPackage(dir string) bool {
 	return false
 }
 
-// detectCGOUsage scans Go files for CGO imports.
+// detectCGOUsage scans Go files for CGO imports using the dedicated CGO detector.
+// This function wraps DetectCGO for backward compatibility.
+// **Validates: Requirements 16.1, 16.2, 16.4**
+//
+// On detection failure:
+// - Logs a warning with the error details
+// - Returns false (CGO_ENABLED=0) as the safe default
 func detectCGOUsage(repoPath string) (bool, error) {
-	usesCGO := false
-
-	err := filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip errors
-		}
-
-		// Skip vendor and hidden directories
-		if info.IsDir() {
-			name := info.Name()
-			if name == "vendor" || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Only process .go files
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-
-		// Parse the file for imports
-		fset := token.NewFileSet()
-		node, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
-		if err != nil {
-			return nil // Skip files that can't be parsed
-		}
-
-		for _, imp := range node.Imports {
-			importPath := strings.Trim(imp.Path.Value, `"`)
-			if cgoImports[importPath] {
-				usesCGO = true
-				return filepath.SkipAll // Found CGO, stop walking
-			}
-		}
-
-		// Also check for //go:cgo_import_* directives
-		if hasCGODirectives(node) {
-			usesCGO = true
-			return filepath.SkipAll
-		}
-
-		return nil
-	})
-
-	return usesCGO, err
-}
-
-// hasCGODirectives checks if a file has CGO-related directives.
-func hasCGODirectives(node *ast.File) bool {
-	for _, cg := range node.Comments {
-		for _, c := range cg.List {
-			text := c.Text
-			if strings.Contains(text, "cgo") || strings.Contains(text, "CGO") {
-				return true
-			}
-		}
+	result, err := DetectCGO(repoPath)
+	if err != nil {
+		// **Validates: Requirements 16.4** - Log warning and fall back to pure Go build
+		slog.Warn("CGO detection failed, defaulting to CGO_ENABLED=0",
+			"path", repoPath,
+			"error", err,
+		)
+		return false, nil // Return false (no CGO) as safe default, don't propagate error
 	}
-	return false
+	return result.RequiresCGO, nil
 }
