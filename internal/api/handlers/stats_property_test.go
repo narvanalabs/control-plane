@@ -233,6 +233,10 @@ func (m *statsNodeStore) UpdateHeartbeat(ctx context.Context, id string, resourc
 	return nil
 }
 
+func (m *statsNodeStore) UpdateHeartbeatWithDiskMetrics(ctx context.Context, id string, resources *models.NodeResources, diskMetrics *models.NodeDiskMetrics) error {
+	return nil
+}
+
 func (m *statsNodeStore) UpdateHealth(ctx context.Context, id string, healthy bool) error {
 	if n, ok := m.nodes[id]; ok {
 		n.Healthy = healthy
