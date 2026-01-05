@@ -54,6 +54,9 @@ message NodeInfo {
   repeated string cached_paths = 6;
   int32 available_slots = 7;
   int32 active_deployments = 8;
+  // Disk metrics for specific paths (nix store, container storage)
+  // **Validates: Requirements 20.1**
+  NodeDiskMetrics disk_metrics = 9;
 }
 
 message ResourceMetrics {
@@ -63,6 +66,23 @@ message ResourceMetrics {
   int64 memory_available = 4;
   int64 disk_total = 5;
   int64 disk_available = 6;
+}
+
+// DiskStats represents disk usage statistics for a specific path.
+// **Validates: Requirements 20.1**
+message DiskStats {
+  string path = 1;
+  int64 total = 2;
+  int64 used = 3;
+  int64 available = 4;
+  double usage_percent = 5;
+}
+
+// NodeDiskMetrics contains disk usage metrics for specific paths on a node.
+// **Validates: Requirements 20.1**
+message NodeDiskMetrics {
+  DiskStats nix_store = 1;
+  DiskStats container_storage = 2;
 }
 
 

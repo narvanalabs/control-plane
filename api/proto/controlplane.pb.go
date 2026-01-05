@@ -395,8 +395,11 @@ type NodeInfo struct {
 	CachedPaths       []string               `protobuf:"bytes,6,rep,name=cached_paths,json=cachedPaths,proto3" json:"cached_paths,omitempty"`
 	AvailableSlots    int32                  `protobuf:"varint,7,opt,name=available_slots,json=availableSlots,proto3" json:"available_slots,omitempty"`
 	ActiveDeployments int32                  `protobuf:"varint,8,opt,name=active_deployments,json=activeDeployments,proto3" json:"active_deployments,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Disk metrics for specific paths (nix store, container storage)
+	// **Validates: Requirements 20.1**
+	DiskMetrics   *NodeDiskMetrics `protobuf:"bytes,9,opt,name=disk_metrics,json=diskMetrics,proto3" json:"disk_metrics,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeInfo) Reset() {
@@ -485,6 +488,13 @@ func (x *NodeInfo) GetActiveDeployments() int32 {
 	return 0
 }
 
+func (x *NodeInfo) GetDiskMetrics() *NodeDiskMetrics {
+	if x != nil {
+		return x.DiskMetrics
+	}
+	return nil
+}
+
 type ResourceMetrics struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	CpuTotal        float64                `protobuf:"fixed64,1,opt,name=cpu_total,json=cpuTotal,proto3" json:"cpu_total,omitempty"`
@@ -569,6 +579,138 @@ func (x *ResourceMetrics) GetDiskAvailable() int64 {
 	return 0
 }
 
+// DiskStats represents disk usage statistics for a specific path.
+// **Validates: Requirements 20.1**
+type DiskStats struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	Used          int64                  `protobuf:"varint,3,opt,name=used,proto3" json:"used,omitempty"`
+	Available     int64                  `protobuf:"varint,4,opt,name=available,proto3" json:"available,omitempty"`
+	UsagePercent  float64                `protobuf:"fixed64,5,opt,name=usage_percent,json=usagePercent,proto3" json:"usage_percent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiskStats) Reset() {
+	*x = DiskStats{}
+	mi := &file_api_proto_controlplane_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiskStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiskStats) ProtoMessage() {}
+
+func (x *DiskStats) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_controlplane_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiskStats.ProtoReflect.Descriptor instead.
+func (*DiskStats) Descriptor() ([]byte, []int) {
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DiskStats) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *DiskStats) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *DiskStats) GetUsed() int64 {
+	if x != nil {
+		return x.Used
+	}
+	return 0
+}
+
+func (x *DiskStats) GetAvailable() int64 {
+	if x != nil {
+		return x.Available
+	}
+	return 0
+}
+
+func (x *DiskStats) GetUsagePercent() float64 {
+	if x != nil {
+		return x.UsagePercent
+	}
+	return 0
+}
+
+// NodeDiskMetrics contains disk usage metrics for specific paths on a node.
+// **Validates: Requirements 20.1**
+type NodeDiskMetrics struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	NixStore         *DiskStats             `protobuf:"bytes,1,opt,name=nix_store,json=nixStore,proto3" json:"nix_store,omitempty"`
+	ContainerStorage *DiskStats             `protobuf:"bytes,2,opt,name=container_storage,json=containerStorage,proto3" json:"container_storage,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *NodeDiskMetrics) Reset() {
+	*x = NodeDiskMetrics{}
+	mi := &file_api_proto_controlplane_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeDiskMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeDiskMetrics) ProtoMessage() {}
+
+func (x *NodeDiskMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_controlplane_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeDiskMetrics.ProtoReflect.Descriptor instead.
+func (*NodeDiskMetrics) Descriptor() ([]byte, []int) {
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *NodeDiskMetrics) GetNixStore() *DiskStats {
+	if x != nil {
+		return x.NixStore
+	}
+	return nil
+}
+
+func (x *NodeDiskMetrics) GetContainerStorage() *DiskStats {
+	if x != nil {
+		return x.ContainerStorage
+	}
+	return nil
+}
+
 type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeInfo      *NodeInfo              `protobuf:"bytes,1,opt,name=node_info,json=nodeInfo,proto3" json:"node_info,omitempty"`
@@ -579,7 +721,7 @@ type RegisterRequest struct {
 
 func (x *RegisterRequest) Reset() {
 	*x = RegisterRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[4]
+	mi := &file_api_proto_controlplane_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -591,7 +733,7 @@ func (x *RegisterRequest) String() string {
 func (*RegisterRequest) ProtoMessage() {}
 
 func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[4]
+	mi := &file_api_proto_controlplane_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -604,7 +746,7 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{4}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RegisterRequest) GetNodeInfo() *NodeInfo {
@@ -633,7 +775,7 @@ type RegisterResponse struct {
 
 func (x *RegisterResponse) Reset() {
 	*x = RegisterResponse{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[5]
+	mi := &file_api_proto_controlplane_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -645,7 +787,7 @@ func (x *RegisterResponse) String() string {
 func (*RegisterResponse) ProtoMessage() {}
 
 func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[5]
+	mi := &file_api_proto_controlplane_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -658,7 +800,7 @@ func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{5}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RegisterResponse) GetSuccess() bool {
@@ -700,7 +842,7 @@ type NodeConfig struct {
 
 func (x *NodeConfig) Reset() {
 	*x = NodeConfig{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[6]
+	mi := &file_api_proto_controlplane_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -712,7 +854,7 @@ func (x *NodeConfig) String() string {
 func (*NodeConfig) ProtoMessage() {}
 
 func (x *NodeConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[6]
+	mi := &file_api_proto_controlplane_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -725,7 +867,7 @@ func (x *NodeConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeConfig.ProtoReflect.Descriptor instead.
 func (*NodeConfig) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{6}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *NodeConfig) GetHeartbeatIntervalSeconds() int32 {
@@ -762,7 +904,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[7]
+	mi := &file_api_proto_controlplane_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +916,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[7]
+	mi := &file_api_proto_controlplane_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +929,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{7}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *HeartbeatRequest) GetNodeId() string {
@@ -827,7 +969,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[8]
+	mi := &file_api_proto_controlplane_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -839,7 +981,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[8]
+	mi := &file_api_proto_controlplane_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -852,7 +994,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{8}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *HeartbeatResponse) GetSuccess() bool {
@@ -872,7 +1014,7 @@ type WatchCommandsRequest struct {
 
 func (x *WatchCommandsRequest) Reset() {
 	*x = WatchCommandsRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[9]
+	mi := &file_api_proto_controlplane_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -884,7 +1026,7 @@ func (x *WatchCommandsRequest) String() string {
 func (*WatchCommandsRequest) ProtoMessage() {}
 
 func (x *WatchCommandsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[9]
+	mi := &file_api_proto_controlplane_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -897,7 +1039,7 @@ func (x *WatchCommandsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchCommandsRequest.ProtoReflect.Descriptor instead.
 func (*WatchCommandsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{9}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WatchCommandsRequest) GetNodeId() string {
@@ -933,7 +1075,7 @@ type DeploymentCommand struct {
 
 func (x *DeploymentCommand) Reset() {
 	*x = DeploymentCommand{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[10]
+	mi := &file_api_proto_controlplane_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -945,7 +1087,7 @@ func (x *DeploymentCommand) String() string {
 func (*DeploymentCommand) ProtoMessage() {}
 
 func (x *DeploymentCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[10]
+	mi := &file_api_proto_controlplane_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -958,7 +1100,7 @@ func (x *DeploymentCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeploymentCommand.ProtoReflect.Descriptor instead.
 func (*DeploymentCommand) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{10}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeploymentCommand) GetCommandId() string {
@@ -1088,7 +1230,7 @@ type CPDeployRequest struct {
 
 func (x *CPDeployRequest) Reset() {
 	*x = CPDeployRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[11]
+	mi := &file_api_proto_controlplane_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1100,7 +1242,7 @@ func (x *CPDeployRequest) String() string {
 func (*CPDeployRequest) ProtoMessage() {}
 
 func (x *CPDeployRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[11]
+	mi := &file_api_proto_controlplane_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1113,7 +1255,7 @@ func (x *CPDeployRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPDeployRequest.ProtoReflect.Descriptor instead.
 func (*CPDeployRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{11}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CPDeployRequest) GetDeploymentId() string {
@@ -1186,7 +1328,7 @@ type CPDeploymentConfig struct {
 
 func (x *CPDeploymentConfig) Reset() {
 	*x = CPDeploymentConfig{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[12]
+	mi := &file_api_proto_controlplane_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1198,7 +1340,7 @@ func (x *CPDeploymentConfig) String() string {
 func (*CPDeploymentConfig) ProtoMessage() {}
 
 func (x *CPDeploymentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[12]
+	mi := &file_api_proto_controlplane_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1211,7 +1353,7 @@ func (x *CPDeploymentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPDeploymentConfig.ProtoReflect.Descriptor instead.
 func (*CPDeploymentConfig) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{12}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CPDeploymentConfig) GetResourceTier() string {
@@ -1270,7 +1412,7 @@ type CPHealthCheckConfig struct {
 
 func (x *CPHealthCheckConfig) Reset() {
 	*x = CPHealthCheckConfig{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[13]
+	mi := &file_api_proto_controlplane_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1282,7 +1424,7 @@ func (x *CPHealthCheckConfig) String() string {
 func (*CPHealthCheckConfig) ProtoMessage() {}
 
 func (x *CPHealthCheckConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[13]
+	mi := &file_api_proto_controlplane_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1295,7 +1437,7 @@ func (x *CPHealthCheckConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPHealthCheckConfig.ProtoReflect.Descriptor instead.
 func (*CPHealthCheckConfig) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{13}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CPHealthCheckConfig) GetPath() string {
@@ -1351,7 +1493,7 @@ type CPStopRequest struct {
 
 func (x *CPStopRequest) Reset() {
 	*x = CPStopRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[14]
+	mi := &file_api_proto_controlplane_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1363,7 +1505,7 @@ func (x *CPStopRequest) String() string {
 func (*CPStopRequest) ProtoMessage() {}
 
 func (x *CPStopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[14]
+	mi := &file_api_proto_controlplane_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1376,7 +1518,7 @@ func (x *CPStopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPStopRequest.ProtoReflect.Descriptor instead.
 func (*CPStopRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{14}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CPStopRequest) GetDeploymentId() string {
@@ -1409,7 +1551,7 @@ type CPRestartRequest struct {
 
 func (x *CPRestartRequest) Reset() {
 	*x = CPRestartRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[15]
+	mi := &file_api_proto_controlplane_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1421,7 +1563,7 @@ func (x *CPRestartRequest) String() string {
 func (*CPRestartRequest) ProtoMessage() {}
 
 func (x *CPRestartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[15]
+	mi := &file_api_proto_controlplane_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1434,7 +1576,7 @@ func (x *CPRestartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPRestartRequest.ProtoReflect.Descriptor instead.
 func (*CPRestartRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{15}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CPRestartRequest) GetDeploymentId() string {
@@ -1454,7 +1596,7 @@ type CPUpdateConfigRequest struct {
 
 func (x *CPUpdateConfigRequest) Reset() {
 	*x = CPUpdateConfigRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[16]
+	mi := &file_api_proto_controlplane_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1466,7 +1608,7 @@ func (x *CPUpdateConfigRequest) String() string {
 func (*CPUpdateConfigRequest) ProtoMessage() {}
 
 func (x *CPUpdateConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[16]
+	mi := &file_api_proto_controlplane_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1479,7 +1621,7 @@ func (x *CPUpdateConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPUpdateConfigRequest.ProtoReflect.Descriptor instead.
 func (*CPUpdateConfigRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{16}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CPUpdateConfigRequest) GetDeploymentId() string {
@@ -1510,7 +1652,7 @@ type CPLogStreamRequest struct {
 
 func (x *CPLogStreamRequest) Reset() {
 	*x = CPLogStreamRequest{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[17]
+	mi := &file_api_proto_controlplane_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1522,7 +1664,7 @@ func (x *CPLogStreamRequest) String() string {
 func (*CPLogStreamRequest) ProtoMessage() {}
 
 func (x *CPLogStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[17]
+	mi := &file_api_proto_controlplane_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1535,7 +1677,7 @@ func (x *CPLogStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPLogStreamRequest.ProtoReflect.Descriptor instead.
 func (*CPLogStreamRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{17}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CPLogStreamRequest) GetDeploymentId() string {
@@ -1597,7 +1739,7 @@ type StatusReport struct {
 
 func (x *StatusReport) Reset() {
 	*x = StatusReport{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[18]
+	mi := &file_api_proto_controlplane_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1609,7 +1751,7 @@ func (x *StatusReport) String() string {
 func (*StatusReport) ProtoMessage() {}
 
 func (x *StatusReport) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[18]
+	mi := &file_api_proto_controlplane_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1622,7 +1764,7 @@ func (x *StatusReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusReport.ProtoReflect.Descriptor instead.
 func (*StatusReport) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{18}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StatusReport) GetNodeId() string {
@@ -1700,7 +1842,7 @@ type ResourceUsage struct {
 
 func (x *ResourceUsage) Reset() {
 	*x = ResourceUsage{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[19]
+	mi := &file_api_proto_controlplane_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1712,7 +1854,7 @@ func (x *ResourceUsage) String() string {
 func (*ResourceUsage) ProtoMessage() {}
 
 func (x *ResourceUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[19]
+	mi := &file_api_proto_controlplane_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1725,7 +1867,7 @@ func (x *ResourceUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceUsage.ProtoReflect.Descriptor instead.
 func (*ResourceUsage) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{19}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ResourceUsage) GetCpuPercent() float64 {
@@ -1765,7 +1907,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[20]
+	mi := &file_api_proto_controlplane_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1777,7 +1919,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[20]
+	mi := &file_api_proto_controlplane_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1790,7 +1932,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{20}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *StatusResponse) GetAcknowledged() bool {
@@ -1815,7 +1957,7 @@ type CPLogEntry struct {
 
 func (x *CPLogEntry) Reset() {
 	*x = CPLogEntry{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[21]
+	mi := &file_api_proto_controlplane_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1827,7 +1969,7 @@ func (x *CPLogEntry) String() string {
 func (*CPLogEntry) ProtoMessage() {}
 
 func (x *CPLogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[21]
+	mi := &file_api_proto_controlplane_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1840,7 +1982,7 @@ func (x *CPLogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPLogEntry.ProtoReflect.Descriptor instead.
 func (*CPLogEntry) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{21}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CPLogEntry) GetDeploymentId() string {
@@ -1901,7 +2043,7 @@ type PushLogsResponse struct {
 
 func (x *PushLogsResponse) Reset() {
 	*x = PushLogsResponse{}
-	mi := &file_api_proto_controlplane_proto_msgTypes[22]
+	mi := &file_api_proto_controlplane_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1913,7 +2055,7 @@ func (x *PushLogsResponse) String() string {
 func (*PushLogsResponse) ProtoMessage() {}
 
 func (x *PushLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_controlplane_proto_msgTypes[22]
+	mi := &file_api_proto_controlplane_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1926,7 +2068,7 @@ func (x *PushLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushLogsResponse.ProtoReflect.Descriptor instead.
 func (*PushLogsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{22}
+	return file_api_proto_controlplane_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PushLogsResponse) GetEntriesReceived() int64 {
@@ -1948,7 +2090,7 @@ const file_api_proto_controlplane_proto_rawDesc = "" +
 	"\rServingStatus\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSERVING\x10\x01\x12\x0f\n" +
-	"\vNOT_SERVING\x10\x02\"\xa5\x02\n" +
+	"\vNOT_SERVING\x10\x02\"\xe7\x02\n" +
 	"\bNodeInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x18\n" +
@@ -1957,7 +2099,8 @@ const file_api_proto_controlplane_proto_rawDesc = "" +
 	"\tresources\x18\x05 \x01(\v2\x1d.controlplane.ResourceMetricsR\tresources\x12!\n" +
 	"\fcached_paths\x18\x06 \x03(\tR\vcachedPaths\x12'\n" +
 	"\x0favailable_slots\x18\a \x01(\x05R\x0eavailableSlots\x12-\n" +
-	"\x12active_deployments\x18\b \x01(\x05R\x11activeDeployments\"\xe7\x01\n" +
+	"\x12active_deployments\x18\b \x01(\x05R\x11activeDeployments\x12@\n" +
+	"\fdisk_metrics\x18\t \x01(\v2\x1d.controlplane.NodeDiskMetricsR\vdiskMetrics\"\xe7\x01\n" +
 	"\x0fResourceMetrics\x12\x1b\n" +
 	"\tcpu_total\x18\x01 \x01(\x01R\bcpuTotal\x12#\n" +
 	"\rcpu_available\x18\x02 \x01(\x01R\fcpuAvailable\x12!\n" +
@@ -1965,7 +2108,16 @@ const file_api_proto_controlplane_proto_rawDesc = "" +
 	"\x10memory_available\x18\x04 \x01(\x03R\x0fmemoryAvailable\x12\x1d\n" +
 	"\n" +
 	"disk_total\x18\x05 \x01(\x03R\tdiskTotal\x12%\n" +
-	"\x0edisk_available\x18\x06 \x01(\x03R\rdiskAvailable\"e\n" +
+	"\x0edisk_available\x18\x06 \x01(\x03R\rdiskAvailable\"\x8c\x01\n" +
+	"\tDiskStats\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\x12\x12\n" +
+	"\x04used\x18\x03 \x01(\x03R\x04used\x12\x1c\n" +
+	"\tavailable\x18\x04 \x01(\x03R\tavailable\x12#\n" +
+	"\rusage_percent\x18\x05 \x01(\x01R\fusagePercent\"\x8d\x01\n" +
+	"\x0fNodeDiskMetrics\x124\n" +
+	"\tnix_store\x18\x01 \x01(\v2\x17.controlplane.DiskStatsR\bnixStore\x12D\n" +
+	"\x11container_storage\x18\x02 \x01(\v2\x17.controlplane.DiskStatsR\x10containerStorage\"e\n" +
 	"\x0fRegisterRequest\x123\n" +
 	"\tnode_info\x18\x01 \x01(\v2\x16.controlplane.NodeInfoR\bnodeInfo\x12\x1d\n" +
 	"\n" +
@@ -2133,7 +2285,7 @@ func file_api_proto_controlplane_proto_rawDescGZIP() []byte {
 }
 
 var file_api_proto_controlplane_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_api_proto_controlplane_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_api_proto_controlplane_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_api_proto_controlplane_proto_goTypes = []any{
 	(CommandType)(0),                       // 0: controlplane.CommandType
 	(CPBuildType)(0),                       // 1: controlplane.CPBuildType
@@ -2144,74 +2296,79 @@ var file_api_proto_controlplane_proto_goTypes = []any{
 	(*HealthCheckResponse)(nil),            // 6: controlplane.HealthCheckResponse
 	(*NodeInfo)(nil),                       // 7: controlplane.NodeInfo
 	(*ResourceMetrics)(nil),                // 8: controlplane.ResourceMetrics
-	(*RegisterRequest)(nil),                // 9: controlplane.RegisterRequest
-	(*RegisterResponse)(nil),               // 10: controlplane.RegisterResponse
-	(*NodeConfig)(nil),                     // 11: controlplane.NodeConfig
-	(*HeartbeatRequest)(nil),               // 12: controlplane.HeartbeatRequest
-	(*HeartbeatResponse)(nil),              // 13: controlplane.HeartbeatResponse
-	(*WatchCommandsRequest)(nil),           // 14: controlplane.WatchCommandsRequest
-	(*DeploymentCommand)(nil),              // 15: controlplane.DeploymentCommand
-	(*CPDeployRequest)(nil),                // 16: controlplane.CPDeployRequest
-	(*CPDeploymentConfig)(nil),             // 17: controlplane.CPDeploymentConfig
-	(*CPHealthCheckConfig)(nil),            // 18: controlplane.CPHealthCheckConfig
-	(*CPStopRequest)(nil),                  // 19: controlplane.CPStopRequest
-	(*CPRestartRequest)(nil),               // 20: controlplane.CPRestartRequest
-	(*CPUpdateConfigRequest)(nil),          // 21: controlplane.CPUpdateConfigRequest
-	(*CPLogStreamRequest)(nil),             // 22: controlplane.CPLogStreamRequest
-	(*StatusReport)(nil),                   // 23: controlplane.StatusReport
-	(*ResourceUsage)(nil),                  // 24: controlplane.ResourceUsage
-	(*StatusResponse)(nil),                 // 25: controlplane.StatusResponse
-	(*CPLogEntry)(nil),                     // 26: controlplane.CPLogEntry
-	(*PushLogsResponse)(nil),               // 27: controlplane.PushLogsResponse
-	nil,                                    // 28: controlplane.CPDeploymentConfig.EnvVarsEntry
-	nil,                                    // 29: controlplane.CPLogEntry.MetadataEntry
-	(*timestamppb.Timestamp)(nil),          // 30: google.protobuf.Timestamp
+	(*DiskStats)(nil),                      // 9: controlplane.DiskStats
+	(*NodeDiskMetrics)(nil),                // 10: controlplane.NodeDiskMetrics
+	(*RegisterRequest)(nil),                // 11: controlplane.RegisterRequest
+	(*RegisterResponse)(nil),               // 12: controlplane.RegisterResponse
+	(*NodeConfig)(nil),                     // 13: controlplane.NodeConfig
+	(*HeartbeatRequest)(nil),               // 14: controlplane.HeartbeatRequest
+	(*HeartbeatResponse)(nil),              // 15: controlplane.HeartbeatResponse
+	(*WatchCommandsRequest)(nil),           // 16: controlplane.WatchCommandsRequest
+	(*DeploymentCommand)(nil),              // 17: controlplane.DeploymentCommand
+	(*CPDeployRequest)(nil),                // 18: controlplane.CPDeployRequest
+	(*CPDeploymentConfig)(nil),             // 19: controlplane.CPDeploymentConfig
+	(*CPHealthCheckConfig)(nil),            // 20: controlplane.CPHealthCheckConfig
+	(*CPStopRequest)(nil),                  // 21: controlplane.CPStopRequest
+	(*CPRestartRequest)(nil),               // 22: controlplane.CPRestartRequest
+	(*CPUpdateConfigRequest)(nil),          // 23: controlplane.CPUpdateConfigRequest
+	(*CPLogStreamRequest)(nil),             // 24: controlplane.CPLogStreamRequest
+	(*StatusReport)(nil),                   // 25: controlplane.StatusReport
+	(*ResourceUsage)(nil),                  // 26: controlplane.ResourceUsage
+	(*StatusResponse)(nil),                 // 27: controlplane.StatusResponse
+	(*CPLogEntry)(nil),                     // 28: controlplane.CPLogEntry
+	(*PushLogsResponse)(nil),               // 29: controlplane.PushLogsResponse
+	nil,                                    // 30: controlplane.CPDeploymentConfig.EnvVarsEntry
+	nil,                                    // 31: controlplane.CPLogEntry.MetadataEntry
+	(*timestamppb.Timestamp)(nil),          // 32: google.protobuf.Timestamp
 }
 var file_api_proto_controlplane_proto_depIdxs = []int32{
 	4,  // 0: controlplane.HealthCheckResponse.status:type_name -> controlplane.HealthCheckResponse.ServingStatus
 	8,  // 1: controlplane.NodeInfo.resources:type_name -> controlplane.ResourceMetrics
-	7,  // 2: controlplane.RegisterRequest.node_info:type_name -> controlplane.NodeInfo
-	11, // 3: controlplane.RegisterResponse.config:type_name -> controlplane.NodeConfig
-	7,  // 4: controlplane.HeartbeatRequest.node_info:type_name -> controlplane.NodeInfo
-	30, // 5: controlplane.HeartbeatRequest.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 6: controlplane.DeploymentCommand.type:type_name -> controlplane.CommandType
-	30, // 7: controlplane.DeploymentCommand.deadline:type_name -> google.protobuf.Timestamp
-	16, // 8: controlplane.DeploymentCommand.deploy:type_name -> controlplane.CPDeployRequest
-	19, // 9: controlplane.DeploymentCommand.stop:type_name -> controlplane.CPStopRequest
-	20, // 10: controlplane.DeploymentCommand.restart:type_name -> controlplane.CPRestartRequest
-	21, // 11: controlplane.DeploymentCommand.update_config:type_name -> controlplane.CPUpdateConfigRequest
-	22, // 12: controlplane.DeploymentCommand.stream_logs:type_name -> controlplane.CPLogStreamRequest
-	1,  // 13: controlplane.CPDeployRequest.build_type:type_name -> controlplane.CPBuildType
-	17, // 14: controlplane.CPDeployRequest.config:type_name -> controlplane.CPDeploymentConfig
-	28, // 15: controlplane.CPDeploymentConfig.env_vars:type_name -> controlplane.CPDeploymentConfig.EnvVarsEntry
-	18, // 16: controlplane.CPDeploymentConfig.health_check:type_name -> controlplane.CPHealthCheckConfig
-	17, // 17: controlplane.CPUpdateConfigRequest.config:type_name -> controlplane.CPDeploymentConfig
-	3,  // 18: controlplane.CPLogStreamRequest.level_filter:type_name -> controlplane.CPLogLevel
-	2,  // 19: controlplane.StatusReport.status:type_name -> controlplane.DeploymentStatus
-	30, // 20: controlplane.StatusReport.started_at:type_name -> google.protobuf.Timestamp
-	24, // 21: controlplane.StatusReport.resource_usage:type_name -> controlplane.ResourceUsage
-	30, // 22: controlplane.CPLogEntry.timestamp:type_name -> google.protobuf.Timestamp
-	3,  // 23: controlplane.CPLogEntry.level:type_name -> controlplane.CPLogLevel
-	29, // 24: controlplane.CPLogEntry.metadata:type_name -> controlplane.CPLogEntry.MetadataEntry
-	9,  // 25: controlplane.ControlPlaneService.Register:input_type -> controlplane.RegisterRequest
-	12, // 26: controlplane.ControlPlaneService.Heartbeat:input_type -> controlplane.HeartbeatRequest
-	14, // 27: controlplane.ControlPlaneService.WatchCommands:input_type -> controlplane.WatchCommandsRequest
-	23, // 28: controlplane.ControlPlaneService.ReportStatus:input_type -> controlplane.StatusReport
-	26, // 29: controlplane.ControlPlaneService.PushLogs:input_type -> controlplane.CPLogEntry
-	5,  // 30: controlplane.Health.Check:input_type -> controlplane.HealthCheckRequest
-	5,  // 31: controlplane.Health.Watch:input_type -> controlplane.HealthCheckRequest
-	10, // 32: controlplane.ControlPlaneService.Register:output_type -> controlplane.RegisterResponse
-	13, // 33: controlplane.ControlPlaneService.Heartbeat:output_type -> controlplane.HeartbeatResponse
-	15, // 34: controlplane.ControlPlaneService.WatchCommands:output_type -> controlplane.DeploymentCommand
-	25, // 35: controlplane.ControlPlaneService.ReportStatus:output_type -> controlplane.StatusResponse
-	27, // 36: controlplane.ControlPlaneService.PushLogs:output_type -> controlplane.PushLogsResponse
-	6,  // 37: controlplane.Health.Check:output_type -> controlplane.HealthCheckResponse
-	6,  // 38: controlplane.Health.Watch:output_type -> controlplane.HealthCheckResponse
-	32, // [32:39] is the sub-list for method output_type
-	25, // [25:32] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	10, // 2: controlplane.NodeInfo.disk_metrics:type_name -> controlplane.NodeDiskMetrics
+	9,  // 3: controlplane.NodeDiskMetrics.nix_store:type_name -> controlplane.DiskStats
+	9,  // 4: controlplane.NodeDiskMetrics.container_storage:type_name -> controlplane.DiskStats
+	7,  // 5: controlplane.RegisterRequest.node_info:type_name -> controlplane.NodeInfo
+	13, // 6: controlplane.RegisterResponse.config:type_name -> controlplane.NodeConfig
+	7,  // 7: controlplane.HeartbeatRequest.node_info:type_name -> controlplane.NodeInfo
+	32, // 8: controlplane.HeartbeatRequest.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 9: controlplane.DeploymentCommand.type:type_name -> controlplane.CommandType
+	32, // 10: controlplane.DeploymentCommand.deadline:type_name -> google.protobuf.Timestamp
+	18, // 11: controlplane.DeploymentCommand.deploy:type_name -> controlplane.CPDeployRequest
+	21, // 12: controlplane.DeploymentCommand.stop:type_name -> controlplane.CPStopRequest
+	22, // 13: controlplane.DeploymentCommand.restart:type_name -> controlplane.CPRestartRequest
+	23, // 14: controlplane.DeploymentCommand.update_config:type_name -> controlplane.CPUpdateConfigRequest
+	24, // 15: controlplane.DeploymentCommand.stream_logs:type_name -> controlplane.CPLogStreamRequest
+	1,  // 16: controlplane.CPDeployRequest.build_type:type_name -> controlplane.CPBuildType
+	19, // 17: controlplane.CPDeployRequest.config:type_name -> controlplane.CPDeploymentConfig
+	30, // 18: controlplane.CPDeploymentConfig.env_vars:type_name -> controlplane.CPDeploymentConfig.EnvVarsEntry
+	20, // 19: controlplane.CPDeploymentConfig.health_check:type_name -> controlplane.CPHealthCheckConfig
+	19, // 20: controlplane.CPUpdateConfigRequest.config:type_name -> controlplane.CPDeploymentConfig
+	3,  // 21: controlplane.CPLogStreamRequest.level_filter:type_name -> controlplane.CPLogLevel
+	2,  // 22: controlplane.StatusReport.status:type_name -> controlplane.DeploymentStatus
+	32, // 23: controlplane.StatusReport.started_at:type_name -> google.protobuf.Timestamp
+	26, // 24: controlplane.StatusReport.resource_usage:type_name -> controlplane.ResourceUsage
+	32, // 25: controlplane.CPLogEntry.timestamp:type_name -> google.protobuf.Timestamp
+	3,  // 26: controlplane.CPLogEntry.level:type_name -> controlplane.CPLogLevel
+	31, // 27: controlplane.CPLogEntry.metadata:type_name -> controlplane.CPLogEntry.MetadataEntry
+	11, // 28: controlplane.ControlPlaneService.Register:input_type -> controlplane.RegisterRequest
+	14, // 29: controlplane.ControlPlaneService.Heartbeat:input_type -> controlplane.HeartbeatRequest
+	16, // 30: controlplane.ControlPlaneService.WatchCommands:input_type -> controlplane.WatchCommandsRequest
+	25, // 31: controlplane.ControlPlaneService.ReportStatus:input_type -> controlplane.StatusReport
+	28, // 32: controlplane.ControlPlaneService.PushLogs:input_type -> controlplane.CPLogEntry
+	5,  // 33: controlplane.Health.Check:input_type -> controlplane.HealthCheckRequest
+	5,  // 34: controlplane.Health.Watch:input_type -> controlplane.HealthCheckRequest
+	12, // 35: controlplane.ControlPlaneService.Register:output_type -> controlplane.RegisterResponse
+	15, // 36: controlplane.ControlPlaneService.Heartbeat:output_type -> controlplane.HeartbeatResponse
+	17, // 37: controlplane.ControlPlaneService.WatchCommands:output_type -> controlplane.DeploymentCommand
+	27, // 38: controlplane.ControlPlaneService.ReportStatus:output_type -> controlplane.StatusResponse
+	29, // 39: controlplane.ControlPlaneService.PushLogs:output_type -> controlplane.PushLogsResponse
+	6,  // 40: controlplane.Health.Check:output_type -> controlplane.HealthCheckResponse
+	6,  // 41: controlplane.Health.Watch:output_type -> controlplane.HealthCheckResponse
+	35, // [35:42] is the sub-list for method output_type
+	28, // [28:35] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_controlplane_proto_init() }
@@ -2219,7 +2376,7 @@ func file_api_proto_controlplane_proto_init() {
 	if File_api_proto_controlplane_proto != nil {
 		return
 	}
-	file_api_proto_controlplane_proto_msgTypes[10].OneofWrappers = []any{
+	file_api_proto_controlplane_proto_msgTypes[12].OneofWrappers = []any{
 		(*DeploymentCommand_Deploy)(nil),
 		(*DeploymentCommand_Stop)(nil),
 		(*DeploymentCommand_Restart)(nil),
@@ -2232,7 +2389,7 @@ func file_api_proto_controlplane_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_controlplane_proto_rawDesc), len(file_api_proto_controlplane_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   25,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
