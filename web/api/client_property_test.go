@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +172,243 @@ func TestDashboardStatsResponseRoundTrip(t *testing.T) {
 		gen.IntRange(0, 5000),  // totalServices
 		gen.IntRange(0, 100),   // healthyNodes
 		gen.IntRange(0, 100),   // unhealthyNodes
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: ui-api-alignment, Property 3: App Update Version Handling**
+// *For any* app update request, the request SHALL include the current app version,
+// and version conflicts SHALL result in a user-friendly error message.
+// **Validates: Requirements 6.4**
+
+// TestAppUpdateVersionHandling tests that app update requests include the version
+// and that version conflicts are properly handled with user-friendly error messages.
+func TestAppUpdateVersionHandling(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+
+	// Property 1: Update requests include the version field
+	properties.Property("App update requests include the version field in JSON body", prop.ForAll(
+		func(name, description, iconURL string, version int) bool {
+			var capturedBody map[string]interface{}
+
+			// Create mock server that captures the request body
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/apps/test-app-id" && r.Method == "PATCH" {
+					// Capture the request body
+					if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+						http.Error(w, "Invalid JSON", http.StatusBadRequest)
+						return
+					}
+
+					// Return success response
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(App{
+						ID:      "test-app-id",
+						Name:    name,
+						Version: version + 1, // Backend increments version
+					})
+				} else {
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			// Create client and make update request
+			client := NewClient(server.URL)
+
+			// Build update request with optional fields
+			req := UpdateAppRequest{
+				Version: version,
+			}
+			if name != "" {
+				req.Name = &name
+			}
+			if description != "" {
+				req.Description = &description
+			}
+			if iconURL != "" {
+				req.IconURL = &iconURL
+			}
+
+			_, err := client.UpdateApp(context.Background(), "test-app-id", req)
+			if err != nil {
+				t.Logf("UpdateApp failed: %v", err)
+				return false
+			}
+
+			// Verify that the version field was included in the request
+			versionVal, hasVersion := capturedBody["version"]
+			if !hasVersion {
+				t.Logf("Version field missing from request body")
+				return false
+			}
+
+			// JSON numbers are decoded as float64
+			versionFloat, ok := versionVal.(float64)
+			if !ok {
+				t.Logf("Version field is not a number: %T", versionVal)
+				return false
+			}
+
+			if int(versionFloat) != version {
+				t.Logf("Version mismatch: expected=%d, got=%d", version, int(versionFloat))
+				return false
+			}
+
+			return true
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) <= 63 }),  // name
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) <= 255 }), // description
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) <= 255 }), // iconURL
+		gen.IntRange(1, 10000), // version
+	))
+
+	// Property 2: Version conflicts return user-friendly error messages
+	properties.Property("Version conflicts return error containing user-friendly message", prop.ForAll(
+		func(clientVersion, serverVersion int) bool {
+			// Only test when versions differ (conflict scenario)
+			if clientVersion == serverVersion {
+				return true // Skip non-conflict cases
+			}
+
+			// Create mock server that returns 409 Conflict for version mismatch
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/apps/test-app-id" && r.Method == "PATCH" {
+					var reqBody map[string]interface{}
+					if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+						http.Error(w, "Invalid JSON", http.StatusBadRequest)
+						return
+					}
+
+					// Simulate version conflict - backend has different version
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusConflict)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "Resource was modified by another request. Please refresh and try again.",
+					})
+				} else {
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			// Create client and make update request with mismatched version
+			client := NewClient(server.URL)
+			name := "test-app"
+			req := UpdateAppRequest{
+				Name:    &name,
+				Version: clientVersion,
+			}
+
+			_, err := client.UpdateApp(context.Background(), "test-app-id", req)
+
+			// Verify that an error was returned
+			if err == nil {
+				t.Logf("Expected error for version conflict, got nil")
+				return false
+			}
+
+			// Verify the error message contains useful information
+			errMsg := err.Error()
+			if !strings.Contains(errMsg, "409") && !strings.Contains(errMsg, "Conflict") && !strings.Contains(errMsg, "modified") {
+				t.Logf("Error message doesn't indicate version conflict: %s", errMsg)
+				return false
+			}
+
+			return true
+		},
+		gen.IntRange(1, 10000), // clientVersion
+		gen.IntRange(1, 10000), // serverVersion
+	))
+
+	properties.TestingRun(t)
+}
+
+// TestUpdateAppRequestVersionSerialization tests that UpdateAppRequest correctly
+// serializes the version field to JSON.
+func TestUpdateAppRequestVersionSerialization(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	parameters.Rng.Seed(time.Now().UnixNano())
+
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("UpdateAppRequest version field round-trips through JSON", prop.ForAll(
+		func(name, description, iconURL string, version int) bool {
+			// Create request with all fields
+			original := UpdateAppRequest{
+				Version: version,
+			}
+			if name != "" {
+				original.Name = &name
+			}
+			if description != "" {
+				original.Description = &description
+			}
+			if iconURL != "" {
+				original.IconURL = &iconURL
+			}
+
+			// Serialize to JSON
+			data, err := json.Marshal(original)
+			if err != nil {
+				t.Logf("Marshal failed: %v", err)
+				return false
+			}
+
+			// Deserialize from JSON
+			var decoded UpdateAppRequest
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Logf("Unmarshal failed: %v", err)
+				return false
+			}
+
+			// Verify version field matches
+			if decoded.Version != original.Version {
+				t.Logf("Version mismatch after round-trip: original=%d, decoded=%d", original.Version, decoded.Version)
+				return false
+			}
+
+			// Verify optional fields match
+			if (original.Name == nil) != (decoded.Name == nil) {
+				t.Logf("Name nil mismatch")
+				return false
+			}
+			if original.Name != nil && *original.Name != *decoded.Name {
+				t.Logf("Name value mismatch")
+				return false
+			}
+
+			if (original.Description == nil) != (decoded.Description == nil) {
+				t.Logf("Description nil mismatch")
+				return false
+			}
+			if original.Description != nil && *original.Description != *decoded.Description {
+				t.Logf("Description value mismatch")
+				return false
+			}
+
+			if (original.IconURL == nil) != (decoded.IconURL == nil) {
+				t.Logf("IconURL nil mismatch")
+				return false
+			}
+			if original.IconURL != nil && *original.IconURL != *decoded.IconURL {
+				t.Logf("IconURL value mismatch")
+				return false
+			}
+
+			return true
+		},
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) <= 63 }),  // name
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) <= 255 }), // description
+		gen.AlphaString().SuchThat(func(s string) bool { return len(s) <= 255 }), // iconURL
+		gen.IntRange(1, 10000), // version
 	))
 
 	properties.TestingRun(t)
