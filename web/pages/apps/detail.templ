@@ -381,6 +381,7 @@ templ Detail(data DetailData) {
 		@StaticSiteDialog(data)
 		@DatabaseDialog(data)
 		@AppDetailScript()
+		@DatabaseConfigScript()
 	}
 }
 
@@ -901,21 +902,39 @@ templ DatabaseDialog(data DetailData) {
 	}
 }
 
+// DatabaseConfigScript injects the backend database configuration into JavaScript.
+// This allows the frontend to use backend-driven database types and versions.
+// **Validates: Requirements 4.4**
+templ DatabaseConfigScript() {
+	<script>
+		// Database configuration from backend
+		// **Validates: Requirements 4.4**
+		window.databaseConfig = { DatabaseConfigJSON(ctx) };
+	</script>
+}
+
 templ AppDetailScript() {
 	<script>
 		document.addEventListener('DOMContentLoaded', () => {
-			// Default versions for each database type
-			const defaultVersions = {
-				'postgres': '16',
-				'mysql': '8.0',
-				'mariadb': '11',
-				'mongodb': '7.0',
-				'redis': '7'
+			// Get database config from backend or use defaults
+			// **Validates: Requirements 4.4**
+			const dbConfig = window.databaseConfig || {
+				'postgres': { versions: ['14', '15', '16', '17'], default: '16', display: 'PostgreSQL' },
+				'mysql': { versions: ['5.7', '8.0', '8.4'], default: '8.0', display: 'MySQL' },
+				'mariadb': { versions: ['10.6', '10.11', '11'], default: '11', display: 'MariaDB' },
+				'mongodb': { versions: ['6.0', '7.0'], default: '7.0', display: 'MongoDB' },
+				'redis': { versions: ['6', '7'], default: '7', display: 'Redis' }
 			};
+			
+			// Build default versions map from config
+			const defaultVersions = {};
+			Object.keys(dbConfig).forEach(type => {
+				defaultVersions[type] = dbConfig[type].default;
+			});
 
 			// Function to show/hide version selectors based on database type
 			function updateVersionSelector(dbType) {
-				const versionContainers = ['postgres', 'mysql', 'mariadb', 'mongodb', 'redis'];
+				const versionContainers = Object.keys(dbConfig);
 				versionContainers.forEach(type => {
 					const container = document.getElementById('db_' + type + '_versions');
 					if (container) {
