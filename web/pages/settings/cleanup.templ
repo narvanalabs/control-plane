@@ -1,0 +1,324 @@
+package settings
+
+import (
+	"github.com/narvanalabs/control-plane/web/layouts"
+	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/button"
+	"github.com/narvanalabs/control-plane/web/components/icon"
+	"github.com/narvanalabs/control-plane/web/components/input"
+	"github.com/narvanalabs/control-plane/web/components/label"
+	"github.com/narvanalabs/control-plane/web/components/form"
+	"github.com/narvanalabs/control-plane/web/components/separator"
+	"github.com/narvanalabs/control-plane/web/components/dialog"
+)
+
+// CleanupSettingsData holds the data for the cleanup settings page
+type CleanupSettingsData struct {
+	ContainerRetention   string
+	ImageRetention       string
+	NixGCInterval        string
+	DeploymentRetention  string
+	SuccessMsg           string
+	ErrorMsg             string
+}
+
+// Cleanup renders the cleanup settings page
+// **Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5**
+templ Cleanup(data CleanupSettingsData) {
+	@layouts.PageWithSidebar("Cleanup Settings", "/settings/cleanup") {
+		@layouts.Flash(layouts.FlashProps{Success: data.SuccessMsg, Error: data.ErrorMsg})
+		<div class="max-w-2xl space-y-6">
+			<div>
+				<h1 class="text-2xl font-bold">Cleanup Settings</h1>
+				<p class="text-muted-foreground">Configure automatic cleanup policies to manage disk space</p>
+			</div>
+			
+			// Retention Policies Section
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Retention Policies
+					}
+					@card.Description() {
+						Configure how long to keep old resources before automatic cleanup
+					}
+				}
+				@card.Content() {
+					<form method="POST" action="/settings/cleanup" class="space-y-4">
+						@form.Item() {
+							@label.Label(label.Props{For: "container_retention"}) {
+								Container Retention
+							}
+							@input.Input(input.Props{
+								ID:          "container_retention",
+								Name:        "container_retention",
+								Placeholder: "24h",
+								Value:       data.ContainerRetention,
+							})
+							@form.Description() {
+								How long to keep stopped containers (e.g., 24h, 7d)
+							}
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "image_retention"}) {
+								Image Retention
+							}
+							@input.Input(input.Props{
+								ID:          "image_retention",
+								Name:        "image_retention",
+								Placeholder: "7d",
+								Value:       data.ImageRetention,
+							})
+							@form.Description() {
+								How long to keep unused images (e.g., 7d, 30d)
+							}
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "nix_gc_interval"}) {
+								Nix GC Interval
+							}
+							@input.Input(input.Props{
+								ID:          "nix_gc_interval",
+								Name:        "nix_gc_interval",
+								Placeholder: "24h",
+								Value:       data.NixGCInterval,
+							})
+							@form.Description() {
+								How often to run Nix garbage collection (e.g., 12h, 24h)
+							}
+						}
+						
+						@form.Item() {
+							@label.Label(label.Props{For: "deployment_retention"}) {
+								Deployment Retention
+							}
+							@input.Input(input.Props{
+								ID:          "deployment_retention",
+								Name:        "deployment_retention",
+								Placeholder: "30d",
+								Value:       data.DeploymentRetention,
+							})
+							@form.Description() {
+								How long to keep old deployment records (e.g., 30d, 90d)
+							}
+						}
+						
+						<div class="flex justify-end">
+							@button.Button(button.Props{Type: "submit"}) {
+								Save Settings
+							}
+						</div>
+					</form>
+				}
+			}
+			
+			@separator.Separator()
+			
+			// Manual Cleanup Section
+			// **Validates: Requirements 11.6**
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Manual Cleanup
+					}
+					@card.Description() {
+						Trigger cleanup operations manually when needed
+					}
+				}
+				@card.Content() {
+					<div class="space-y-4">
+						// Container Cleanup
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="font-medium">Clean Containers</p>
+								<p class="text-sm text-muted-foreground">Remove stopped containers older than retention period</p>
+							</div>
+							@dialog.Dialog(dialog.Props{ID: "cleanup-containers-dialog"}) {
+								@dialog.Trigger() {
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+									}) {
+										@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
+										Clean
+									}
+								}
+								@dialog.Content() {
+									@dialog.Header() {
+										@dialog.Title() { Clean Containers }
+										@dialog.Description() {
+											This will remove all stopped containers older than the configured retention period. This action cannot be undone.
+										}
+									}
+									@dialog.Footer() {
+										@dialog.Close() {
+											@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+										}
+										@button.Button(button.Props{
+											ID:      "confirm-cleanup-containers-btn",
+											Variant: button.VariantDestructive,
+										}) {
+											Confirm Cleanup
+										}
+									}
+								}
+							}
+						</div>
+						
+						@separator.Separator(separator.Props{Class: "my-4"})
+						
+						// Image Cleanup
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="font-medium">Clean Images</p>
+								<p class="text-sm text-muted-foreground">Remove unused images older than retention period</p>
+							</div>
+							@dialog.Dialog(dialog.Props{ID: "cleanup-images-dialog"}) {
+								@dialog.Trigger() {
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+									}) {
+										@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
+										Clean
+									}
+								}
+								@dialog.Content() {
+									@dialog.Header() {
+										@dialog.Title() { Clean Images }
+										@dialog.Description() {
+											This will remove all unused images older than the configured retention period. This action cannot be undone.
+										}
+									}
+									@dialog.Footer() {
+										@dialog.Close() {
+											@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+										}
+										@button.Button(button.Props{
+											ID:      "confirm-cleanup-images-btn",
+											Variant: button.VariantDestructive,
+										}) {
+											Confirm Cleanup
+										}
+									}
+								}
+							}
+						</div>
+						
+						@separator.Separator(separator.Props{Class: "my-4"})
+						
+						// Nix GC
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="font-medium">Nix Garbage Collection</p>
+								<p class="text-sm text-muted-foreground">Run Nix garbage collection to free up store space</p>
+							</div>
+							@dialog.Dialog(dialog.Props{ID: "cleanup-nix-dialog"}) {
+								@dialog.Trigger() {
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+									}) {
+										@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
+										Run GC
+									}
+								}
+								@dialog.Content() {
+									@dialog.Header() {
+										@dialog.Title() { Run Nix GC }
+										@dialog.Description() {
+											This will run Nix garbage collection to remove unreferenced store paths. This may take a few minutes.
+										}
+									}
+									@dialog.Footer() {
+										@dialog.Close() {
+											@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+										}
+										@button.Button(button.Props{
+											ID:      "confirm-cleanup-nix-btn",
+											Variant: button.VariantDestructive,
+										}) {
+											Run GC
+										}
+									}
+								}
+							}
+						</div>
+					</div>
+				}
+			}
+		</div>
+
+		<script>
+			document.addEventListener('DOMContentLoaded', function() {
+				// Container cleanup handler
+				const confirmContainersBtn = document.getElementById('confirm-cleanup-containers-btn');
+				if (confirmContainersBtn) {
+					confirmContainersBtn.addEventListener('click', async function() {
+						const dialogClose = document.querySelector('[data-tui-dialog-close="cleanup-containers-dialog"]');
+						if (dialogClose) dialogClose.click();
+						
+						try {
+							const response = await fetch('/api/admin/cleanup/containers', { method: 'POST' });
+							if (response.ok) {
+								window.location.href = '/settings/cleanup?success=Container+cleanup+completed';
+							} else {
+								const data = await response.json().catch(() => ({}));
+								window.location.href = '/settings/cleanup?error=' + encodeURIComponent(data.error || 'Failed to clean containers');
+							}
+						} catch (e) {
+							console.error(e);
+							window.location.href = '/settings/cleanup?error=An+error+occurred+during+cleanup';
+						}
+					});
+				}
+
+				// Image cleanup handler
+				const confirmImagesBtn = document.getElementById('confirm-cleanup-images-btn');
+				if (confirmImagesBtn) {
+					confirmImagesBtn.addEventListener('click', async function() {
+						const dialogClose = document.querySelector('[data-tui-dialog-close="cleanup-images-dialog"]');
+						if (dialogClose) dialogClose.click();
+						
+						try {
+							const response = await fetch('/api/admin/cleanup/images', { method: 'POST' });
+							if (response.ok) {
+								window.location.href = '/settings/cleanup?success=Image+cleanup+completed';
+							} else {
+								const data = await response.json().catch(() => ({}));
+								window.location.href = '/settings/cleanup?error=' + encodeURIComponent(data.error || 'Failed to clean images');
+							}
+						} catch (e) {
+							console.error(e);
+							window.location.href = '/settings/cleanup?error=An+error+occurred+during+cleanup';
+						}
+					});
+				}
+
+				// Nix GC handler
+				const confirmNixBtn = document.getElementById('confirm-cleanup-nix-btn');
+				if (confirmNixBtn) {
+					confirmNixBtn.addEventListener('click', async function() {
+						const dialogClose = document.querySelector('[data-tui-dialog-close="cleanup-nix-dialog"]');
+						if (dialogClose) dialogClose.click();
+						
+						try {
+							const response = await fetch('/api/admin/cleanup/nix-gc', { method: 'POST' });
+							if (response.ok) {
+								window.location.href = '/settings/cleanup?success=Nix+garbage+collection+completed';
+							} else {
+								const data = await response.json().catch(() => ({}));
+								window.location.href = '/settings/cleanup?error=' + encodeURIComponent(data.error || 'Failed to run Nix GC');
+							}
+						} catch (e) {
+							console.error(e);
+							window.location.href = '/settings/cleanup?error=An+error+occurred+during+cleanup';
+						}
+					});
+				}
+			});
+		</script>
+	}
+}
