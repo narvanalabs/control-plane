@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/leanovate/gopter"
@@ -173,6 +174,108 @@ func TestBuildTagsValidation(t *testing.T) {
 		},
 		gen.SliceOfN(3, genValidBuildTag()),
 		genBuildTagWithSpace(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: ui-api-alignment, Property 8: Build Tags Formatting**
+// For any build configuration with multiple build tags, the builder SHALL format them
+// correctly as comma-separated values in the -tags flag.
+// **Validates: Requirements 17.2, 17.3**
+
+// TestBuildTagsFormatting tests Property 8: Build Tags Formatting.
+func TestBuildTagsFormatting(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 8.1: Empty tags slice returns empty string
+	properties.Property("empty tags slice returns empty string", prop.ForAll(
+		func(_ int) bool {
+			result := FormatBuildTags([]string{})
+			return result == ""
+		},
+		gen.IntRange(0, 1), // Dummy generator
+	))
+
+	// Property 8.2: Single tag returns the tag without comma
+	properties.Property("single tag returns the tag without comma", prop.ForAll(
+		func(tag string) bool {
+			result := FormatBuildTags([]string{tag})
+			return result == tag && !strings.Contains(result, ",")
+		},
+		genValidBuildTag(),
+	))
+
+	// Property 8.3: Multiple tags are joined with commas
+	properties.Property("multiple tags are joined with commas", prop.ForAll(
+		func(tags []string) bool {
+			if len(tags) == 0 {
+				return true // Skip empty case, covered above
+			}
+			result := FormatBuildTags(tags)
+			expected := strings.Join(tags, ",")
+			return result == expected
+		},
+		gen.SliceOfN(5, genValidBuildTag()).SuchThat(func(tags []string) bool {
+			return len(tags) > 0
+		}),
+	))
+
+	// Property 8.4: Formatted result contains exactly len(tags)-1 commas for multiple tags
+	properties.Property("formatted result contains correct number of commas", prop.ForAll(
+		func(tags []string) bool {
+			if len(tags) <= 1 {
+				return true // Skip single/empty case
+			}
+			result := FormatBuildTags(tags)
+			commaCount := strings.Count(result, ",")
+			return commaCount == len(tags)-1
+		},
+		gen.SliceOfN(10, genValidBuildTag()).SuchThat(func(tags []string) bool {
+			return len(tags) > 1
+		}),
+	))
+
+	// Property 8.5: All original tags are present in the formatted result
+	properties.Property("all original tags are present in formatted result", prop.ForAll(
+		func(tags []string) bool {
+			if len(tags) == 0 {
+				return true
+			}
+			result := FormatBuildTags(tags)
+			parts := strings.Split(result, ",")
+			if len(parts) != len(tags) {
+				return false
+			}
+			for i, tag := range tags {
+				if parts[i] != tag {
+					return false
+				}
+			}
+			return true
+		},
+		gen.SliceOfN(5, genValidBuildTag()),
+	))
+
+	// Property 8.6: Order of tags is preserved in formatted result
+	properties.Property("order of tags is preserved", prop.ForAll(
+		func(tags []string) bool {
+			if len(tags) == 0 {
+				return true
+			}
+			result := FormatBuildTags(tags)
+			parts := strings.Split(result, ",")
+			for i, tag := range tags {
+				if parts[i] != tag {
+					return false
+				}
+			}
+			return true
+		},
+		gen.SliceOfN(5, genValidBuildTag()),
 	))
 
 	properties.TestingRun(t)
