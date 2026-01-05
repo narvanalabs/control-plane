@@ -52,6 +52,9 @@ func (m *mockNodeStore) List(ctx context.Context) ([]*models.Node, error) {
 func (m *mockNodeStore) UpdateHeartbeat(ctx context.Context, id string, resources *models.NodeResources) error {
 	return nil
 }
+func (m *mockNodeStore) UpdateHeartbeatWithDiskMetrics(ctx context.Context, id string, resources *models.NodeResources, diskMetrics *models.NodeDiskMetrics) error {
+	return nil
+}
 func (m *mockNodeStore) UpdateHealth(ctx context.Context, id string, healthy bool) error {
 	return nil
 }
