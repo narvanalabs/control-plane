@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"context"
 	"fmt"
 	"time"
 	
@@ -8,9 +9,50 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/badge"
 )
 
-// DeploymentStatusBadge renders a status badge for deployments
+// PlatformConfigKey is the context key for platform configuration.
+const PlatformConfigKey = "platform_config"
+
+// GetPlatformConfig retrieves the platform configuration from context.
+// Returns nil if not available.
+func GetPlatformConfig(ctx context.Context) *api.PlatformConfig {
+	if config, ok := ctx.Value(PlatformConfigKey).(*api.PlatformConfig); ok {
+		return config
+	}
+	return nil
+}
+
+// DeploymentStatusBadge renders a status badge for deployments.
+// Uses backend status mappings when available, falls back to hardcoded values.
+// **Validates: Requirements 4.3**
 templ DeploymentStatusBadge(status string) {
-	switch status {
+	{{
+		config := GetPlatformConfig(ctx)
+		var mapping *api.StatusMapping
+		if config != nil && config.StatusMappings != nil {
+			if m, ok := config.StatusMappings[status]; ok {
+				mapping = &m
+			}
+		}
+	}}
+	if mapping != nil {
+		// Use backend-provided status mapping
+		switch mapping.Color {
+		case "green":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault, Class: "bg-green-500/10 text-green-500 border-green-500/20"}) { { mapping.Label } }
+		case "blue":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { mapping.Label } }
+		case "yellow":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"}) { { mapping.Label } }
+		case "red":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { { mapping.Label } }
+		case "gray":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { mapping.Label } }
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { mapping.Label } }
+		}
+	} else {
+		// Fallback to hardcoded values when config not available
+		switch status {
 		case "running":
 			@badge.Badge(badge.Props{Variant: badge.VariantDefault, Class: "bg-green-500/10 text-green-500 border-green-500/20"}) { running }
 		case "building":
@@ -21,6 +63,7 @@ templ DeploymentStatusBadge(status string) {
 			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { failed }
 		default:
 			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { status } }
+		}
 	}
 }
 
@@ -68,12 +111,17 @@ func getLogLevelClass(level string) string {
 }
 
 // getServicePort returns the port for a service with appropriate defaults.
+// Uses backend configuration when available, falls back to hardcoded defaults.
 // For databases, returns the standard port for that database type.
 // For web services, defaults to 8080.
+// **Validates: Requirements 4.1**
 func getServicePort(svc api.Service) int {
 	if svc.Port > 0 {
 		return svc.Port
 	}
+	// Note: This function doesn't have access to context, so it uses hardcoded defaults.
+	// For context-aware port lookup, use getServicePortWithConfig.
+	
 	// Database-specific defaults
 	if svc.SourceType == "database" && svc.Database != nil {
 		switch svc.Database.Type {
@@ -89,6 +137,52 @@ func getServicePort(svc api.Service) int {
 			return 0 // SQLite doesn't use a port
 		}
 	}
+	return 8080
+}
+
+// getServicePortWithConfig returns the port for a service using backend configuration.
+// Falls back to hardcoded defaults if config is not available.
+// **Validates: Requirements 4.1**
+func getServicePortWithConfig(ctx context.Context, svc api.Service) int {
+	if svc.Port > 0 {
+		return svc.Port
+	}
+	
+	config := GetPlatformConfig(ctx)
+	
+	// Database-specific defaults from config or hardcoded
+	if svc.SourceType == "database" && svc.Database != nil {
+		dbType := svc.Database.Type
+		
+		// Try to get port from backend config
+		if config != nil && config.DefaultPorts != nil {
+			if port, ok := config.DefaultPorts[dbType]; ok {
+				return port
+			}
+		}
+		
+		// Fallback to hardcoded defaults
+		switch dbType {
+		case "postgres", "postgresql":
+			return 5432
+		case "mysql", "mariadb":
+			return 3306
+		case "redis":
+			return 6379
+		case "mongodb", "mongo":
+			return 27017
+		case "sqlite":
+			return 0 // SQLite doesn't use a port
+		}
+	}
+	
+	// Try to get default port from config
+	if config != nil && config.DefaultPorts != nil {
+		if port, ok := config.DefaultPorts["default"]; ok {
+			return port
+		}
+	}
+	
 	return 8080
 }
 
@@ -141,4 +235,90 @@ func getDatabaseURLSuffix(svc api.Service, appID string) string {
 		return fmt.Sprintf("@%s:%d", host, port)
 	}
 	return fmt.Sprintf("@%s:%d/%s", host, port, dbName)
+}
+
+// getDatabaseURLSuffixWithConfig returns the suffix of a database URL using backend config.
+// Uses the platform domain from backend configuration when available.
+// **Validates: Requirements 4.2**
+func getDatabaseURLSuffixWithConfig(ctx context.Context, svc api.Service, appID string) string {
+	config := GetPlatformConfig(ctx)
+	
+	// Use domain from config or fallback to default
+	domain := "narvana.local"
+	if config != nil && config.Domain != "" {
+		domain = config.Domain
+	}
+	
+	host := appID + "-" + svc.Name + "." + domain
+	port := getServicePortWithConfig(ctx, svc)
+	dbName := svc.Name
+	
+	if svc.Database != nil && svc.Database.Type == "redis" {
+		return fmt.Sprintf("@%s:%d", host, port)
+	}
+	return fmt.Sprintf("@%s:%d/%s", host, port, dbName)
+}
+
+// GetSupportedDBTypes returns the list of supported database types from backend config.
+// Falls back to hardcoded defaults if config is not available.
+// **Validates: Requirements 4.4**
+func GetSupportedDBTypes(ctx context.Context) []api.DatabaseTypeDef {
+	config := GetPlatformConfig(ctx)
+	if config != nil && len(config.SupportedDBTypes) > 0 {
+		return config.SupportedDBTypes
+	}
+	
+	// Fallback to hardcoded defaults
+	return []api.DatabaseTypeDef{
+		{Type: "postgres", Versions: []string{"14", "15", "16", "17"}, DefaultVersion: "16"},
+		{Type: "mysql", Versions: []string{"5.7", "8.0", "8.4"}, DefaultVersion: "8.0"},
+		{Type: "mariadb", Versions: []string{"10.6", "10.11", "11"}, DefaultVersion: "11"},
+		{Type: "mongodb", Versions: []string{"6.0", "7.0"}, DefaultVersion: "7.0"},
+		{Type: "redis", Versions: []string{"6", "7"}, DefaultVersion: "7"},
+	}
+}
+
+// GetDatabaseTypeDisplayName returns the display name for a database type.
+func GetDatabaseTypeDisplayName(dbType string) string {
+	switch dbType {
+	case "postgres":
+		return "PostgreSQL"
+	case "mysql":
+		return "MySQL"
+	case "mariadb":
+		return "MariaDB"
+	case "mongodb":
+		return "MongoDB"
+	case "redis":
+		return "Redis"
+	case "sqlite":
+		return "SQLite"
+	default:
+		return dbType
+	}
+}
+
+// DatabaseConfigJSON generates a JSON string of database configuration for JavaScript.
+// This allows the frontend to dynamically populate database type and version options.
+// **Validates: Requirements 4.4**
+func DatabaseConfigJSON(ctx context.Context) string {
+	dbTypes := GetSupportedDBTypes(ctx)
+	
+	// Build JSON manually to avoid import issues
+	result := "{"
+	for i, dbType := range dbTypes {
+		if i > 0 {
+			result += ","
+		}
+		result += fmt.Sprintf(`"%s":{"versions":[`, dbType.Type)
+		for j, version := range dbType.Versions {
+			if j > 0 {
+				result += ","
+			}
+			result += fmt.Sprintf(`"%s"`, version)
+		}
+		result += fmt.Sprintf(`],"default":"%s","display":"%s"}`, dbType.DefaultVersion, GetDatabaseTypeDisplayName(dbType.Type))
+	}
+	result += "}"
+	return result
 }
