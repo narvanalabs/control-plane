@@ -12,6 +12,9 @@ import (
 	"github.com/narvanalabs/control-plane/web/api"
 )
 
+// PlatformConfigKey is the context key for platform configuration.
+const PlatformConfigKey = "platform_config"
+
 // DashboardData holds the data for the dashboard page
 type DashboardData struct {
 	TotalApps         int
@@ -196,9 +199,37 @@ templ DashboardError(errorMsg string) {
 	}
 }
 
-// DeploymentStatusBadge renders a status badge for deployments
+// DeploymentStatusBadge renders a status badge for deployments.
+// Uses backend status mappings when available, falls back to hardcoded values.
+// **Validates: Requirements 4.3**
 templ DeploymentStatusBadge(status string) {
-	switch status {
+	{{
+		var mapping *api.StatusMapping
+		if config, ok := ctx.Value(PlatformConfigKey).(*api.PlatformConfig); ok && config != nil && config.StatusMappings != nil {
+			if m, ok := config.StatusMappings[status]; ok {
+				mapping = &m
+			}
+		}
+	}}
+	if mapping != nil {
+		// Use backend-provided status mapping
+		switch mapping.Color {
+		case "green":
+			@badge.Badge(badge.Props{Variant: badge.VariantDefault, Class: "bg-green-500/10 text-green-500 border-green-500/20"}) { { mapping.Label } }
+		case "blue":
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { mapping.Label } }
+		case "yellow":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"}) { { mapping.Label } }
+		case "red":
+			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { { mapping.Label } }
+		case "gray":
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { mapping.Label } }
+		default:
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { mapping.Label } }
+		}
+	} else {
+		// Fallback to hardcoded values when config not available
+		switch status {
 		case "running":
 			@badge.Badge(badge.Props{Variant: badge.VariantDefault}) { running }
 		case "building":
@@ -209,6 +240,7 @@ templ DeploymentStatusBadge(status string) {
 			@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { failed }
 		default:
 			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { status } }
+		}
 	}
 }
 
