@@ -419,7 +419,7 @@ func (h *PreviewHandler) mergeConfigs(base, override *models.BuildConfig) models
 	if override.GoVersion != "" {
 		result.GoVersion = override.GoVersion
 	}
-	if override.CGOEnabled {
+	if override.CGOEnabled != nil {
 		result.CGOEnabled = override.CGOEnabled
 	}
 	if override.NodeVersion != "" {
