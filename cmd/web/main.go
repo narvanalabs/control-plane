@@ -65,6 +65,7 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(requireAuth)
 		r.Use(userContextMiddleware)
+		r.Use(platformConfigMiddleware)
 
 		r.Get("/", handleDashboard)
 		r.Get("/git", handleGitPage)
@@ -285,6 +286,30 @@ func userContextMiddleware(next http.Handler) http.Handler {
 			if currentOrg != nil {
 				ctx = context.WithValue(ctx, "current_org", currentOrg)
 			}
+		}
+		
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// platformConfigMiddleware loads platform configuration from the backend and stores it in context.
+// This enables templates to access backend-driven configuration values.
+// **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
+func platformConfigMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		client := getAPIClient(r)
+		
+		// Use the global config cache to fetch configuration
+		configCache := api.GetGlobalConfigCache()
+		config, err := configCache.Get(ctx, client)
+		if err != nil {
+			// Log error but continue - templates will use fallback values
+			slog.Debug("failed to load platform config", "error", err)
+		}
+		
+		if config != nil {
+			ctx = context.WithValue(ctx, "platform_config", config)
 		}
 		
 		next.ServeHTTP(w, r.WithContext(ctx))
