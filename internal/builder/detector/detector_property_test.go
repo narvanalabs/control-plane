@@ -496,3 +496,300 @@ func intToStr(i int) string {
 	}
 	return result
 }
+
+// **Feature: ui-api-alignment, Property 6: CGO Detection Accuracy**
+// For any Go project that imports packages requiring CGO (e.g., import "C", go-sqlite3),
+// the builder SHALL detect this and select the CGO-enabled template.
+// **Validates: Requirements 16.1, 16.2**
+
+// CGOTestCase represents a test case for CGO detection.
+type CGOTestCase struct {
+	// HasCImport indicates if the project has `import "C"`
+	HasCImport bool
+	// CGOPackage is a known CGO-requiring package (empty if none)
+	CGOPackage string
+	// HasCGODirective indicates if the project has CGO directives
+	HasCGODirective bool
+	// ModuleName is the Go module name
+	ModuleName string
+	// GoVersion is the Go version
+	GoVersion string
+}
+
+// genCGOPackage generates a known CGO-requiring package or empty string.
+func genCGOPackage() gopter.Gen {
+	return gen.OneConstOf(
+		"",                              // No CGO package
+		"github.com/mattn/go-sqlite3",   // SQLite driver
+		"github.com/shirou/gopsutil",    // System info
+		"github.com/boltdb/bolt",        // BoltDB
+	)
+}
+
+// genCGOTestCase generates test cases for CGO detection.
+func genCGOTestCase() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Bool(),                                                    // HasCImport
+		genCGOPackage(),                                               // CGOPackage
+		gen.Bool(),                                                    // HasCGODirective
+		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
+	).Map(func(vals []interface{}) CGOTestCase {
+		return CGOTestCase{
+			HasCImport:      vals[0].(bool),
+			CGOPackage:      vals[1].(string),
+			HasCGODirective: vals[2].(bool),
+			ModuleName:      vals[3].(string),
+			GoVersion:       vals[4].(string),
+		}
+	})
+}
+
+// genCGORequiringTestCase generates test cases that definitely require CGO.
+func genCGORequiringTestCase() gopter.Gen {
+	return gen.Weighted([]gen.WeightedGen{
+		// Case 1: Has import "C"
+		{Weight: 3, Gen: gopter.CombineGens(
+			gen.Const(true),                                               // HasCImport
+			genCGOPackage(),                                               // CGOPackage (any)
+			gen.Bool(),                                                    // HasCGODirective (any)
+			gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+			gen.OneConstOf("1.21", "1.22"),                                // GoVersion
+		).Map(func(vals []interface{}) CGOTestCase {
+			return CGOTestCase{
+				HasCImport:      vals[0].(bool),
+				CGOPackage:      vals[1].(string),
+				HasCGODirective: vals[2].(bool),
+				ModuleName:      vals[3].(string),
+				GoVersion:       vals[4].(string),
+			}
+		})},
+		// Case 2: Has known CGO package
+		{Weight: 3, Gen: gopter.CombineGens(
+			gen.Bool(),                                                    // HasCImport (any)
+			gen.OneConstOf("github.com/mattn/go-sqlite3", "github.com/shirou/gopsutil", "github.com/boltdb/bolt"), // CGOPackage (must be non-empty)
+			gen.Bool(),                                                    // HasCGODirective (any)
+			gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+			gen.OneConstOf("1.21", "1.22"),                                // GoVersion
+		).Map(func(vals []interface{}) CGOTestCase {
+			return CGOTestCase{
+				HasCImport:      vals[0].(bool),
+				CGOPackage:      vals[1].(string),
+				HasCGODirective: vals[2].(bool),
+				ModuleName:      vals[3].(string),
+				GoVersion:       vals[4].(string),
+			}
+		})},
+		// Case 3: Has CGO directive
+		{Weight: 2, Gen: gopter.CombineGens(
+			gen.Bool(),                                                    // HasCImport (any)
+			genCGOPackage(),                                               // CGOPackage (any)
+			gen.Const(true),                                               // HasCGODirective
+			gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+			gen.OneConstOf("1.21", "1.22"),                                // GoVersion
+		).Map(func(vals []interface{}) CGOTestCase {
+			return CGOTestCase{
+				HasCImport:      vals[0].(bool),
+				CGOPackage:      vals[1].(string),
+				HasCGODirective: vals[2].(bool),
+				ModuleName:      vals[3].(string),
+				GoVersion:       vals[4].(string),
+			}
+		})},
+	})
+}
+
+// genNonCGOTestCase generates test cases that do not require CGO.
+func genNonCGOTestCase() gopter.Gen {
+	return gopter.CombineGens(
+		gen.Const(false),                                              // HasCImport = false
+		gen.Const(""),                                                 // CGOPackage = empty
+		gen.Const(false),                                              // HasCGODirective = false
+		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
+		gen.OneConstOf("1.21", "1.22"),                                // GoVersion
+	).Map(func(vals []interface{}) CGOTestCase {
+		return CGOTestCase{
+			HasCImport:      vals[0].(bool),
+			CGOPackage:      vals[1].(string),
+			HasCGODirective: vals[2].(bool),
+			ModuleName:      vals[3].(string),
+			GoVersion:       vals[4].(string),
+		}
+	})
+}
+
+// createCGOTestRepo creates a temporary Go repository for CGO detection testing.
+func createCGOTestRepo(t *testing.T, tc CGOTestCase) string {
+	dir := t.TempDir()
+
+	// Create go.mod
+	goModContent := "module " + tc.ModuleName + "\n\ngo " + tc.GoVersion + "\n"
+	if tc.CGOPackage != "" {
+		goModContent += "\nrequire (\n\t" + tc.CGOPackage + " v1.0.0\n)\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		t.Fatalf("failed to create go.mod: %v", err)
+	}
+
+	// Create main.go
+	var mainContent string
+	if tc.HasCImport {
+		mainContent = `package main
+
+/*
+#include <stdlib.h>
+*/
+import "C"
+
+func main() {
+	println("hello with CGO")
+}
+`
+	} else if tc.HasCGODirective {
+		mainContent = `package main
+
+// #cgo LDFLAGS: -lm
+// #include <math.h>
+import "C"
+
+func main() {
+	println("hello with CGO directive")
+}
+`
+	} else {
+		mainContent = `package main
+
+func main() {
+	println("hello")
+}
+`
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(mainContent), 0644); err != nil {
+		t.Fatalf("failed to create main.go: %v", err)
+	}
+
+	return dir
+}
+
+// TestCGODetectionAccuracy tests that CGO is detected accurately.
+func TestCGODetectionAccuracy(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 6a: Projects with import "C" are detected as requiring CGO
+	properties.Property("projects with import C are detected as requiring CGO", prop.ForAll(
+		func(tc CGOTestCase) bool {
+			dir := createCGOTestRepo(t, tc)
+
+			result, err := DetectCGO(dir)
+			if err != nil {
+				return false
+			}
+
+			// If HasCImport is true, RequiresCGO must be true
+			return result.RequiresCGO && result.HasCImport
+		},
+		genCGORequiringTestCase().SuchThat(func(tc CGOTestCase) bool {
+			return tc.HasCImport
+		}),
+	))
+
+	// Property 6b: Projects with known CGO packages are detected as requiring CGO
+	properties.Property("projects with known CGO packages are detected as requiring CGO", prop.ForAll(
+		func(tc CGOTestCase) bool {
+			dir := createCGOTestRepo(t, tc)
+
+			result, err := DetectCGO(dir)
+			if err != nil {
+				return false
+			}
+
+			// If CGOPackage is non-empty, RequiresCGO must be true
+			return result.RequiresCGO && len(result.DetectedPackages) > 0
+		},
+		genCGORequiringTestCase().SuchThat(func(tc CGOTestCase) bool {
+			return tc.CGOPackage != ""
+		}),
+	))
+
+	// Property 6c: Projects without CGO indicators are not detected as requiring CGO
+	properties.Property("projects without CGO indicators are not detected as requiring CGO", prop.ForAll(
+		func(tc CGOTestCase) bool {
+			dir := createCGOTestRepo(t, tc)
+
+			result, err := DetectCGO(dir)
+			if err != nil {
+				return false
+			}
+
+			// If no CGO indicators, RequiresCGO must be false
+			return !result.RequiresCGO &&
+				!result.HasCImport &&
+				!result.HasCGODirectives &&
+				len(result.DetectedPackages) == 0
+		},
+		genNonCGOTestCase(),
+	))
+
+	// Property 6d: CGO detection is deterministic
+	properties.Property("CGO detection is deterministic", prop.ForAll(
+		func(tc CGOTestCase) bool {
+			dir := createCGOTestRepo(t, tc)
+
+			result1, err1 := DetectCGO(dir)
+			result2, err2 := DetectCGO(dir)
+			result3, err3 := DetectCGO(dir)
+
+			if err1 != nil || err2 != nil || err3 != nil {
+				return false
+			}
+
+			// All results should be identical
+			return result1.RequiresCGO == result2.RequiresCGO &&
+				result2.RequiresCGO == result3.RequiresCGO &&
+				result1.HasCImport == result2.HasCImport &&
+				result2.HasCImport == result3.HasCImport
+		},
+		genCGOTestCase(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// TestIsCGOPackageAccuracy tests that IsCGOPackage correctly identifies CGO packages.
+func TestIsCGOPackageAccuracy(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: Known CGO packages are identified correctly
+	properties.Property("known CGO packages are identified correctly", prop.ForAll(
+		func(pkg string) bool {
+			return IsCGOPackage(pkg)
+		},
+		gen.OneConstOf(
+			"github.com/mattn/go-sqlite3",
+			"github.com/mattn/go-sqlite3/v2",
+			"github.com/shirou/gopsutil",
+			"github.com/shirou/gopsutil/v3",
+			"github.com/boltdb/bolt",
+		),
+	))
+
+	// Property: Non-CGO packages are not identified as CGO packages
+	properties.Property("non-CGO packages are not identified as CGO packages", prop.ForAll(
+		func(pkg string) bool {
+			return !IsCGOPackage(pkg)
+		},
+		gen.OneConstOf(
+			"github.com/gin-gonic/gin",
+			"github.com/gorilla/mux",
+			"github.com/stretchr/testify",
+			"golang.org/x/sync",
+			"github.com/spf13/cobra",
+		),
+	))
+
+	properties.TestingRun(t)
+}
