@@ -44,6 +44,12 @@
           # Disable sandbox to avoid /homeless-shelter purity check
           __noChroot = true;
           
+          {{- if .Config.BuildTags }}
+          # Build tags for conditional compilation
+          # **Validates: Requirements 17.2, 17.3**
+          tags = [ {{ range $i, $tag := .Config.BuildTags }}{{ if $i }} {{ end }}"{{ $tag }}"{{ end }} ];
+          {{- end }}
+          
           ldflags = [
             "-s"
             "-w"
