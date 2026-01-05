@@ -79,13 +79,17 @@ func genBuildConfig() gopter.Gen {
 		gen.OneConstOf("1.21", "1.22", "1.23", ""),
 		gen.OneConstOf("18", "20", "22", ""),
 		gen.OneConstOf("3.11", "3.12", ""),
-		gen.Bool(),
+		gen.PtrOf(gen.Bool()),
 	).Map(func(vals []interface{}) *models.BuildConfig {
+		var cgoEnabled *bool
+		if vals[3] != nil {
+			cgoEnabled = vals[3].(*bool)
+		}
 		return &models.BuildConfig{
 			GoVersion:     vals[0].(string),
 			NodeVersion:   vals[1].(string),
 			PythonVersion: vals[2].(string),
-			CGOEnabled:    vals[3].(bool),
+			CGOEnabled:    cgoEnabled,
 		}
 	})
 }
