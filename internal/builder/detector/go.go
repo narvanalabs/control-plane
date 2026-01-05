@@ -87,28 +87,41 @@ func parseGoVersion(goModPath string) (string, error) {
 	return "", ErrInvalidGoMod
 }
 
+// GoEntryPointDirs lists directories to check for main packages in Go repositories.
+// **Validates: Requirements 19.1, 19.2, 19.3, 19.4**
+var GoEntryPointDirs = []string{
+	"cmd",      // Standard Go layout (cmd/*)
+	"apps",     // Alternative layout (apps/*)
+	"services", // Microservices layout (services/*)
+}
+
 // detectGoEntryPoints finds all main packages in the repository.
+// **Validates: Requirements 19.1, 19.2, 19.3, 19.4**
 func detectGoEntryPoints(repoPath string) ([]string, error) {
 	var entryPoints []string
 
 	// Check for main.go in root
+	// **Validates: Requirements 19.1**
 	if hasMainPackage(repoPath) {
 		entryPoints = append(entryPoints, ".")
 	}
 
-	// Check cmd/* directories
-	cmdDir := filepath.Join(repoPath, "cmd")
-	if info, err := os.Stat(cmdDir); err == nil && info.IsDir() {
-		entries, err := os.ReadDir(cmdDir)
-		if err != nil {
-			return entryPoints, nil // Return what we have
-		}
+	// Check all standard entry point directories
+	// **Validates: Requirements 19.2, 19.3, 19.4**
+	for _, dirName := range GoEntryPointDirs {
+		dir := filepath.Join(repoPath, dirName)
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				continue // Skip this directory but continue with others
+			}
 
-		for _, entry := range entries {
-			if entry.IsDir() {
-				subDir := filepath.Join(cmdDir, entry.Name())
-				if hasMainPackage(subDir) {
-					entryPoints = append(entryPoints, filepath.Join("cmd", entry.Name()))
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subDir := filepath.Join(dir, entry.Name())
+					if hasMainPackage(subDir) {
+						entryPoints = append(entryPoints, filepath.Join(dirName, entry.Name()))
+					}
 				}
 			}
 		}
