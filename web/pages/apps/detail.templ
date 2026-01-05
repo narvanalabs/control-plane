@@ -7,6 +7,7 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/tabs"
 	"github.com/narvanalabs/control-plane/web/components/breadcrumb"
 	"github.com/narvanalabs/control-plane/web/components/card"
+	"github.com/narvanalabs/control-plane/web/components/collapsible"
 	"github.com/narvanalabs/control-plane/web/components/input"
 	"github.com/narvanalabs/control-plane/web/components/label"
 	"github.com/narvanalabs/control-plane/web/components/dialog"
@@ -629,6 +630,10 @@ templ WebServiceDialog(data DetailData) {
 						<div class="size-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
 						<span>Detecting repository configuration...</span>
 					</div>
+					
+					// Build System Documentation
+					// **Validates: Requirements 23.1, 23.2, 23.3**
+					@BuildSystemDocumentation()
 				</div>
 
 				<div class="flex justify-end gap-2 border-t pt-4">
@@ -898,6 +903,119 @@ templ DatabaseDialog(data DetailData) {
 					@button.Button(button.Props{Type: "submit"}) { Add Service }
 				</div>
 			</form>
+		}
+	}
+}
+
+// BuildSystemDocumentation renders the build system documentation section
+// **Validates: Requirements 23.1, 23.2, 23.3**
+templ BuildSystemDocumentation() {
+	@collapsible.Collapsible(collapsible.Props{Class: "border-t pt-4 mt-4"}) {
+		@collapsible.Trigger(collapsible.TriggerProps{Class: "cursor-pointer"}) {
+			<div class="flex items-center justify-between w-full">
+				<div class="flex items-center gap-2">
+					@icon.Info(icon.Props{Class: "size-4 text-muted-foreground"})
+					<span class="text-sm font-medium">Build System Information</span>
+				</div>
+				<div class="text-muted-foreground transition-transform [[data-tui-collapsible-state=open]_&]:rotate-180">
+					@icon.ChevronDown(icon.Props{Class: "size-4"})
+				</div>
+			</div>
+		}
+		@collapsible.Content(collapsible.ContentProps{Class: "pt-4"}) {
+			<div class="space-y-4">
+				// Supported Features Section
+				// **Validates: Requirements 23.1**
+				<div class="space-y-2">
+					<h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Supported Features</h4>
+					<div class="grid grid-cols-2 gap-2 text-sm">
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Go (with CGO auto-detection)</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Rust (Cargo)</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Python (pip, poetry)</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Node.js (npm, yarn, pnpm)</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Nix Flakes (auto-detected)</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Dockerfile</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Custom build tags</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Custom ldflags</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Multi-binary repos</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Go workspaces</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Pre/post build hooks</span>
+						</div>
+						<div class="flex items-center gap-2">
+							@icon.Check(icon.Props{Class: "size-3.5 text-green-500"})
+							<span>Entry point detection</span>
+						</div>
+					</div>
+				</div>
+				
+				// Limitations Section
+				// **Validates: Requirements 23.2**
+				<div class="space-y-2">
+					<h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Limitations</h4>
+					<div class="space-y-1.5 text-sm text-muted-foreground">
+						<div class="flex items-start gap-2">
+							@icon.CircleAlert(icon.Props{Class: "size-3.5 text-yellow-500 mt-0.5 flex-shrink-0"})
+							<span>Image-based deployments are deprecated; use Git repositories instead</span>
+						</div>
+						<div class="flex items-start gap-2">
+							@icon.CircleAlert(icon.Props{Class: "size-3.5 text-yellow-500 mt-0.5 flex-shrink-0"})
+							<span>Complex monorepo setups may require manual entry point configuration</span>
+						</div>
+						<div class="flex items-start gap-2">
+							@icon.CircleAlert(icon.Props{Class: "size-3.5 text-yellow-500 mt-0.5 flex-shrink-0"})
+							<span>Private dependencies require SSH key or token configuration</span>
+						</div>
+					</div>
+				</div>
+				
+				// Advanced Options Guidance
+				// **Validates: Requirements 23.3**
+				<div class="rounded-md bg-muted/50 p-3 space-y-2">
+					<h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Need Advanced Configuration?</h4>
+					<p class="text-sm text-muted-foreground">
+						For complex builds requiring custom build tags, ldflags, CGO settings, or pre/post build hooks, 
+						configure these options in the service settings after creation.
+					</p>
+					<div class="flex items-center gap-2 text-sm">
+						@icon.ExternalLink(icon.Props{Class: "size-3.5 text-primary"})
+						<a href="https://docs.narvana.io/builds" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">
+							View Build System Documentation
+						</a>
+					</div>
+				</div>
+			</div>
 		}
 	}
 }
