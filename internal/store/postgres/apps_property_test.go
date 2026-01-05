@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"os"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
 	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/store"
 )
 
 // getTestDSN returns the database DSN for testing.
@@ -996,6 +998,615 @@ func TestAppNameUniquenessWithinOrganization(t *testing.T) {
 			// Cleanup
 			store.Delete(ctx, app1.ID)
 			store.Delete(ctx, app3.ID)
+
+			return true
+		},
+		genNonEmptyAlphaString(),
+	))
+
+	properties.TestingRun(t)
+}
+
+
+// **Feature: backend-source-of-truth, Property 5: Transaction Rollback on Failure**
+// *For any* service operation that fails mid-transaction, all changes including
+// generated credentials SHALL be rolled back, leaving the database in its pre-operation state.
+// **Validates: Requirements 7.5, 11.4, 23.5**
+func TestTransactionRollbackOnFailure(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	// Create additional tables needed for this test
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS secrets (
+			app_id UUID NOT NULL,
+			key VARCHAR(255) NOT NULL,
+			encrypted_value BYTEA NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (app_id, key)
+		);
+		
+		CREATE TABLE IF NOT EXISTS deployments (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			app_id UUID NOT NULL,
+			service_name VARCHAR(63) NOT NULL,
+			version INTEGER NOT NULL DEFAULT 1,
+			git_ref VARCHAR(255),
+			git_commit VARCHAR(255),
+			build_type VARCHAR(20),
+			artifact TEXT,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			node_id UUID,
+			resource_tier VARCHAR(20),
+			config JSONB,
+			depends_on JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			started_at TIMESTAMPTZ,
+			finished_at TIMESTAMPTZ
+		);
+	`)
+	if err != nil {
+		t.Fatalf("failed to create additional tables: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Transaction rollback preserves pre-operation state", prop.ForAll(
+		func(input models.App) bool {
+			ctx := context.Background()
+
+			// Create the main store
+			mainStore := &PostgresStore{
+				db:     db,
+				logger: logger,
+			}
+			mainStore.apps = &AppStore{db: db, logger: logger}
+			mainStore.secrets = &SecretStore{db: db, logger: logger}
+			mainStore.deployments = &DeploymentStore{db: db, logger: logger}
+
+			// First, create an app outside of a transaction
+			err := mainStore.Apps().Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Store the original state
+			originalApp, err := mainStore.Apps().Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get original error: %v", err)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+			originalDescription := originalApp.Description
+			originalVersion := originalApp.Version
+
+			// Create a secret for the app
+			secretKey := "test-secret"
+			secretValue := []byte("original-secret-value")
+			err = mainStore.Secrets().Set(ctx, input.ID, secretKey, secretValue)
+			if err != nil {
+				t.Logf("Set secret error: %v", err)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			// Now execute a transaction that will fail mid-way
+			// This simulates a service operation that creates credentials and then fails
+			simulatedError := errors.New("simulated failure mid-transaction")
+
+			err = mainStore.WithTx(ctx, func(txStore store.Store) error {
+				// Step 1: Update the app (this should be rolled back)
+				app, err := txStore.Apps().Get(ctx, input.ID)
+				if err != nil {
+					return err
+				}
+				app.Description = "modified-in-transaction"
+				err = txStore.Apps().Update(ctx, app)
+				if err != nil {
+					return err
+				}
+
+				// Step 2: Create a new secret (this should be rolled back)
+				newSecretKey := "new-secret-in-tx"
+				newSecretValue := []byte("new-secret-value")
+				err = txStore.Secrets().Set(ctx, input.ID, newSecretKey, newSecretValue)
+				if err != nil {
+					return err
+				}
+
+				// Step 3: Simulate a failure mid-transaction
+				return simulatedError
+			})
+
+			// Verify the transaction returned an error
+			if err != simulatedError {
+				t.Logf("Expected simulated error, got: %v", err)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify the app was NOT modified (rollback worked)
+			appAfterRollback, err := mainStore.Apps().Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get after rollback error: %v", err)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			if appAfterRollback.Description != originalDescription {
+				t.Logf("Description was modified despite rollback: got %s, want %s",
+					appAfterRollback.Description, originalDescription)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			if appAfterRollback.Version != originalVersion {
+				t.Logf("Version was modified despite rollback: got %d, want %d",
+					appAfterRollback.Version, originalVersion)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify the original secret still exists with original value
+			retrievedSecret, err := mainStore.Secrets().Get(ctx, input.ID, secretKey)
+			if err != nil {
+				t.Logf("Get original secret error: %v", err)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			if string(retrievedSecret) != string(secretValue) {
+				t.Logf("Original secret was modified: got %s, want %s",
+					string(retrievedSecret), string(secretValue))
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify the new secret was NOT created (rollback worked)
+			_, err = mainStore.Secrets().Get(ctx, input.ID, "new-secret-in-tx")
+			if err != ErrNotFound {
+				t.Logf("New secret should not exist after rollback, got error: %v", err)
+				mainStore.Apps().Delete(ctx, input.ID)
+				// Clean up the secret that shouldn't exist
+				mainStore.Secrets().Delete(ctx, input.ID, "new-secret-in-tx")
+				return false
+			}
+
+			// Cleanup
+			mainStore.Secrets().Delete(ctx, input.ID, secretKey)
+			mainStore.Apps().Delete(ctx, input.ID)
+
+			return true
+		},
+		genAppInput(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// TestTransactionRollbackOnAppDeletion tests that app deletion rollback works correctly.
+// This specifically tests Requirement 11.4: WHEN app deletion fails mid-process
+// THEN the Narvana_API SHALL rollback to a consistent state.
+// **Feature: backend-source-of-truth, Property 5: Transaction Rollback on Failure**
+// **Validates: Requirements 11.4**
+func TestTransactionRollbackOnAppDeletion(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	// Create additional tables needed for this test
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS secrets (
+			app_id UUID NOT NULL,
+			key VARCHAR(255) NOT NULL,
+			encrypted_value BYTEA NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (app_id, key)
+		);
+		
+		CREATE TABLE IF NOT EXISTS deployments (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			app_id UUID NOT NULL,
+			service_name VARCHAR(63) NOT NULL,
+			version INTEGER NOT NULL DEFAULT 1,
+			git_ref VARCHAR(255),
+			git_commit VARCHAR(255),
+			build_type VARCHAR(20),
+			artifact TEXT,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			node_id UUID,
+			resource_tier VARCHAR(20),
+			config JSONB,
+			depends_on JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			started_at TIMESTAMPTZ,
+			finished_at TIMESTAMPTZ
+		);
+	`)
+	if err != nil {
+		t.Fatalf("failed to create additional tables: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("App deletion rollback preserves app and related resources", prop.ForAll(
+		func(input models.App) bool {
+			ctx := context.Background()
+
+			// Create the main store
+			mainStore := &PostgresStore{
+				db:     db,
+				logger: logger,
+			}
+			mainStore.apps = &AppStore{db: db, logger: logger}
+			mainStore.secrets = &SecretStore{db: db, logger: logger}
+			mainStore.deployments = &DeploymentStore{db: db, logger: logger}
+
+			// Create an app
+			err := mainStore.Apps().Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Create associated secrets
+			secretKey := "db-password"
+			secretValue := []byte("super-secret-password")
+			err = mainStore.Secrets().Set(ctx, input.ID, secretKey, secretValue)
+			if err != nil {
+				t.Logf("Set secret error: %v", err)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			// Create a deployment for the app
+			deployment := &models.Deployment{
+				ID:          uuid.New().String(),
+				AppID:       input.ID,
+				ServiceName: "test-service",
+				Version:     1,
+				Status:      models.DeploymentStatusRunning,
+			}
+			err = mainStore.Deployments().Create(ctx, deployment)
+			if err != nil {
+				t.Logf("Create deployment error: %v", err)
+				mainStore.Secrets().Delete(ctx, input.ID, secretKey)
+				mainStore.Apps().Delete(ctx, input.ID)
+				return false
+			}
+
+			// Simulate a failed app deletion transaction
+			// In a real scenario, this might fail when trying to stop containers
+			simulatedError := errors.New("failed to stop container")
+
+			err = mainStore.WithTx(ctx, func(txStore store.Store) error {
+				// Step 1: Mark secrets for cleanup (delete them)
+				err := txStore.Secrets().Delete(ctx, input.ID, secretKey)
+				if err != nil {
+					return err
+				}
+
+				// Step 2: Update deployment status to stopped
+				dep, err := txStore.Deployments().Get(ctx, deployment.ID)
+				if err != nil {
+					return err
+				}
+				dep.Status = models.DeploymentStatusStopped
+				err = txStore.Deployments().Update(ctx, dep)
+				if err != nil {
+					return err
+				}
+
+				// Step 3: Simulate failure (e.g., container stop failed)
+				return simulatedError
+			})
+
+			// Verify the transaction returned an error
+			if err != simulatedError {
+				t.Logf("Expected simulated error, got: %v", err)
+				return false
+			}
+
+			// Verify the app still exists
+			appAfterRollback, err := mainStore.Apps().Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("App should still exist after rollback, got error: %v", err)
+				return false
+			}
+
+			if appAfterRollback.DeletedAt != nil {
+				t.Logf("App should not be deleted after rollback")
+				return false
+			}
+
+			// Verify the secret still exists
+			retrievedSecret, err := mainStore.Secrets().Get(ctx, input.ID, secretKey)
+			if err != nil {
+				t.Logf("Secret should still exist after rollback, got error: %v", err)
+				return false
+			}
+
+			if string(retrievedSecret) != string(secretValue) {
+				t.Logf("Secret value changed after rollback")
+				return false
+			}
+
+			// Verify the deployment status was NOT changed
+			depAfterRollback, err := mainStore.Deployments().Get(ctx, deployment.ID)
+			if err != nil {
+				t.Logf("Deployment should still exist after rollback, got error: %v", err)
+				return false
+			}
+
+			if depAfterRollback.Status != models.DeploymentStatusRunning {
+				t.Logf("Deployment status should still be running after rollback, got: %s",
+					depAfterRollback.Status)
+				return false
+			}
+
+			// Cleanup
+			mainStore.Secrets().Delete(ctx, input.ID, secretKey)
+			// Delete deployment directly from DB since there's no Delete method
+			db.ExecContext(ctx, "DELETE FROM deployments WHERE id = $1", deployment.ID)
+			mainStore.Apps().Delete(ctx, input.ID)
+
+			return true
+		},
+		genAppInput(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// TestTransactionRollbackOnServiceRename tests that service rename rollback works correctly.
+// This specifically tests Requirement 23.5: WHEN the rename fails mid-process
+// THEN the Narvana_API SHALL rollback all changes to maintain consistency.
+// **Feature: backend-source-of-truth, Property 5: Transaction Rollback on Failure**
+// **Validates: Requirements 23.5**
+func TestTransactionRollbackOnServiceRename(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	// Create additional tables needed for this test
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS deployments (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			app_id UUID NOT NULL,
+			service_name VARCHAR(63) NOT NULL,
+			version INTEGER NOT NULL DEFAULT 1,
+			git_ref VARCHAR(255),
+			git_commit VARCHAR(255),
+			build_type VARCHAR(20),
+			artifact TEXT,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			node_id UUID,
+			resource_tier VARCHAR(20),
+			config JSONB,
+			depends_on JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			started_at TIMESTAMPTZ,
+			finished_at TIMESTAMPTZ
+		);
+	`)
+	if err != nil {
+		t.Fatalf("failed to create additional tables: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("Service rename rollback preserves original names", prop.ForAll(
+		func(ownerID string) bool {
+			ctx := context.Background()
+
+			// Create the main store
+			mainStore := &PostgresStore{
+				db:     db,
+				logger: logger,
+			}
+			mainStore.apps = &AppStore{db: db, logger: logger}
+			mainStore.deployments = &DeploymentStore{db: db, logger: logger}
+
+			// Create an app with services that have dependencies
+			originalServiceName := "backend"
+			dependentServiceName := "frontend"
+
+			app := models.App{
+				ID:          uuid.New().String(),
+				OwnerID:     ownerID,
+				Name:        "testapp",
+				Description: "test app for rename",
+				Services: []models.ServiceConfig{
+					{Name: originalServiceName, Replicas: 1},
+					{Name: dependentServiceName, Replicas: 1, DependsOn: []string{originalServiceName}},
+				},
+			}
+
+			err := mainStore.Apps().Create(ctx, &app)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Create deployments for both services
+			backendDeployment := &models.Deployment{
+				ID:          uuid.New().String(),
+				AppID:       app.ID,
+				ServiceName: originalServiceName,
+				Version:     1,
+				Status:      models.DeploymentStatusRunning,
+			}
+			err = mainStore.Deployments().Create(ctx, backendDeployment)
+			if err != nil {
+				t.Logf("Create backend deployment error: %v", err)
+				mainStore.Apps().Delete(ctx, app.ID)
+				return false
+			}
+
+			frontendDeployment := &models.Deployment{
+				ID:          uuid.New().String(),
+				AppID:       app.ID,
+				ServiceName: dependentServiceName,
+				Version:     1,
+				Status:      models.DeploymentStatusRunning,
+				DependsOn:   []string{originalServiceName},
+			}
+			err = mainStore.Deployments().Create(ctx, frontendDeployment)
+			if err != nil {
+				t.Logf("Create frontend deployment error: %v", err)
+				db.ExecContext(ctx, "DELETE FROM deployments WHERE id = $1", backendDeployment.ID)
+				mainStore.Apps().Delete(ctx, app.ID)
+				return false
+			}
+
+			// Simulate a failed service rename transaction
+			newServiceName := "api"
+			simulatedError := errors.New("failed to update container naming")
+
+			err = mainStore.WithTx(ctx, func(txStore store.Store) error {
+				// Step 1: Update the service name in the app
+				txApp, err := txStore.Apps().Get(ctx, app.ID)
+				if err != nil {
+					return err
+				}
+
+				// Update service name
+				for i := range txApp.Services {
+					if txApp.Services[i].Name == originalServiceName {
+						txApp.Services[i].Name = newServiceName
+					}
+					// Update DependsOn references
+					for j, dep := range txApp.Services[i].DependsOn {
+						if dep == originalServiceName {
+							txApp.Services[i].DependsOn[j] = newServiceName
+						}
+					}
+				}
+
+				err = txStore.Apps().Update(ctx, txApp)
+				if err != nil {
+					return err
+				}
+
+				// Step 2: Update deployment records
+				dep, err := txStore.Deployments().Get(ctx, backendDeployment.ID)
+				if err != nil {
+					return err
+				}
+				dep.ServiceName = newServiceName
+				err = txStore.Deployments().Update(ctx, dep)
+				if err != nil {
+					return err
+				}
+
+				// Step 3: Update dependent deployment's DependsOn
+				frontDep, err := txStore.Deployments().Get(ctx, frontendDeployment.ID)
+				if err != nil {
+					return err
+				}
+				for i, d := range frontDep.DependsOn {
+					if d == originalServiceName {
+						frontDep.DependsOn[i] = newServiceName
+					}
+				}
+				err = txStore.Deployments().Update(ctx, frontDep)
+				if err != nil {
+					return err
+				}
+
+				// Step 4: Simulate failure
+				return simulatedError
+			})
+
+			// Verify the transaction returned an error
+			if err != simulatedError {
+				t.Logf("Expected simulated error, got: %v", err)
+				return false
+			}
+
+			// Verify the app's service names were NOT changed
+			appAfterRollback, err := mainStore.Apps().Get(ctx, app.ID)
+			if err != nil {
+				t.Logf("Get app after rollback error: %v", err)
+				return false
+			}
+
+			// Check that the original service name still exists
+			foundOriginal := false
+			for _, svc := range appAfterRollback.Services {
+				if svc.Name == originalServiceName {
+					foundOriginal = true
+				}
+				if svc.Name == newServiceName {
+					t.Logf("New service name should not exist after rollback")
+					return false
+				}
+			}
+
+			if !foundOriginal {
+				t.Logf("Original service name should still exist after rollback")
+				return false
+			}
+
+			// Check that DependsOn references were NOT changed
+			for _, svc := range appAfterRollback.Services {
+				if svc.Name == dependentServiceName {
+					for _, dep := range svc.DependsOn {
+						if dep == newServiceName {
+							t.Logf("DependsOn should still reference original name after rollback")
+							return false
+						}
+					}
+				}
+			}
+
+			// Verify deployment service names were NOT changed
+			backendDepAfterRollback, err := mainStore.Deployments().Get(ctx, backendDeployment.ID)
+			if err != nil {
+				t.Logf("Get backend deployment after rollback error: %v", err)
+				return false
+			}
+
+			if backendDepAfterRollback.ServiceName != originalServiceName {
+				t.Logf("Backend deployment service name should still be original after rollback, got: %s",
+					backendDepAfterRollback.ServiceName)
+				return false
+			}
+
+			// Verify frontend deployment's DependsOn was NOT changed
+			frontendDepAfterRollback, err := mainStore.Deployments().Get(ctx, frontendDeployment.ID)
+			if err != nil {
+				t.Logf("Get frontend deployment after rollback error: %v", err)
+				return false
+			}
+
+			for _, dep := range frontendDepAfterRollback.DependsOn {
+				if dep == newServiceName {
+					t.Logf("Frontend deployment DependsOn should still reference original name after rollback")
+					return false
+				}
+			}
+
+			// Cleanup
+			db.ExecContext(ctx, "DELETE FROM deployments WHERE id = $1", backendDeployment.ID)
+			db.ExecContext(ctx, "DELETE FROM deployments WHERE id = $1", frontendDeployment.ID)
+			mainStore.Apps().Delete(ctx, app.ID)
 
 			return true
 		},
