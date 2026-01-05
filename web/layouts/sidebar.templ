@@ -282,6 +282,16 @@ templ SidebarLayout(activePath string) {
 						}
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
+								Href:     "/settings/cleanup",
+								Tooltip:  "Cleanup",
+								IsActive: activePath == "/settings/cleanup",
+							}) {
+								@icon.Trash(icon.Props{Class: "size-4"})
+								<span>Cleanup</span>
+							}
+						}
+						@sidebar.MenuItem() {
+							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Href:     "/settings/ssh-keys",
 								Tooltip:  "SSH Keys",
 								IsActive: activePath == "/settings/ssh-keys",

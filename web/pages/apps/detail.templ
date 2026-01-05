@@ -365,12 +365,64 @@ templ Detail(data DetailData) {
 										<p class="font-medium text-sm">Delete Application</p>
 										<p class="text-xs text-muted-foreground">Permanently delete this app and all its services.</p>
 									</div>
-									<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/delete") }>
-										@button.Button(button.Props{Variant: button.VariantDestructive, Size: button.SizeSm}) {
-											@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
-											Delete App
+									@dialog.Dialog(dialog.Props{ID: "delete-app-dialog"}) {
+										@dialog.Trigger() {
+											@button.Button(button.Props{Variant: button.VariantDestructive, Size: button.SizeSm, Type: "button"}) {
+												@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
+												Delete App
+											}
 										}
-									</form>
+										@dialog.Content() {
+											@dialog.Header() {
+												@dialog.Title() { Delete Application }
+												@dialog.Description() {
+													This action cannot be undone. This will permanently delete the application and all its services, deployments, and data.
+												}
+											}
+											<div class="space-y-4 py-4">
+												<div class="flex items-center gap-2 p-3 bg-muted rounded-lg">
+													<span class="text-sm text-muted-foreground">App name:</span>
+													<code class="font-mono font-medium" id="delete-app-name">{ data.App.Name }</code>
+													<button 
+														type="button" 
+														class="ml-auto p-1 hover:bg-zinc-700 rounded transition-colors"
+														onclick="navigator.clipboard.writeText(document.getElementById('delete-app-name').textContent)"
+														title="Copy app name"
+													>
+														@icon.Copy(icon.Props{Class: "size-4 text-muted-foreground"})
+													</button>
+												</div>
+												<div class="space-y-2">
+													@label.Label(label.Props{For: "confirm_app_name"}) { 
+														Type the app name to confirm deletion
+													}
+													@input.Input(input.Props{
+														ID:          "confirm_app_name",
+														Name:        "confirm_name",
+														Placeholder: "Enter app name",
+														Attributes:  templ.Attributes{
+															"data-expected": data.App.Name,
+														},
+													})
+												</div>
+											</div>
+											@dialog.Footer() {
+												@dialog.Close() {
+													@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+												}
+												<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/delete") } id="delete-app-form">
+													@button.Button(button.Props{
+														ID:       "confirm-delete-app-btn",
+														Variant:  button.VariantDestructive,
+														Type:     "submit",
+														Disabled: true,
+													}) {
+														Delete Application
+													}
+												</form>
+											}
+										}
+									}
 								</div>
 							}
 						}
@@ -1236,5 +1288,24 @@ templ AppDetailScript() {
 				}
 			}
 		});
+		
+		// Delete app confirmation validation
+		const confirmAppNameInput = document.getElementById('confirm_app_name');
+		const confirmDeleteBtn = document.getElementById('confirm-delete-app-btn');
+		
+		if (confirmAppNameInput && confirmDeleteBtn) {
+			confirmAppNameInput.addEventListener('input', (e) => {
+				const expected = confirmAppNameInput.getAttribute('data-expected');
+				const value = e.target.value.trim();
+				
+				if (value === expected) {
+					confirmDeleteBtn.disabled = false;
+					confirmDeleteBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+				} else {
+					confirmDeleteBtn.disabled = true;
+					confirmDeleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
+				}
+			});
+		}
 	</script>
 }

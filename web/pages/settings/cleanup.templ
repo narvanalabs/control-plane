@@ -246,6 +246,46 @@ templ Cleanup(data CleanupSettingsData) {
 								}
 							}
 						</div>
+						
+						@separator.Separator(separator.Props{Class: "my-4"})
+						
+						// Attic Cache Cleanup
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="font-medium">Attic Cache Cleanup</p>
+								<p class="text-sm text-muted-foreground">Clean up old entries from the Attic binary cache</p>
+							</div>
+							@dialog.Dialog(dialog.Props{ID: "cleanup-attic-dialog"}) {
+								@dialog.Trigger() {
+									@button.Button(button.Props{
+										Variant: button.VariantOutline,
+										Size:    button.SizeSm,
+									}) {
+										@icon.Trash2(icon.Props{Class: "size-4 mr-2"})
+										Clean Cache
+									}
+								}
+								@dialog.Content() {
+									@dialog.Header() {
+										@dialog.Title() { Clean Attic Cache }
+										@dialog.Description() {
+											This will remove old entries from the Attic binary cache based on the configured retention period.
+										}
+									}
+									@dialog.Footer() {
+										@dialog.Close() {
+											@button.Button(button.Props{Variant: button.VariantGhost}) { Cancel }
+										}
+										@button.Button(button.Props{
+											ID:      "confirm-cleanup-attic-btn",
+											Variant: button.VariantDestructive,
+										}) {
+											Clean Cache
+										}
+									}
+								}
+							}
+						</div>
 					</div>
 				}
 			}
@@ -311,6 +351,28 @@ templ Cleanup(data CleanupSettingsData) {
 							} else {
 								const data = await response.json().catch(() => ({}));
 								window.location.href = '/settings/cleanup?error=' + encodeURIComponent(data.error || 'Failed to run Nix GC');
+							}
+						} catch (e) {
+							console.error(e);
+							window.location.href = '/settings/cleanup?error=An+error+occurred+during+cleanup';
+						}
+					});
+				}
+				
+				// Attic cleanup handler
+				const confirmAtticBtn = document.getElementById('confirm-cleanup-attic-btn');
+				if (confirmAtticBtn) {
+					confirmAtticBtn.addEventListener('click', async function() {
+						const dialogClose = document.querySelector('[data-tui-dialog-close="cleanup-attic-dialog"]');
+						if (dialogClose) dialogClose.click();
+						
+						try {
+							const response = await fetch('/api/admin/cleanup/attic', { method: 'POST' });
+							if (response.ok) {
+								window.location.href = '/settings/cleanup?success=Attic+cache+cleanup+completed';
+							} else {
+								const data = await response.json().catch(() => ({}));
+								window.location.href = '/settings/cleanup?error=' + encodeURIComponent(data.error || 'Failed to clean Attic cache');
 							}
 						} catch (e) {
 							console.error(e);
