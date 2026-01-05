@@ -330,6 +330,20 @@ type BuildConfig struct {
 	StartCommand string            `json:"start_command,omitempty"`
 	EntryPoint   string            `json:"entry_point,omitempty"`
 	EnvVars      map[string]string `json:"environment_vars,omitempty"`
+
+	// Go-specific build configuration fields
+	// **Validates: Requirements 17.1**
+	BuildTags []string `json:"build_tags,omitempty"` // Go build tags (e.g., ["integration", "debug"])
+
+	// **Validates: Requirements 18.1**
+	Ldflags string `json:"ldflags,omitempty"` // Custom ldflags for Go linker (e.g., "-X main.version=1.0.0")
+
+	// **Validates: Requirements 16.5**
+	CGOEnabled *bool `json:"cgo_enabled,omitempty"` // Explicit CGO control (nil = auto-detect)
+
+	// **Validates: Requirements 21.1, 21.2**
+	PreBuildCommands  []string `json:"pre_build_commands,omitempty"`  // Commands to run before build
+	PostBuildCommands []string `json:"post_build_commands,omitempty"` // Commands to run after build
 }
 
 // CreateServiceRequest is the request body for creating a service.
