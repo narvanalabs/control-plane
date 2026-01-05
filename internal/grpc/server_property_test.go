@@ -370,6 +370,10 @@ func (m *mockNodeStore) UpdateHeartbeat(ctx context.Context, id string, resource
 	return nil
 }
 
+func (m *mockNodeStore) UpdateHeartbeatWithDiskMetrics(ctx context.Context, id string, resources interface{}, diskMetrics interface{}) error {
+	return m.UpdateHeartbeat(ctx, id, resources)
+}
+
 func (m *mockNodeStore) UpdateHealth(ctx context.Context, id string, healthy bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
