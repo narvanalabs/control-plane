@@ -260,3 +260,26 @@ func (h *ConfigHandler) getMaxServicesPerApp(settings map[string]string) int {
 	}
 	return DefaultMaxServicesPerApp
 }
+
+// DefaultsResponse represents the response for the defaults endpoint.
+// Requirements: 30.4
+type DefaultsResponse struct {
+	Resources ResourceSpecConfig `json:"resources"`
+}
+
+// GetDefaults handles GET /v1/config/defaults - returns current default resource values.
+// Requirements: 30.4
+func (h *ConfigHandler) GetDefaults(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.store.Settings().GetAll(r.Context())
+	if err != nil {
+		h.logger.Error("failed to get settings for defaults", "error", err)
+		WriteInternalError(w, "Failed to load default configuration")
+		return
+	}
+
+	response := DefaultsResponse{
+		Resources: h.getDefaultResources(settings),
+	}
+
+	WriteJSON(w, http.StatusOK, response)
+}
