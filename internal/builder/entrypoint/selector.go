@@ -633,11 +633,11 @@ func MergeConfig(detected map[string]interface{}, userConfig *models.BuildConfig
 		}
 	}
 
-	// CGOEnabled is a bool, so we need special handling
+	// CGOEnabled is a *bool, so we need special handling
 	// Only use detected value if user hasn't explicitly set it
-	if !result.CGOEnabled {
+	if result.CGOEnabled == nil {
 		if v, ok := detected["cgo_enabled"].(bool); ok {
-			result.CGOEnabled = v
+			result.CGOEnabled = &v
 		}
 	}
 

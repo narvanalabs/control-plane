@@ -434,7 +434,7 @@ type UserConfig struct {
 	BuildCommand   string
 	StartCommand   string
 	PackageManager string
-	CGOEnabled     bool
+	CGOEnabled     *bool
 	BuildTimeout   int
 }
 
@@ -448,9 +448,13 @@ func genUserConfig() gopter.Gen {
 		gen.OneConstOf("", "custom build", "make custom"),
 		gen.OneConstOf("", "custom start", "./custom"),
 		gen.OneConstOf("", "npm", "yarn", "pnpm"),
-		gen.Bool(),
+		gen.PtrOf(gen.Bool()),
 		gen.OneConstOf(0, 600, 1200, 1800),
 	).Map(func(vals []interface{}) UserConfig {
+		var cgoEnabled *bool
+		if vals[7] != nil {
+			cgoEnabled = vals[7].(*bool)
+		}
 		return UserConfig{
 			GoVersion:      vals[0].(string),
 			NodeVersion:    vals[1].(string),
@@ -459,7 +463,7 @@ func genUserConfig() gopter.Gen {
 			BuildCommand:   vals[4].(string),
 			StartCommand:   vals[5].(string),
 			PackageManager: vals[6].(string),
-			CGOEnabled:     vals[7].(bool),
+			CGOEnabled:     cgoEnabled,
 			BuildTimeout:   vals[8].(int),
 		}
 	})
@@ -590,14 +594,15 @@ func TestBuildConfigOverride(t *testing.T) {
 				}
 			}
 
-			// CGOEnabled - special case: if user sets true, it should be true
-			// If user sets false, detected value is used (since false is zero value)
-			if user.CGOEnabled {
-				if !result.CGOEnabled {
+			// CGOEnabled - special case: if user sets a value, it should be used
+			// If user doesn't set (nil), detected value is used
+			if user.CGOEnabled != nil {
+				if result.CGOEnabled == nil || *result.CGOEnabled != *user.CGOEnabled {
 					return false
 				}
 			} else {
-				if result.CGOEnabled != detected.CGOEnabled {
+				// User didn't set, so detected value should be used
+				if result.CGOEnabled != nil && *result.CGOEnabled != detected.CGOEnabled {
 					return false
 				}
 			}
@@ -626,9 +631,9 @@ func TestBuildConfigOverride(t *testing.T) {
 func TestMergeConfigNilInputs(t *testing.T) {
 	t.Run("nil user config returns detected values", func(t *testing.T) {
 		detected := map[string]interface{}{
-			"go_version":   "1.21",
-			"entry_point":  "cmd/api",
-			"cgo_enabled":  true,
+			"go_version":    "1.21",
+			"entry_point":   "cmd/api",
+			"cgo_enabled":   true,
 			"build_timeout": 1800,
 		}
 
@@ -640,7 +645,7 @@ func TestMergeConfigNilInputs(t *testing.T) {
 		if result.EntryPoint != "cmd/api" {
 			t.Errorf("expected EntryPoint cmd/api, got %s", result.EntryPoint)
 		}
-		if !result.CGOEnabled {
+		if result.CGOEnabled == nil || !*result.CGOEnabled {
 			t.Error("expected CGOEnabled true")
 		}
 		if result.BuildTimeout != 1800 {
@@ -649,10 +654,11 @@ func TestMergeConfigNilInputs(t *testing.T) {
 	})
 
 	t.Run("nil detected config returns user values", func(t *testing.T) {
+		cgoEnabled := true
 		userConfig := &models.BuildConfig{
 			GoVersion:    "1.22",
 			EntryPoint:   "cmd/custom",
-			CGOEnabled:   true,
+			CGOEnabled:   &cgoEnabled,
 			BuildTimeout: 600,
 		}
 
@@ -664,7 +670,7 @@ func TestMergeConfigNilInputs(t *testing.T) {
 		if result.EntryPoint != "cmd/custom" {
 			t.Errorf("expected EntryPoint cmd/custom, got %s", result.EntryPoint)
 		}
-		if !result.CGOEnabled {
+		if result.CGOEnabled == nil || !*result.CGOEnabled {
 			t.Error("expected CGOEnabled true")
 		}
 		if result.BuildTimeout != 600 {
@@ -681,8 +687,8 @@ func TestMergeConfigNilInputs(t *testing.T) {
 		if result.EntryPoint != "" {
 			t.Errorf("expected empty EntryPoint, got %s", result.EntryPoint)
 		}
-		if result.CGOEnabled {
-			t.Error("expected CGOEnabled false")
+		if result.CGOEnabled != nil {
+			t.Error("expected CGOEnabled nil")
 		}
 		if result.BuildTimeout != 0 {
 			t.Errorf("expected BuildTimeout 0, got %d", result.BuildTimeout)
