@@ -1636,7 +1636,15 @@ type AddEnvVarRequest struct {
 	Value string `json:"value"`
 }
 
+// EnvVarResponse represents an environment variable in API responses.
+type EnvVarResponse struct {
+	Key       string    `json:"key"`
+	Value     string    `json:"value,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
 // AddEnvVar handles POST /v1/apps/{appID}/services/{serviceName}/env - adds an environment variable.
+// **Validates: Requirements 1.2, 5.1, 5.2, 5.3**
 func (h *ServiceHandler) AddEnvVar(w http.ResponseWriter, r *http.Request) {
 	appID := middleware.GetResolvedAppID(r.Context())
 	if appID == "" {
@@ -1665,15 +1673,38 @@ func (h *ServiceHandler) AddEnvVar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Key == "" {
-		WriteBadRequest(w, "Key is required")
+	// Validate key (Requirements: 5.1, 5.2)
+	if err := validation.ValidateEnvKey(req.Key); err != nil {
+		if validationErr, ok := err.(*models.ValidationError); ok {
+			WriteErrorWithDetails(w, http.StatusBadRequest, "INVALID_KEY", validationErr.Message, map[string]string{
+				"field":      "key",
+				"constraint": "pattern",
+				"expected":   "^[A-Za-z_][A-Za-z0-9_]*$",
+			})
+			return
+		}
+		WriteBadRequest(w, err.Error())
+		return
+	}
+
+	// Validate value (Requirements: 5.1, 5.3)
+	if err := validation.ValidateEnvValue(req.Value); err != nil {
+		if validationErr, ok := err.(*models.ValidationError); ok {
+			WriteErrorWithDetails(w, http.StatusBadRequest, "INVALID_VALUE", validationErr.Message, map[string]string{
+				"field":      "value",
+				"constraint": "max_length",
+				"expected":   "32KB",
+			})
+			return
+		}
+		WriteBadRequest(w, err.Error())
 		return
 	}
 
 	// Get the app
 	app, err := h.store.Apps().Get(r.Context(), appID)
 	if err != nil {
-		WriteNotFound(w, "Application not found")
+		WriteError(w, http.StatusNotFound, "APP_NOT_FOUND", "Application not found")
 		return
 	}
 
@@ -1693,13 +1724,19 @@ func (h *ServiceHandler) AddEnvVar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if serviceIndex == -1 {
-		WriteNotFound(w, "Service not found")
+		WriteError(w, http.StatusNotFound, "SERVICE_NOT_FOUND", "Service not found")
 		return
 	}
 
 	// Initialize env vars map if nil
 	if app.Services[serviceIndex].EnvVars == nil {
 		app.Services[serviceIndex].EnvVars = make(map[string]string)
+	}
+
+	// Check if key already exists
+	if _, exists := app.Services[serviceIndex].EnvVars[req.Key]; exists {
+		WriteError(w, http.StatusConflict, "KEY_EXISTS", "Environment variable with this key already exists")
+		return
 	}
 
 	// Add the env var
@@ -1713,7 +1750,11 @@ func (h *ServiceHandler) AddEnvVar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info("env var added", "app_id", appID, "service_name", serviceName, "key", req.Key)
-	WriteJSON(w, http.StatusCreated, map[string]string{"status": "created", "key": req.Key})
+	WriteJSON(w, http.StatusCreated, EnvVarResponse{
+		Key:       req.Key,
+		Value:     req.Value,
+		CreatedAt: app.UpdatedAt,
+	})
 }
 
 // DeleteEnvVar handles DELETE /v1/apps/{appID}/services/{serviceName}/env/{key} - deletes an environment variable.
