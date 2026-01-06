@@ -18,20 +18,7 @@ const (
 	BuildTypePureNix BuildType = "pure-nix"
 )
 
-// ResourceTier represents predefined resource allocation levels.
-// Deprecated: Use ResourceSpec for direct resource specification instead.
-type ResourceTier string
-
-const (
-	ResourceTierNano   ResourceTier = "nano"   // 256MB RAM, 0.25 CPU
-	ResourceTierSmall  ResourceTier = "small"  // 512MB RAM, 0.5 CPU
-	ResourceTierMedium ResourceTier = "medium" // 1GB RAM, 1 CPU
-	ResourceTierLarge  ResourceTier = "large"  // 2GB RAM, 2 CPU
-	ResourceTierXLarge ResourceTier = "xlarge" // 4GB RAM, 4 CPU
-)
-
 // ResourceSpec defines direct CPU and memory resource allocation.
-// This replaces ResourceTier for more flexible resource specification.
 type ResourceSpec struct {
 	CPU    string `json:"cpu"`    // CPU allocation, e.g., "0.5", "1", "2"
 	Memory string `json:"memory"` // Memory allocation, e.g., "256Mi", "1Gi"
@@ -101,13 +88,12 @@ type ServiceConfig struct {
 	BuildConfig   *BuildConfig  `json:"build_config,omitempty" db:"build_config"`
 
 	// Runtime configuration
-	ResourceTier ResourceTier       `json:"resource_tier,omitempty"`          // Deprecated: Use Resources instead
-	Resources    *ResourceSpec      `json:"resources,omitempty"`              // Direct CPU/memory specification
-	Replicas     int                `json:"replicas"`
-	Ports        []PortMapping      `json:"ports,omitempty"`
-	HealthCheck  *HealthCheckConfig `json:"health_check,omitempty"`
-	EnvVars      map[string]string  `json:"env_vars,omitempty"` // Service-level env vars (override app-level)
-	DependsOn    []string           `json:"depends_on,omitempty"`
+	Resources   *ResourceSpec      `json:"resources,omitempty"` // CPU/memory specification
+	Replicas    int                `json:"replicas"`
+	Ports       []PortMapping      `json:"ports,omitempty"`
+	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
+	EnvVars     map[string]string  `json:"env_vars,omitempty"` // Service-level env vars (override app-level)
+	DependsOn   []string           `json:"depends_on,omitempty"`
 }
 
 // DatabaseConfig defines settings for internal database services.
@@ -244,7 +230,6 @@ func (s *ServiceConfig) Equals(other *ServiceConfig) bool {
 		s.FlakeURI != other.FlakeURI ||
 		s.Image != other.Image ||
 		s.BuildStrategy != other.BuildStrategy ||
-		s.ResourceTier != other.ResourceTier ||
 		s.Replicas != other.Replicas {
 		return false
 	}
@@ -501,7 +486,6 @@ func buildFlakeURIFromGit(gitRepo, gitRef, flakeOutput string) string {
 
 	return flakeRef
 }
-
 
 // App represents a user-defined deployable unit that may contain one or more services.
 type App struct {

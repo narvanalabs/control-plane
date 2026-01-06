@@ -22,15 +22,17 @@ func genBuildType() gopter.Gen {
 	return gen.OneConstOf(BuildTypeOCI, BuildTypePureNix)
 }
 
-// genResourceTier generates a random ResourceTier.
-func genResourceTier() gopter.Gen {
-	return gen.OneConstOf(
-		ResourceTierNano,
-		ResourceTierSmall,
-		ResourceTierMedium,
-		ResourceTierLarge,
-		ResourceTierXLarge,
-	)
+// genResourceSpec generates a random ResourceSpec.
+func genResourceSpec() gopter.Gen {
+	return gopter.CombineGens(
+		gen.OneConstOf("0.25", "0.5", "1", "2", "4"),
+		gen.OneConstOf("256Mi", "512Mi", "1Gi", "2Gi", "4Gi"),
+	).Map(func(vals []interface{}) *ResourceSpec {
+		return &ResourceSpec{
+			CPU:    vals[0].(string),
+			Memory: vals[1].(string),
+		}
+	})
 }
 
 // genDeploymentStatus generates a random DeploymentStatus.
@@ -54,7 +56,6 @@ func genTime() gopter.Gen {
 		return time.Unix(secs, 0).UTC()
 	})
 }
-
 
 // genOptionalTime generates an optional time pointer.
 func genOptionalTime() gopter.Gen {
@@ -173,7 +174,7 @@ func genServiceConfig() gopter.Gen {
 		sourceType := v.(SourceType)
 		return gopter.CombineGens(
 			gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
-			genResourceTier(),
+			genResourceSpec(),
 			gen.IntRange(1, 10),
 			gen.SliceOfN(2, genPortMapping()),
 			genOptionalHealthCheckConfig(),
@@ -186,14 +187,14 @@ func genServiceConfig() gopter.Gen {
 			genImageRef(),
 		).Map(func(vals []interface{}) ServiceConfig {
 			sc := ServiceConfig{
-				Name:         vals[0].(string),
-				SourceType:   sourceType,
-				ResourceTier: vals[1].(ResourceTier),
-				Replicas:     vals[2].(int),
-				Ports:        vals[3].([]PortMapping),
-				HealthCheck:  vals[4].(*HealthCheckConfig),
-				DependsOn:    vals[5].([]string),
-				EnvVars:      vals[6].(map[string]string),
+				Name:        vals[0].(string),
+				SourceType:  sourceType,
+				Resources:   vals[1].(*ResourceSpec),
+				Replicas:    vals[2].(int),
+				Ports:       vals[3].([]PortMapping),
+				HealthCheck: vals[4].(*HealthCheckConfig),
+				DependsOn:   vals[5].([]string),
+				EnvVars:     vals[6].(map[string]string),
 			}
 			// Set only the appropriate source field based on source type
 			switch sourceType {
@@ -210,7 +211,6 @@ func genServiceConfig() gopter.Gen {
 		})
 	}, reflect.TypeOf(ServiceConfig{}))
 }
-
 
 // genApp generates a random App.
 func genApp() gopter.Gen {
@@ -242,23 +242,22 @@ func genRuntimeConfig() gopter.Gen {
 	return gen.Bool().FlatMap(func(v interface{}) gopter.Gen {
 		if v.(bool) {
 			return gopter.CombineGens(
-				genResourceTier(),
+				genResourceSpec(),
 				gen.MapOf(gen.AlphaString(), gen.AlphaString()),
 				gen.SliceOfN(2, genPortMapping()),
 				genOptionalHealthCheckConfig(),
 			).Map(func(vals []interface{}) *RuntimeConfig {
 				return &RuntimeConfig{
-					ResourceTier: vals[0].(ResourceTier),
-					EnvVars:      vals[1].(map[string]string),
-					Ports:        vals[2].([]PortMapping),
-					HealthCheck:  vals[3].(*HealthCheckConfig),
+					Resources:   vals[0].(*ResourceSpec),
+					EnvVars:     vals[1].(map[string]string),
+					Ports:       vals[2].([]PortMapping),
+					HealthCheck: vals[3].(*HealthCheckConfig),
 				}
 			})
 		}
 		return gen.Const((*RuntimeConfig)(nil))
 	}, reflect.TypeOf((*RuntimeConfig)(nil)))
 }
-
 
 // genDeployment generates a random Deployment.
 func genDeployment() gopter.Gen {
@@ -273,7 +272,7 @@ func genDeployment() gopter.Gen {
 		gen.AlphaString(),
 		genDeploymentStatus(),
 		gen.Identifier(),
-		genResourceTier(),
+		genResourceSpec(),
 		genRuntimeConfig(),
 		gen.SliceOfN(3, gen.AlphaString()), // DependsOn
 		genTime(),
@@ -282,27 +281,26 @@ func genDeployment() gopter.Gen {
 		genOptionalTime(),
 	).Map(func(vals []interface{}) Deployment {
 		return Deployment{
-			ID:           vals[0].(string),
-			AppID:        vals[1].(string),
-			ServiceName:  vals[2].(string),
-			Version:      vals[3].(int),
-			GitRef:       vals[4].(string),
-			GitCommit:    vals[5].(string),
-			BuildType:    vals[6].(BuildType),
-			Artifact:     vals[7].(string),
-			Status:       vals[8].(DeploymentStatus),
-			NodeID:       vals[9].(string),
-			ResourceTier: vals[10].(ResourceTier),
-			Config:       vals[11].(*RuntimeConfig),
-			DependsOn:    vals[12].([]string),
-			CreatedAt:    vals[13].(time.Time),
-			UpdatedAt:    vals[14].(time.Time),
-			StartedAt:    vals[15].(*time.Time),
-			FinishedAt:   vals[16].(*time.Time),
+			ID:          vals[0].(string),
+			AppID:       vals[1].(string),
+			ServiceName: vals[2].(string),
+			Version:     vals[3].(int),
+			GitRef:      vals[4].(string),
+			GitCommit:   vals[5].(string),
+			BuildType:   vals[6].(BuildType),
+			Artifact:    vals[7].(string),
+			Status:      vals[8].(DeploymentStatus),
+			NodeID:      vals[9].(string),
+			Resources:   vals[10].(*ResourceSpec),
+			Config:      vals[11].(*RuntimeConfig),
+			DependsOn:   vals[12].([]string),
+			CreatedAt:   vals[13].(time.Time),
+			UpdatedAt:   vals[14].(time.Time),
+			StartedAt:   vals[15].(*time.Time),
+			FinishedAt:  vals[16].(*time.Time),
 		}
 	})
 }
-
 
 // genNodeResources generates a random NodeResources.
 func genNodeResources() gopter.Gen {
@@ -351,7 +349,6 @@ func genNode() gopter.Gen {
 		}
 	})
 }
-
 
 // jsonEqual compares two values by their JSON representation.
 // This handles the case where empty slices/maps serialize the same as nil.
@@ -422,7 +419,6 @@ func TestDeploymentJSONRoundTrip(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // TestNodeJSONRoundTrip tests that Node serializes and deserializes correctly.
 func TestNodeJSONRoundTrip(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
@@ -452,7 +448,6 @@ func TestNodeJSONRoundTrip(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: service-git-repos, Property 1: Source Type Mutual Exclusivity**
 // For any service creation request, if more than one of git_repo, flake_uri, or image
 // is specified, the request SHALL be rejected with a validation error.
@@ -472,9 +467,9 @@ func TestSourceTypeMutualExclusivity(t *testing.T) {
 			gen.IntRange(1, 3), // Which combination of sources to set (1=git+flake, 2=git+image, 3=flake+image)
 		).Map(func(vals []interface{}) ServiceConfig {
 			sc := ServiceConfig{
-				Name:         vals[0].(string),
-				ResourceTier: ResourceTierSmall,
-				Replicas:     1,
+				Name:      vals[0].(string),
+				Resources: DefaultResourceSpec(),
+				Replicas:  1,
 			}
 			combo := vals[4].(int)
 			switch combo {
@@ -513,9 +508,9 @@ func TestSourceTypeMutualExclusivity(t *testing.T) {
 	genNoSourceConfig := func() gopter.Gen {
 		return gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }).Map(func(name string) ServiceConfig {
 			return ServiceConfig{
-				Name:         name,
-				ResourceTier: ResourceTierSmall,
-				Replicas:     1,
+				Name:      name,
+				Resources: DefaultResourceSpec(),
+				Replicas:  1,
 			}
 		})
 	}
@@ -552,7 +547,6 @@ func TestSourceTypeMutualExclusivity(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: service-git-repos, Property 2: Service Source Round-Trip**
 // For any valid service configuration with a source (git_repo, flake_uri, or image),
@@ -617,7 +611,6 @@ func TestServiceSourceRoundTrip(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: service-git-repos, Property 13: Flake URI Construction Correctness**
 // For any valid git_repo, git_ref, and flake_output, BuildFlakeURI() SHALL produce
 // a valid Nix flake URI format.
@@ -636,12 +629,12 @@ func TestFlakeURIConstruction(t *testing.T) {
 			genFlakeOutput(),
 		).Map(func(vals []interface{}) ServiceConfig {
 			return ServiceConfig{
-				Name:         vals[0].(string),
-				GitRepo:      vals[1].(string),
-				GitRef:       vals[2].(string),
-				FlakeOutput:  vals[3].(string),
-				ResourceTier: ResourceTierSmall,
-				Replicas:     1,
+				Name:        vals[0].(string),
+				GitRepo:     vals[1].(string),
+				GitRef:      vals[2].(string),
+				FlakeOutput: vals[3].(string),
+				Resources:   DefaultResourceSpec(),
+				Replicas:    1,
 			}
 		})
 	}
@@ -692,10 +685,10 @@ func TestFlakeURIConstruction(t *testing.T) {
 			genFlakeURI(),
 		).Map(func(vals []interface{}) ServiceConfig {
 			return ServiceConfig{
-				Name:         vals[0].(string),
-				FlakeURI:     vals[1].(string),
-				ResourceTier: ResourceTierSmall,
-				Replicas:     1,
+				Name:      vals[0].(string),
+				FlakeURI:  vals[1].(string),
+				Resources: DefaultResourceSpec(),
+				Replicas:  1,
 			}
 		})
 	}
@@ -720,10 +713,10 @@ func TestFlakeURIConstruction(t *testing.T) {
 			genImageRef(),
 		).Map(func(vals []interface{}) ServiceConfig {
 			return ServiceConfig{
-				Name:         vals[0].(string),
-				Image:        vals[1].(string),
-				ResourceTier: ResourceTierSmall,
-				Replicas:     1,
+				Name:      vals[0].(string),
+				Image:     vals[1].(string),
+				Resources: DefaultResourceSpec(),
+				Replicas:  1,
 			}
 		})
 	}
@@ -757,7 +750,6 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
-
 
 // **Feature: service-git-repos, Property 14: Git Ref Variants**
 // For any service with git source, git_ref SHALL accept branches, tags, and commit SHAs,
@@ -797,12 +789,12 @@ func TestGitRefVariants(t *testing.T) {
 			genFlakeOutput(),
 		).Map(func(vals []interface{}) ServiceConfig {
 			return ServiceConfig{
-				Name:         vals[0].(string),
-				GitRepo:      vals[1].(string),
-				GitRef:       vals[2].(string),
-				FlakeOutput:  vals[3].(string),
-				ResourceTier: ResourceTierSmall,
-				Replicas:     1,
+				Name:        vals[0].(string),
+				GitRepo:     vals[1].(string),
+				GitRef:      vals[2].(string),
+				FlakeOutput: vals[3].(string),
+				Resources:   DefaultResourceSpec(),
+				Replicas:    1,
 			}
 		})
 	}
@@ -860,7 +852,6 @@ func TestGitRefVariants(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: service-git-repos, Property 15: Flake Output System Consistency**
 // For any service with default flake_output, the system in the output path
 // SHALL match the build node's architecture.
@@ -878,12 +869,12 @@ func TestFlakeOutputSystemConsistency(t *testing.T) {
 			genGitRef(),
 		).Map(func(vals []interface{}) ServiceConfig {
 			return ServiceConfig{
-				Name:         vals[0].(string),
-				GitRepo:      vals[1].(string),
-				GitRef:       vals[2].(string),
-				FlakeOutput:  "", // Empty to trigger default
-				ResourceTier: ResourceTierSmall,
-				Replicas:     1,
+				Name:        vals[0].(string),
+				GitRepo:     vals[1].(string),
+				GitRef:      vals[2].(string),
+				FlakeOutput: "", // Empty to trigger default
+				Resources:   DefaultResourceSpec(),
+				Replicas:    1,
 			}
 		})
 	}
@@ -930,7 +921,6 @@ func TestFlakeOutputSystemConsistency(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: flexible-build-strategies, Property 3: Build Strategy Determinism**
 // For any service configuration with a specified build_strategy, the Build_System
@@ -1067,17 +1057,17 @@ func TestBuildStrategyDeterminism(t *testing.T) {
 // genBuildConfig generates a random BuildConfig.
 func genBuildConfig() gopter.Gen {
 	return gopter.CombineGens(
-		gen.AlphaString(),                                    // BuildCommand
-		gen.AlphaString(),                                    // StartCommand
-		gen.AlphaString(),                                    // EntryPoint
-		gen.IntRange(60, 3600),                               // BuildTimeout
-		gen.OneConstOf("1.21", "1.22", "1.23"),               // GoVersion
-		gen.PtrOf(gen.Bool()),                                // CGOEnabled (*bool)
-		gen.OneConstOf("18", "20", "22"),                     // NodeVersion
-		gen.OneConstOf("npm", "yarn", "pnpm"),                // PackageManager
-		gen.OneConstOf("2018", "2021", "2024"),               // RustEdition
-		gen.OneConstOf("3.10", "3.11", "3.12"),               // PythonVersion
-		gen.Bool(),                                           // AutoRetryAsOCI
+		gen.AlphaString(),                      // BuildCommand
+		gen.AlphaString(),                      // StartCommand
+		gen.AlphaString(),                      // EntryPoint
+		gen.IntRange(60, 3600),                 // BuildTimeout
+		gen.OneConstOf("1.21", "1.22", "1.23"), // GoVersion
+		gen.PtrOf(gen.Bool()),                  // CGOEnabled (*bool)
+		gen.OneConstOf("18", "20", "22"),       // NodeVersion
+		gen.OneConstOf("npm", "yarn", "pnpm"),  // PackageManager
+		gen.OneConstOf("2018", "2021", "2024"), // RustEdition
+		gen.OneConstOf("3.10", "3.11", "3.12"), // PythonVersion
+		gen.Bool(),                             // AutoRetryAsOCI
 	).Map(func(vals []interface{}) *BuildConfig {
 		var cgoEnabled *bool
 		if vals[5] != nil {
@@ -1125,23 +1115,23 @@ func TestBuildJobStrategyDeterminism(t *testing.T) {
 	// Generator for BuildJob with strategy
 	genBuildJob := func() gopter.Gen {
 		return gopter.CombineGens(
-			gen.Identifier(),                                     // ID
-			gen.Identifier(),                                     // DeploymentID
-			gen.Identifier(),                                     // AppID
-			gen.AlphaString(),                                    // ServiceName
-			gen.AlphaString(),                                    // GitURL
-			gen.AlphaString(),                                    // GitRef
-			gen.AlphaString(),                                    // FlakeOutput
-			genBuildType(),                                       // BuildType
+			gen.Identifier(),  // ID
+			gen.Identifier(),  // DeploymentID
+			gen.Identifier(),  // AppID
+			gen.AlphaString(), // ServiceName
+			gen.AlphaString(), // GitURL
+			gen.AlphaString(), // GitRef
+			gen.AlphaString(), // FlakeOutput
+			genBuildType(),    // BuildType
 			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
-			genTime(),                                            // CreatedAt
-			genBuildStrategy(),                                   // BuildStrategy
-			gen.AlphaString(),                                    // GeneratedFlake
-			gen.AlphaString(),                                    // FlakeLock
-			gen.AlphaString(),                                    // VendorHash
-			gen.IntRange(60, 3600),                               // TimeoutSeconds
-			gen.IntRange(0, 5),                                   // RetryCount
-			gen.Bool(),                                           // RetryAsOCI
+			genTime(),              // CreatedAt
+			genBuildStrategy(),     // BuildStrategy
+			gen.AlphaString(),      // GeneratedFlake
+			gen.AlphaString(),      // FlakeLock
+			gen.AlphaString(),      // VendorHash
+			gen.IntRange(60, 3600), // TimeoutSeconds
+			gen.IntRange(0, 5),     // RetryCount
+			gen.Bool(),             // RetryAsOCI
 		).Map(func(vals []interface{}) BuildJob {
 			return BuildJob{
 				ID:             vals[0].(string),
@@ -1212,7 +1202,6 @@ func TestBuildJobStrategyDeterminism(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 15: Build Type Enforcement for Dockerfile**
 // *For any* build job with `build_strategy: dockerfile`, the effective build_type SHALL be `oci`
 // regardless of user specification.
@@ -1226,22 +1215,22 @@ func TestBuildTypeEnforcementDockerfile(t *testing.T) {
 	properties.Property("dockerfile strategy enforces OCI build type", prop.ForAll(
 		func(requestedType BuildType) bool {
 			enforcedType, wasChanged := EnforceBuildType(BuildStrategyDockerfile, requestedType)
-			
+
 			// Enforced type must always be OCI for dockerfile strategy
 			if enforcedType != BuildTypeOCI {
 				return false
 			}
-			
+
 			// wasChanged should be true if requested type was not OCI
 			if requestedType != BuildTypeOCI && !wasChanged {
 				return false
 			}
-			
+
 			// wasChanged should be false if requested type was already OCI
 			if requestedType == BuildTypeOCI && wasChanged {
 				return false
 			}
-			
+
 			return true
 		},
 		gen.OneConstOf(BuildTypePureNix, BuildTypeOCI, BuildType("")),
@@ -1277,7 +1266,6 @@ func TestBuildTypeEnforcementDockerfile(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 16: Build Type Enforcement for Nixpacks**
 // *For any* build job with `build_strategy: nixpacks`, the effective build_type SHALL be `oci`
 // regardless of user specification.
@@ -1291,22 +1279,22 @@ func TestBuildTypeEnforcementNixpacks(t *testing.T) {
 	properties.Property("nixpacks strategy enforces OCI build type", prop.ForAll(
 		func(requestedType BuildType) bool {
 			enforcedType, wasChanged := EnforceBuildType(BuildStrategyNixpacks, requestedType)
-			
+
 			// Enforced type must always be OCI for nixpacks strategy
 			if enforcedType != BuildTypeOCI {
 				return false
 			}
-			
+
 			// wasChanged should be true if requested type was not OCI
 			if requestedType != BuildTypeOCI && !wasChanged {
 				return false
 			}
-			
+
 			// wasChanged should be false if requested type was already OCI
 			if requestedType == BuildTypeOCI && wasChanged {
 				return false
 			}
-			
+
 			return true
 		},
 		gen.OneConstOf(BuildTypePureNix, BuildTypeOCI, BuildType("")),
@@ -1341,7 +1329,6 @@ func TestBuildTypeEnforcementNixpacks(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: platform-enhancements, Property 4: Container Name Uniqueness**
 // For any deployment, the generated container name SHALL include the app name, service name,
@@ -1457,7 +1444,6 @@ func TestContainerNameUniqueness(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: backend-source-of-truth, Property 19: BuildJob Source Field Consistency**
 // For any BuildJob, if SourceType is "git" then GitURL SHALL be non-empty and FlakeURI SHALL
 // contain the constructed flake URI; if SourceType is "flake" then FlakeURI SHALL be non-empty
@@ -1471,16 +1457,16 @@ func TestBuildJobSourceFieldConsistency(t *testing.T) {
 	// Generator for valid git source BuildJob
 	genGitSourceBuildJob := func() gopter.Gen {
 		return gopter.CombineGens(
-			gen.Identifier(),                                     // ID
-			gen.Identifier(),                                     // DeploymentID
-			gen.Identifier(),                                     // AppID
+			gen.Identifier(), // ID
+			gen.Identifier(), // DeploymentID
+			gen.Identifier(), // AppID
 			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
-			genGitRepo(),                                         // GitURL (valid git repo)
-			genGitRef(),                                          // GitRef
-			genFlakeOutput(),                                     // FlakeOutput
-			genBuildType(),                                       // BuildType
+			genGitRepo(),     // GitURL (valid git repo)
+			genGitRef(),      // GitRef
+			genFlakeOutput(), // FlakeOutput
+			genBuildType(),   // BuildType
 			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
-			genTime(),                                            // CreatedAt
+			genTime(), // CreatedAt
 		).Map(func(vals []interface{}) BuildJob {
 			gitURL := vals[4].(string)
 			gitRef := vals[5].(string)
@@ -1507,14 +1493,14 @@ func TestBuildJobSourceFieldConsistency(t *testing.T) {
 	// Generator for valid flake source BuildJob
 	genFlakeSourceBuildJob := func() gopter.Gen {
 		return gopter.CombineGens(
-			gen.Identifier(),                                     // ID
-			gen.Identifier(),                                     // DeploymentID
-			gen.Identifier(),                                     // AppID
+			gen.Identifier(), // ID
+			gen.Identifier(), // DeploymentID
+			gen.Identifier(), // AppID
 			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
-			genFlakeURI(),                                        // FlakeURI (valid flake URI)
-			genBuildType(),                                       // BuildType
+			genFlakeURI(),  // FlakeURI (valid flake URI)
+			genBuildType(), // BuildType
 			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
-			genTime(),                                            // CreatedAt
+			genTime(), // CreatedAt
 		).Map(func(vals []interface{}) BuildJob {
 			return BuildJob{
 				ID:           vals[0].(string),
@@ -1534,14 +1520,14 @@ func TestBuildJobSourceFieldConsistency(t *testing.T) {
 	// Generator for invalid git source BuildJob (missing GitURL)
 	genInvalidGitSourceBuildJob := func() gopter.Gen {
 		return gopter.CombineGens(
-			gen.Identifier(),                                     // ID
-			gen.Identifier(),                                     // DeploymentID
-			gen.Identifier(),                                     // AppID
+			gen.Identifier(), // ID
+			gen.Identifier(), // DeploymentID
+			gen.Identifier(), // AppID
 			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
-			genFlakeURI(),                                        // FlakeURI
-			genBuildType(),                                       // BuildType
+			genFlakeURI(),  // FlakeURI
+			genBuildType(), // BuildType
 			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
-			genTime(),                                            // CreatedAt
+			genTime(), // CreatedAt
 		).Map(func(vals []interface{}) BuildJob {
 			return BuildJob{
 				ID:           vals[0].(string),
@@ -1561,15 +1547,15 @@ func TestBuildJobSourceFieldConsistency(t *testing.T) {
 	// Generator for invalid flake source BuildJob (has GitURL)
 	genInvalidFlakeSourceBuildJob := func() gopter.Gen {
 		return gopter.CombineGens(
-			gen.Identifier(),                                     // ID
-			gen.Identifier(),                                     // DeploymentID
-			gen.Identifier(),                                     // AppID
+			gen.Identifier(), // ID
+			gen.Identifier(), // DeploymentID
+			gen.Identifier(), // AppID
 			gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
-			genGitRepo(),                                         // GitURL (should be empty for flake)
-			genFlakeURI(),                                        // FlakeURI
-			genBuildType(),                                       // BuildType
+			genGitRepo(),   // GitURL (should be empty for flake)
+			genFlakeURI(),  // FlakeURI
+			genBuildType(), // BuildType
 			gen.OneConstOf(BuildStatusQueued, BuildStatusRunning, BuildStatusSucceeded, BuildStatusFailed),
-			genTime(),                                            // CreatedAt
+			genTime(), // CreatedAt
 		).Map(func(vals []interface{}) BuildJob {
 			return BuildJob{
 				ID:           vals[0].(string),
@@ -1695,7 +1681,6 @@ func TestBuildJobSourceFieldConsistency(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: backend-source-of-truth, Property 16: Service Configuration Round-Trip**
 // For any valid service configuration, serializing to JSON and deserializing back
 // SHALL produce an equivalent configuration with all user-specified values preserved.
@@ -1718,8 +1703,8 @@ func TestServiceConfigRoundTrip(t *testing.T) {
 		})
 	}
 
-	// Generator for optional ResourceSpec
-	genOptionalResourceSpec := func() gopter.Gen {
+	// Generator for optional ResourceSpec (unused but kept for future use)
+	_ = func() gopter.Gen {
 		return gen.Bool().FlatMap(func(v interface{}) gopter.Gen {
 			if v.(bool) {
 				return genResourceSpec()
@@ -1767,8 +1752,7 @@ func TestServiceConfigRoundTrip(t *testing.T) {
 			sourceType := v.(SourceType)
 			return gopter.CombineGens(
 				gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
-				genResourceTier(),
-				genOptionalResourceSpec(),
+				genResourceSpec(),
 				gen.IntRange(1, 10),
 				gen.SliceOfN(3, genPortMapping()),
 				genOptionalHealthCheckConfig(),
@@ -1793,28 +1777,27 @@ func TestServiceConfigRoundTrip(t *testing.T) {
 				sc := ServiceConfig{
 					Name:          vals[0].(string),
 					SourceType:    sourceType,
-					ResourceTier:  vals[1].(ResourceTier),
-					Resources:     vals[2].(*ResourceSpec),
-					Replicas:      vals[3].(int),
-					Ports:         vals[4].([]PortMapping),
-					HealthCheck:   vals[5].(*HealthCheckConfig),
-					DependsOn:     vals[6].([]string),
-					EnvVars:       vals[7].(map[string]string),
-					BuildStrategy: vals[14].(BuildStrategy),
-					BuildConfig:   vals[15].(*BuildConfig),
+					Resources:     vals[1].(*ResourceSpec),
+					Replicas:      vals[2].(int),
+					Ports:         vals[3].([]PortMapping),
+					HealthCheck:   vals[4].(*HealthCheckConfig),
+					DependsOn:     vals[5].([]string),
+					EnvVars:       vals[6].(map[string]string),
+					BuildStrategy: vals[13].(BuildStrategy),
+					BuildConfig:   vals[14].(*BuildConfig),
 				}
 				// Set only the appropriate source field based on source type
 				switch sourceType {
 				case SourceTypeGit:
-					sc.GitRepo = vals[8].(string)
-					sc.GitRef = vals[9].(string)
-					sc.FlakeOutput = vals[10].(string)
+					sc.GitRepo = vals[7].(string)
+					sc.GitRef = vals[8].(string)
+					sc.FlakeOutput = vals[9].(string)
 				case SourceTypeFlake:
-					sc.FlakeURI = vals[11].(string)
+					sc.FlakeURI = vals[10].(string)
 				case SourceTypeImage:
-					sc.Image = vals[12].(string)
+					sc.Image = vals[11].(string)
 				case SourceTypeDatabase:
-					sc.Database = vals[13].(*DatabaseConfig)
+					sc.Database = vals[12].(*DatabaseConfig)
 					if sc.Database == nil {
 						// Ensure database config is set for database source type
 						sc.Database = &DatabaseConfig{Type: "postgres", Version: "16"}

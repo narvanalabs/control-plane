@@ -21,15 +21,15 @@ const (
 
 // Invitation represents an invitation to join the platform.
 type Invitation struct {
-	ID          string           `json:"id"`
-	Email       string           `json:"email"`
-	Token       string           `json:"token"` // Unique token for accepting the invitation
-	InvitedBy   string           `json:"invited_by"`
-	Role        Role             `json:"role"`
-	Status      InvitationStatus `json:"status"`
-	ExpiresAt   time.Time        `json:"expires_at"`
-	AcceptedAt  *time.Time       `json:"accepted_at,omitempty"`
-	CreatedAt   time.Time        `json:"created_at"`
+	ID         string           `json:"id"`
+	Email      string           `json:"email"`
+	Token      string           `json:"token"` // Unique token for accepting the invitation
+	InvitedBy  string           `json:"invited_by"`
+	Role       Role             `json:"role"`
+	Status     InvitationStatus `json:"status"`
+	ExpiresAt  time.Time        `json:"expires_at"`
+	AcceptedAt *time.Time       `json:"accepted_at,omitempty"`
+	CreatedAt  time.Time        `json:"created_at"`
 }
 
 // IsExpired returns true if the invitation has expired.

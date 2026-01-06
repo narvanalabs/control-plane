@@ -141,14 +141,14 @@ func TestServiceStateActionAvailability(t *testing.T) {
 	properties.Property("HasAction correctly reports action availability", prop.ForAll(
 		func(state ServiceState) bool {
 			actions := state.AvailableActions()
-			
+
 			// All available actions should return true for HasAction
 			for _, action := range actions {
 				if !state.HasAction(action) {
 					return false
 				}
 			}
-			
+
 			// Actions not in the list should return false
 			allActions := []ServiceAction{
 				ServiceActionDeploy,
@@ -158,7 +158,7 @@ func TestServiceStateActionAvailability(t *testing.T) {
 				ServiceActionStart,
 				ServiceActionRetry,
 			}
-			
+
 			for _, action := range allActions {
 				hasIt := state.HasAction(action)
 				shouldHaveIt := false
@@ -172,7 +172,7 @@ func TestServiceStateActionAvailability(t *testing.T) {
 					return false
 				}
 			}
-			
+
 			return true
 		},
 		genServiceState(),

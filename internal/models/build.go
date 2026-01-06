@@ -21,8 +21,8 @@ const (
 var ValidStatusTransitions = map[BuildStatus][]BuildStatus{
 	BuildStatusQueued:    {BuildStatusRunning},
 	BuildStatusRunning:   {BuildStatusSucceeded, BuildStatusFailed, BuildStatusQueued}, // Queued only for retry
-	BuildStatusSucceeded: {}, // Terminal state
-	BuildStatusFailed:    {}, // Terminal state
+	BuildStatusSucceeded: {},                                                           // Terminal state
+	BuildStatusFailed:    {},                                                           // Terminal state
 }
 
 // CanTransition checks if a state transition is valid.
@@ -52,10 +52,10 @@ func IsTerminalState(status BuildStatus) bool {
 type BuildStrategy string
 
 const (
-	BuildStrategyFlake      BuildStrategy = "flake"       // Use existing flake.nix
-	BuildStrategyAutoGo     BuildStrategy = "auto-go"     // Generate flake for Go
-	BuildStrategyAutoRust   BuildStrategy = "auto-rust"   // Generate flake for Rust
-	BuildStrategyAutoNode   BuildStrategy = "auto-node"   // Generate flake for Node.js
+	BuildStrategyFlake        BuildStrategy = "flake"         // Use existing flake.nix
+	BuildStrategyAutoGo       BuildStrategy = "auto-go"       // Generate flake for Go
+	BuildStrategyAutoRust     BuildStrategy = "auto-rust"     // Generate flake for Rust
+	BuildStrategyAutoNode     BuildStrategy = "auto-node"     // Generate flake for Node.js
 	BuildStrategyAutoPython   BuildStrategy = "auto-python"   // Generate flake for Python
 	BuildStrategyAutoDatabase BuildStrategy = "auto-database" // Generate flake for databases
 	BuildStrategyDockerfile   BuildStrategy = "dockerfile"    // Build from Dockerfile
@@ -165,8 +165,8 @@ type BuildConfig struct {
 	PostBuildCommands []string `json:"post_build_commands,omitempty"` // Commands to run after build
 
 	// Go workspace support **Validates: Requirements 22.1, 22.2, 22.3, 22.4**
-	IsWorkspace     bool   `json:"is_workspace,omitempty"`      // True if go.work file detected
-	WorkspaceModule string `json:"workspace_module,omitempty"`  // Selected module to build in workspace
+	IsWorkspace     bool   `json:"is_workspace,omitempty"`     // True if go.work file detected
+	WorkspaceModule string `json:"workspace_module,omitempty"` // Selected module to build in workspace
 
 	// Node.js-specific
 	NodeVersion    string `json:"node_version,omitempty"`
@@ -194,27 +194,27 @@ type BuildConfig struct {
 
 // BuildJob represents a build task in the queue.
 type BuildJob struct {
-	ID           string      `json:"id"`
-	DeploymentID string      `json:"deployment_id"`
-	AppID        string      `json:"app_id"`
-	ServiceName  string      `json:"service_name,omitempty"`
+	ID           string `json:"id"`
+	DeploymentID string `json:"deployment_id"`
+	AppID        string `json:"app_id"`
+	ServiceName  string `json:"service_name,omitempty"`
 
 	// Source information - explicit fields for clarity
 	// SourceType indicates whether this is a git, flake, or database source
 	// For git sources: GitURL contains the original git URL, FlakeURI contains the constructed flake URI
 	// For flake sources: FlakeURI contains the direct flake URI, GitURL is empty
 	// For database sources: Both GitURL and FlakeURI may be empty
-	SourceType SourceType `json:"source_type,omitempty" db:"source_type"`
-	GitURL     string     `json:"git_url"`
-	GitRef     string     `json:"git_ref"`
-	FlakeURI   string     `json:"flake_uri,omitempty" db:"flake_uri"` // Constructed or direct flake URI
-	FlakeOutput string    `json:"flake_output"`
+	SourceType  SourceType `json:"source_type,omitempty" db:"source_type"`
+	GitURL      string     `json:"git_url"`
+	GitRef      string     `json:"git_ref"`
+	FlakeURI    string     `json:"flake_uri,omitempty" db:"flake_uri"` // Constructed or direct flake URI
+	FlakeOutput string     `json:"flake_output"`
 
-	BuildType    BuildType   `json:"build_type"`
-	Status       BuildStatus `json:"status"`
-	CreatedAt    time.Time   `json:"created_at"`
-	StartedAt    *time.Time  `json:"started_at,omitempty"`
-	FinishedAt   *time.Time  `json:"finished_at,omitempty"`
+	BuildType  BuildType   `json:"build_type"`
+	Status     BuildStatus `json:"status"`
+	CreatedAt  time.Time   `json:"created_at"`
+	StartedAt  *time.Time  `json:"started_at,omitempty"`
+	FinishedAt *time.Time  `json:"finished_at,omitempty"`
 
 	// Build strategy fields
 	BuildStrategy  BuildStrategy `json:"build_strategy,omitempty" db:"build_strategy"`
@@ -227,6 +227,16 @@ type BuildJob struct {
 	TimeoutSeconds int  `json:"timeout_seconds,omitempty" db:"timeout_seconds"`
 	RetryCount     int  `json:"retry_count,omitempty" db:"retry_count"`
 	RetryAsOCI     bool `json:"retry_as_oci,omitempty" db:"retry_as_oci"`
+
+	// Detection results from pre-build phase
+	// **Validates: Requirements 2.1**
+	DetectionResult *DetectionResult `json:"detection_result,omitempty" db:"detection_result"`
+	DetectedAt      *time.Time       `json:"detected_at,omitempty" db:"detected_at"`
+
+	// PreClonedRepoPath is the path to a pre-cloned repository from the pre-build phase.
+	// When set, the build container will mount this path instead of cloning the repository.
+	// **Validates: Requirements 4.2**
+	PreClonedRepoPath string `json:"pre_cloned_repo_path,omitempty" db:"-"`
 }
 
 // ValidateBuildJobSource validates that the BuildJob source fields are consistent.

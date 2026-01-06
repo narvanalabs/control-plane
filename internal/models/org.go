@@ -37,13 +37,13 @@ type OrgMembership struct {
 
 // Validation errors for organizations.
 var (
-	ErrOrgNameRequired     = errors.New("organization name is required")
-	ErrOrgNameTooLong      = errors.New("organization name must be 63 characters or less")
-	ErrOrgSlugRequired     = errors.New("organization slug is required")
-	ErrOrgSlugTooLong      = errors.New("organization slug must be 63 characters or less")
-	ErrOrgSlugInvalid      = errors.New("organization slug must contain only lowercase letters, numbers, and hyphens")
-	ErrOrgSlugStartEnd     = errors.New("organization slug must start and end with a letter or number")
-	ErrLastOrgDelete       = errors.New("cannot delete the last organization")
+	ErrOrgNameRequired = errors.New("organization name is required")
+	ErrOrgNameTooLong  = errors.New("organization name must be 63 characters or less")
+	ErrOrgSlugRequired = errors.New("organization slug is required")
+	ErrOrgSlugTooLong  = errors.New("organization slug must be 63 characters or less")
+	ErrOrgSlugInvalid  = errors.New("organization slug must contain only lowercase letters, numbers, and hyphens")
+	ErrOrgSlugStartEnd = errors.New("organization slug must start and end with a letter or number")
+	ErrLastOrgDelete   = errors.New("cannot delete the last organization")
 )
 
 // slugPattern matches valid slug characters: lowercase letters, numbers, and hyphens.
@@ -95,11 +95,11 @@ func (o *Organization) Validate() error {
 func GenerateSlug(name string) string {
 	// Convert to lowercase
 	slug := strings.ToLower(strings.TrimSpace(name))
-	
+
 	// Replace spaces and underscores with hyphens
 	slug = strings.ReplaceAll(slug, " ", "-")
 	slug = strings.ReplaceAll(slug, "_", "-")
-	
+
 	// Remove any characters that aren't lowercase letters, numbers, or hyphens
 	var result strings.Builder
 	for _, r := range slug {
@@ -108,21 +108,21 @@ func GenerateSlug(name string) string {
 		}
 	}
 	slug = result.String()
-	
+
 	// Remove consecutive hyphens
 	for strings.Contains(slug, "--") {
 		slug = strings.ReplaceAll(slug, "--", "-")
 	}
-	
+
 	// Trim leading and trailing hyphens
 	slug = strings.Trim(slug, "-")
-	
+
 	// Truncate to 63 characters
 	if len(slug) > 63 {
 		slug = slug[:63]
 		// Ensure we don't end with a hyphen after truncation
 		slug = strings.TrimRight(slug, "-")
 	}
-	
+
 	return slug
 }
