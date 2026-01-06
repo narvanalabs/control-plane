@@ -54,7 +54,6 @@ type NodeResolver interface {
 	GetNodeAddress(ctx context.Context, nodeID string) (string, error)
 }
 
-
 // ClientConfig holds configuration for the gRPC client.
 type ClientConfig struct {
 	// TLSConfig for secure connections. If nil, insecure connections are used.
@@ -88,11 +87,11 @@ func DefaultClientConfig() *ClientConfig {
 
 // GRPCClient implements the Client interface using gRPC.
 type GRPCClient struct {
-	config       *ClientConfig
-	resolver     NodeResolver
-	connections  map[string]*grpc.ClientConn
-	mu           sync.RWMutex
-	logger       *slog.Logger
+	config      *ClientConfig
+	resolver    NodeResolver
+	connections map[string]*grpc.ClientConn
+	mu          sync.RWMutex
+	logger      *slog.Logger
 }
 
 // NewGRPCClient creates a new gRPC client for agent communication.
@@ -159,7 +158,6 @@ func (c *GRPCClient) getConnection(ctx context.Context, nodeID string) (*grpc.Cl
 
 	return conn, nil
 }
-
 
 // withRetry executes the given function with exponential backoff retry logic.
 func (c *GRPCClient) withRetry(ctx context.Context, operation string, fn func() error) error {
@@ -278,7 +276,6 @@ func (c *GRPCClient) Stop(ctx context.Context, nodeID string, deploymentID strin
 		return nil
 	})
 }
-
 
 // GetStatus retrieves the current status of a deployment.
 func (c *GRPCClient) GetStatus(ctx context.Context, nodeID string, deploymentID string) (*DeploymentStatus, error) {
@@ -409,7 +406,6 @@ func (c *GRPCClient) RemoveConnection(nodeID string) {
 	}
 }
 
-
 // convertRuntimeConfigToProto converts a models.RuntimeConfig to protobuf.
 func convertRuntimeConfigToProto(cfg *models.RuntimeConfig) *pb.RuntimeConfig {
 	if cfg == nil {
@@ -417,8 +413,15 @@ func convertRuntimeConfigToProto(cfg *models.RuntimeConfig) *pb.RuntimeConfig {
 	}
 
 	pbCfg := &pb.RuntimeConfig{
-		ResourceTier: string(cfg.ResourceTier),
-		EnvVars:      cfg.EnvVars,
+		EnvVars: cfg.EnvVars,
+	}
+
+	// Convert resources
+	if cfg.Resources != nil {
+		pbCfg.Resources = &pb.ResourceSpec{
+			Cpu:    cfg.Resources.CPU,
+			Memory: cfg.Resources.Memory,
+		}
 	}
 
 	// Convert ports
