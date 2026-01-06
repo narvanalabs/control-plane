@@ -15,11 +15,11 @@ import (
 
 // Common errors returned by the scheduler.
 var (
-	ErrNoHealthyNodes          = errors.New("no healthy nodes available")
-	ErrInsufficientResources   = errors.New("no nodes with sufficient resources")
-	ErrDependenciesNotRunning  = errors.New("service dependencies are not running")
-	ErrDeploymentQueued        = errors.New("deployment queued waiting for available nodes")
-	ErrDeploymentTimeout       = errors.New("deployment timed out waiting for scheduling")
+	ErrNoHealthyNodes         = errors.New("no healthy nodes available")
+	ErrInsufficientResources  = errors.New("no nodes with sufficient resources")
+	ErrDependenciesNotRunning = errors.New("service dependencies are not running")
+	ErrDeploymentQueued       = errors.New("deployment queued waiting for available nodes")
+	ErrDeploymentTimeout      = errors.New("deployment timed out waiting for scheduling")
 )
 
 // AgentClient defines the interface for communicating with node agents.
@@ -53,7 +53,6 @@ func NewScheduler(s store.Store, agentClient AgentClient, cfg *config.SchedulerC
 	}
 }
 
-
 // Schedule assigns a deployment to an appropriate node.
 // It filters nodes by health, resources, and cache locality, then selects the best candidate.
 func (s *Scheduler) Schedule(ctx context.Context, deployment *models.Deployment) (*models.Node, error) {
@@ -61,7 +60,6 @@ func (s *Scheduler) Schedule(ctx context.Context, deployment *models.Deployment)
 		"deployment_id", deployment.ID,
 		"app_id", deployment.AppID,
 		"build_type", deployment.BuildType,
-		"resource_tier", deployment.ResourceTier,
 	)
 
 	// 1. Get all nodes
@@ -82,11 +80,10 @@ func (s *Scheduler) Schedule(ctx context.Context, deployment *models.Deployment)
 	}
 
 	// 3. Filter by resource capacity
-	capableNodes := s.filterByCapacity(healthyNodes, deployment.ResourceTier)
+	capableNodes := s.filterByCapacity(healthyNodes, deployment.Resources)
 	if len(capableNodes) == 0 {
 		s.logger.Warn("no nodes with sufficient resources",
 			"healthy_nodes", len(healthyNodes),
-			"resource_tier", deployment.ResourceTier,
 		)
 		return nil, ErrInsufficientResources
 	}
@@ -138,7 +135,6 @@ func (s *Scheduler) IsNodeHealthy(node *models.Node) bool {
 func (s *Scheduler) GetHealthThreshold() time.Duration {
 	return s.healthThreshold
 }
-
 
 // ScheduleAndAssign schedules a deployment and updates the deployment record with the placement.
 // If no healthy nodes are available, the deployment remains in "built" status (queued).

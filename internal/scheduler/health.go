@@ -95,7 +95,6 @@ func (h *HealthMonitor) Stop() {
 	}
 }
 
-
 // checkNodes checks all nodes and marks stale ones as unhealthy.
 // It also processes pending deployments when healthy nodes are available.
 // **Validates: Requirements 16.2, 16.4**
@@ -294,11 +293,10 @@ func MarkUnhealthyIfStale(ctx context.Context, nodeStore store.NodeStore, nodeID
 	return false, nil
 }
 
-
-// HasResourcesForTier checks if the total available resources can accommodate a deployment tier.
+// HasResourcesForSpec checks if the total available resources can accommodate a deployment.
 // **Validates: Requirements 16.4**
-func (r *ResourceAvailability) HasResourcesForTier(tier models.ResourceTier) bool {
-	requirements := GetTierRequirements(tier)
+func (r *ResourceAvailability) HasResourcesForSpec(spec *models.ResourceSpec) bool {
+	requirements := GetResourceRequirements(spec)
 	return r.CPUAvailable >= requirements.CPU && r.MemoryAvailable >= requirements.Memory
 }
 

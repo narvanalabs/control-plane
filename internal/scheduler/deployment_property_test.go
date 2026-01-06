@@ -29,33 +29,32 @@ func genDeploymentStatus() gopter.Gen {
 // It has a valid artifact and is in a successful state.
 func genSuccessfulDeployment() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                                                    // ID
-		gen.Identifier(),                                                    // AppID
+		gen.Identifier(), // ID
+		gen.Identifier(), // AppID
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ServiceName
-		gen.IntRange(1, 100),                                                // Version
+		gen.IntRange(1, 100), // Version
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // GitRef
-		gen.AlphaString(),                                                   // GitCommit
-		genBuildType(),                                                      // BuildType
+		gen.AlphaString(), // GitCommit
+		genBuildType(),    // BuildType
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // Artifact (non-empty)
-		genResourceTier(),                                                   // ResourceTier
+		genResourceSpec(), // Resources
 	).Map(func(vals []interface{}) *models.Deployment {
 		return &models.Deployment{
-			ID:           vals[0].(string),
-			AppID:        vals[1].(string),
-			ServiceName:  vals[2].(string),
-			Version:      vals[3].(int),
-			GitRef:       vals[4].(string),
-			GitCommit:    vals[5].(string),
-			BuildType:    vals[6].(models.BuildType),
-			Artifact:     vals[7].(string),
-			Status:       models.DeploymentStatusRunning,
-			ResourceTier: vals[8].(models.ResourceTier),
-			CreatedAt:    time.Now().Add(-time.Hour),
-			UpdatedAt:    time.Now().Add(-time.Hour),
+			ID:          vals[0].(string),
+			AppID:       vals[1].(string),
+			ServiceName: vals[2].(string),
+			Version:     vals[3].(int),
+			GitRef:      vals[4].(string),
+			GitCommit:   vals[5].(string),
+			BuildType:   vals[6].(models.BuildType),
+			Artifact:    vals[7].(string),
+			Status:      models.DeploymentStatusRunning,
+			Resources:   vals[8].(*models.ResourceSpec),
+			CreatedAt:   time.Now().Add(-time.Hour),
+			UpdatedAt:   time.Now().Add(-time.Hour),
 		}
 	})
 }
-
 
 // **Feature: platform-enhancements, Property 11: Rollback Creates New Deployment**
 // *For any* rollback operation on a previous successful deployment, a new deployment
@@ -221,13 +220,13 @@ func TestValidateRollbackDeploymentRejectsInvalid(t *testing.T) {
 			}
 
 			rollback := &models.Deployment{
-				ID:           "invalid-rollback",
-				AppID:        source.AppID,
-				ServiceName:  source.ServiceName,
-				Version:      invalidVersion,
-				Artifact:     source.Artifact,
-				Status:       models.DeploymentStatusBuilt,
-				BuildType:    source.BuildType,
+				ID:          "invalid-rollback",
+				AppID:       source.AppID,
+				ServiceName: source.ServiceName,
+				Version:     invalidVersion,
+				Artifact:    source.Artifact,
+				Status:      models.DeploymentStatusBuilt,
+				BuildType:   source.BuildType,
 			}
 
 			// Validation should fail for version <= source
@@ -245,13 +244,13 @@ func TestValidateRollbackDeploymentRejectsInvalid(t *testing.T) {
 			}
 
 			rollback := &models.Deployment{
-				ID:           "invalid-rollback",
-				AppID:        source.AppID,
-				ServiceName:  source.ServiceName,
-				Version:      source.Version + 1,
-				Artifact:     differentArtifact, // Different artifact
-				Status:       models.DeploymentStatusBuilt,
-				BuildType:    source.BuildType,
+				ID:          "invalid-rollback",
+				AppID:       source.AppID,
+				ServiceName: source.ServiceName,
+				Version:     source.Version + 1,
+				Artifact:    differentArtifact, // Different artifact
+				Status:      models.DeploymentStatusBuilt,
+				BuildType:   source.BuildType,
 			}
 
 			// Validation should fail for different artifact
@@ -269,13 +268,13 @@ func TestValidateRollbackDeploymentRejectsInvalid(t *testing.T) {
 			}
 
 			rollback := &models.Deployment{
-				ID:           "invalid-rollback",
-				AppID:        source.AppID,
-				ServiceName:  source.ServiceName,
-				Version:      source.Version + 1,
-				Artifact:     source.Artifact,
-				Status:       status, // Wrong status
-				BuildType:    source.BuildType,
+				ID:          "invalid-rollback",
+				AppID:       source.AppID,
+				ServiceName: source.ServiceName,
+				Version:     source.Version + 1,
+				Artifact:    source.Artifact,
+				Status:      status, // Wrong status
+				BuildType:   source.BuildType,
 			}
 
 			// Validation should fail for wrong status

@@ -90,7 +90,6 @@ func NewZeroDowntimeDeployer(
 	}
 }
 
-
 // DeployWithZeroDowntime performs a blue-green style deployment.
 // It starts the new container, waits for health checks, updates routing,
 // and then stops the old container.
@@ -230,7 +229,6 @@ func (d *ZeroDowntimeDeployer) getServicePort(deployment *models.Deployment) int
 	return 8080 // Default port
 }
 
-
 // waitForHealthy waits for a container to become healthy within the configured timeout.
 // It polls the health check endpoint at regular intervals.
 // **Validates: Requirements 10.4**
@@ -328,7 +326,6 @@ func WaitForHealthyWithConfig(
 	}
 }
 
-
 // CaddyRoutingUpdater implements RoutingUpdater for Caddy reverse proxy.
 // It updates Caddy's configuration to route traffic to the new container.
 // **Validates: Requirements 10.2, 10.3**
@@ -398,7 +395,6 @@ func BuildRoutingConfig(deployment *models.Deployment, appName string) *RoutingC
 	}
 }
 
-
 // Rollback creates a new deployment using a previous successful deployment's artifact.
 // It finds the specified deployment, creates a new deployment with the same artifact,
 // and returns the new deployment.
@@ -439,20 +435,20 @@ func (d *ZeroDowntimeDeployer) Rollback(ctx context.Context, appID, serviceName 
 	// 3. Create a new deployment with the same artifact but new version
 	// **Validates: Requirements 20.3, 20.4**
 	newDeployment := &models.Deployment{
-		ID:           generateDeploymentID(),
-		AppID:        appID,
-		ServiceName:  serviceName,
-		Version:      nextVersion,
-		GitRef:       targetDeployment.GitRef,
-		GitCommit:    targetDeployment.GitCommit,
-		BuildType:    targetDeployment.BuildType,
-		Artifact:     targetDeployment.Artifact, // Use the same artifact
-		Status:       models.DeploymentStatusBuilt, // Skip build phase
-		ResourceTier: targetDeployment.ResourceTier,
-		Config:       targetDeployment.Config,
-		DependsOn:    targetDeployment.DependsOn,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		ID:          generateDeploymentID(),
+		AppID:       appID,
+		ServiceName: serviceName,
+		Version:     nextVersion,
+		GitRef:      targetDeployment.GitRef,
+		GitCommit:   targetDeployment.GitCommit,
+		BuildType:   targetDeployment.BuildType,
+		Artifact:    targetDeployment.Artifact,    // Use the same artifact
+		Status:      models.DeploymentStatusBuilt, // Skip build phase
+		Resources:   targetDeployment.Resources,
+		Config:      targetDeployment.Config,
+		DependsOn:   targetDeployment.DependsOn,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	// 4. Save the new deployment
@@ -521,20 +517,20 @@ type RollbackResult struct {
 func CreateRollbackDeployment(source *models.Deployment, newVersion int, newID string) *models.Deployment {
 	now := time.Now()
 	return &models.Deployment{
-		ID:           newID,
-		AppID:        source.AppID,
-		ServiceName:  source.ServiceName,
-		Version:      newVersion,
-		GitRef:       source.GitRef,
-		GitCommit:    source.GitCommit,
-		BuildType:    source.BuildType,
-		Artifact:     source.Artifact,
-		Status:       models.DeploymentStatusBuilt,
-		ResourceTier: source.ResourceTier,
-		Config:       source.Config,
-		DependsOn:    source.DependsOn,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:          newID,
+		AppID:       source.AppID,
+		ServiceName: source.ServiceName,
+		Version:     newVersion,
+		GitRef:      source.GitRef,
+		GitCommit:   source.GitCommit,
+		BuildType:   source.BuildType,
+		Artifact:    source.Artifact,
+		Status:      models.DeploymentStatusBuilt,
+		Resources:   source.Resources,
+		Config:      source.Config,
+		DependsOn:   source.DependsOn,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 }
 

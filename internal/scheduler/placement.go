@@ -1,36 +1,92 @@
 package scheduler
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/narvanalabs/control-plane/internal/models"
 )
 
-// ResourceRequirements defines the CPU and memory requirements for each resource tier.
+// ResourceRequirements defines the CPU and memory requirements.
 type ResourceRequirements struct {
 	CPU    float64 // CPU cores required
 	Memory int64   // Memory in bytes required
 }
 
-// TierRequirements maps resource tiers to their requirements.
-var TierRequirements = map[models.ResourceTier]ResourceRequirements{
-	models.ResourceTierNano:   {CPU: 0.25, Memory: 256 << 20},  // 256MB
-	models.ResourceTierSmall:  {CPU: 0.5, Memory: 512 << 20},   // 512MB
-	models.ResourceTierMedium: {CPU: 1.0, Memory: 1 << 30},     // 1GB
-	models.ResourceTierLarge:  {CPU: 2.0, Memory: 2 << 30},     // 2GB
-	models.ResourceTierXLarge: {CPU: 4.0, Memory: 4 << 30},     // 4GB
-}
-
-// GetTierRequirements returns the resource requirements for a given tier.
-func GetTierRequirements(tier models.ResourceTier) ResourceRequirements {
-	if req, ok := TierRequirements[tier]; ok {
-		return req
+// GetResourceRequirements returns the resource requirements from a ResourceSpec.
+// If spec is nil, returns default requirements (0.5 CPU, 512MB).
+func GetResourceRequirements(spec *models.ResourceSpec) ResourceRequirements {
+	if spec == nil {
+		return ResourceRequirements{CPU: 0.5, Memory: 512 << 20}
 	}
-	// Default to nano if unknown tier
-	return TierRequirements[models.ResourceTierNano]
+
+	req := ResourceRequirements{CPU: 0.5, Memory: 512 << 20}
+
+	// Parse CPU
+	if spec.CPU != "" {
+		var cpu float64
+		fmt.Sscanf(spec.CPU, "%f", &cpu)
+		if cpu > 0 {
+			req.CPU = cpu
+		}
+	}
+
+	// Parse memory
+	if spec.Memory != "" {
+		req.Memory = parseMemoryToBytes(spec.Memory)
+	}
+
+	return req
 }
 
-// filterByCapacity returns nodes that have sufficient resources for the given tier.
-func (s *Scheduler) filterByCapacity(nodes []*models.Node, tier models.ResourceTier) []*models.Node {
-	requirements := GetTierRequirements(tier)
+// parseMemoryToBytes parses a memory string to bytes.
+func parseMemoryToBytes(mem string) int64 {
+	mem = strings.TrimSpace(mem)
+	if mem == "" {
+		return 512 << 20
+	}
+
+	// Handle Gi suffix
+	if strings.HasSuffix(mem, "Gi") {
+		var val float64
+		fmt.Sscanf(mem, "%fGi", &val)
+		return int64(val * float64(1<<30))
+	}
+
+	// Handle Mi suffix
+	if strings.HasSuffix(mem, "Mi") {
+		var val int64
+		fmt.Sscanf(mem, "%dMi", &val)
+		return val << 20
+	}
+
+	// Handle G suffix
+	if strings.HasSuffix(mem, "G") {
+		var val float64
+		fmt.Sscanf(mem, "%fG", &val)
+		return int64(val * float64(1<<30))
+	}
+
+	// Handle M suffix
+	if strings.HasSuffix(mem, "M") {
+		var val int64
+		fmt.Sscanf(mem, "%dM", &val)
+		return val << 20
+	}
+
+	// Try parsing as plain number (assume bytes)
+	var val int64
+	fmt.Sscanf(mem, "%d", &val)
+	if val > 0 {
+		return val
+	}
+
+	return 512 << 20 // default 512MB
+}
+
+// filterByCapacity returns nodes that have sufficient resources for the given spec.
+func (s *Scheduler) filterByCapacity(nodes []*models.Node, spec *models.ResourceSpec) []*models.Node {
+	requirements := GetResourceRequirements(spec)
 	var capable []*models.Node
 
 	for _, node := range nodes {
@@ -47,14 +103,13 @@ func (s *Scheduler) filterByCapacity(nodes []*models.Node, tier models.ResourceT
 	return capable
 }
 
-
-// HasSufficientResources checks if a node has enough resources for a given tier.
-func HasSufficientResources(node *models.Node, tier models.ResourceTier) bool {
+// HasSufficientResources checks if a node has enough resources for a given spec.
+func HasSufficientResources(node *models.Node, spec *models.ResourceSpec) bool {
 	if node.Resources == nil {
 		return false
 	}
 
-	requirements := GetTierRequirements(tier)
+	requirements := GetResourceRequirements(spec)
 	return node.Resources.CPUAvailable >= requirements.CPU &&
 		node.Resources.MemoryAvailable >= requirements.Memory
 }

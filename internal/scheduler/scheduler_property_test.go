@@ -71,7 +71,6 @@ func (m *mockNodeStore) ListWithClosure(ctx context.Context, storePath string) (
 	return nil, nil
 }
 
-
 type mockDeploymentStore struct {
 	deployments []*models.Deployment
 }
@@ -136,15 +135,17 @@ func (t *testableStore) Close() error { return nil }
 
 // Generator helpers
 
-// genResourceTier generates a random ResourceTier.
-func genResourceTier() gopter.Gen {
-	return gen.OneConstOf(
-		models.ResourceTierNano,
-		models.ResourceTierSmall,
-		models.ResourceTierMedium,
-		models.ResourceTierLarge,
-		models.ResourceTierXLarge,
-	)
+// genResourceSpec generates a random ResourceSpec.
+func genResourceSpec() gopter.Gen {
+	return gopter.CombineGens(
+		gen.OneConstOf("0.25", "0.5", "1", "2", "4"),
+		gen.OneConstOf("256Mi", "512Mi", "1Gi", "2Gi", "4Gi"),
+	).Map(func(vals []interface{}) *models.ResourceSpec {
+		return &models.ResourceSpec{
+			CPU:    vals[0].(string),
+			Memory: vals[1].(string),
+		}
+	})
 }
 
 // genBuildType generates a random BuildType.
@@ -172,7 +173,6 @@ func genNodeResources() gopter.Gen {
 		}
 	})
 }
-
 
 // genNode generates a random Node.
 func genNode(healthy bool, recentHeartbeat bool, healthThreshold time.Duration) gopter.Gen {
@@ -215,16 +215,16 @@ func genDeployment() gopter.Gen {
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
 		genBuildType(),
 		gen.AlphaString(),
-		genResourceTier(),
+		genResourceSpec(),
 	).Map(func(vals []interface{}) *models.Deployment {
 		return &models.Deployment{
-			ID:           vals[0].(string),
-			AppID:        vals[1].(string),
-			ServiceName:  vals[2].(string),
-			BuildType:    vals[3].(models.BuildType),
-			Artifact:     vals[4].(string),
-			ResourceTier: vals[5].(models.ResourceTier),
-			Status:       models.DeploymentStatusBuilt,
+			ID:          vals[0].(string),
+			AppID:       vals[1].(string),
+			ServiceName: vals[2].(string),
+			BuildType:   vals[3].(models.BuildType),
+			Artifact:    vals[4].(string),
+			Resources:   vals[5].(*models.ResourceSpec),
+			Status:      models.DeploymentStatusBuilt,
 		}
 	})
 }
@@ -248,7 +248,7 @@ func TestSchedulerHealthFiltering(t *testing.T) {
 
 			// Ensure at least one healthy node has sufficient resources
 			hasCapable := false
-			requirements := GetTierRequirements(deployment.ResourceTier)
+			requirements := GetResourceRequirements(deployment.Resources)
 			for _, node := range healthyNodes {
 				if node.Resources != nil &&
 					node.Resources.CPUAvailable >= requirements.CPU &&
@@ -293,7 +293,6 @@ func TestSchedulerHealthFiltering(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: control-plane, Property 12: Scheduler resource filtering**
 // For any scheduling decision, the selected node must have sufficient resources for the requested resource tier.
 // **Validates: Requirements 4.2**
@@ -305,7 +304,7 @@ func TestSchedulerResourceFiltering(t *testing.T) {
 	healthThreshold := 30 * time.Second
 
 	properties.Property("selected node must have sufficient resources", prop.ForAll(
-		func(tier models.ResourceTier, nodes []*models.Node) bool {
+		func(resources *models.ResourceSpec, nodes []*models.Node) bool {
 			cfg := &config.SchedulerConfig{
 				HealthThreshold: healthThreshold,
 				MaxRetries:      3,
@@ -313,10 +312,10 @@ func TestSchedulerResourceFiltering(t *testing.T) {
 			}
 
 			scheduler := NewScheduler(nil, nil, cfg, nil)
-			requirements := GetTierRequirements(tier)
+			requirements := GetResourceRequirements(resources)
 
 			// Filter by capacity
-			capable := scheduler.filterByCapacity(nodes, tier)
+			capable := scheduler.filterByCapacity(nodes, resources)
 
 			// All capable nodes must have sufficient resources
 			for _, node := range capable {
@@ -333,7 +332,7 @@ func TestSchedulerResourceFiltering(t *testing.T) {
 
 			return true
 		},
-		genResourceTier(),
+		genResourceSpec(),
 		gen.SliceOfN(10, genNode(true, true, healthThreshold)),
 	))
 
@@ -407,7 +406,6 @@ func TestCacheAwareSchedulingPreference(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: control-plane, Property 14: Capacity-based tie-breaking**
 // For any scheduling decision where multiple nodes meet all criteria, the node with highest
 // available capacity should be selected.
@@ -459,7 +457,6 @@ func TestCapacityBasedTieBreaking(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: control-plane, Property 16: Stale heartbeat marks unhealthy**
 // For any node whose last heartbeat exceeds the threshold, the node should be marked as unhealthy.
@@ -575,7 +572,6 @@ func TestUnhealthyNodeTriggersRescheduling(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: control-plane, Property 22: Service dependency ordering**
 // *For any* service with dependencies, the service should not be scheduled until
 // all its dependencies are in running state.
@@ -630,8 +626,8 @@ func TestServiceDependencyOrdering(t *testing.T) {
 
 			return true
 		},
-		gen.IntRange(2, 5),  // service count (at least 2 for dependency)
-		gen.IntRange(0, 4),  // dependency index
+		gen.IntRange(2, 5), // service count (at least 2 for dependency)
+		gen.IntRange(0, 4), // dependency index
 	))
 
 	properties.TestingRun(t)
