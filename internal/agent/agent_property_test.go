@@ -21,15 +21,17 @@ func genBuildType() gopter.Gen {
 	return gen.OneConstOf(models.BuildTypeOCI, models.BuildTypePureNix)
 }
 
-// genResourceTier generates a random ResourceTier.
-func genResourceTier() gopter.Gen {
-	return gen.OneConstOf(
-		models.ResourceTierNano,
-		models.ResourceTierSmall,
-		models.ResourceTierMedium,
-		models.ResourceTierLarge,
-		models.ResourceTierXLarge,
-	)
+// genResourceSpec generates a random ResourceSpec.
+func genResourceSpec() gopter.Gen {
+	return gopter.CombineGens(
+		gen.OneConstOf("0.25", "0.5", "1", "2", "4"),
+		gen.OneConstOf("256Mi", "512Mi", "1Gi", "2Gi", "4Gi"),
+	).Map(func(vals []interface{}) *models.ResourceSpec {
+		return &models.ResourceSpec{
+			CPU:    vals[0].(string),
+			Memory: vals[1].(string),
+		}
+	})
 }
 
 // genPortMapping generates a random PortMapping.
@@ -77,16 +79,16 @@ func genOptionalHealthCheckConfig() gopter.Gen {
 // genRuntimeConfig generates a valid RuntimeConfig (always non-nil for valid requests).
 func genRuntimeConfig() gopter.Gen {
 	return gopter.CombineGens(
-		genResourceTier(),
+		genResourceSpec(),
 		gen.MapOf(gen.AlphaString(), gen.AlphaString()),
 		gen.SliceOfN(2, genPortMapping()),
 		genOptionalHealthCheckConfig(),
 	).Map(func(vals []interface{}) *models.RuntimeConfig {
 		return &models.RuntimeConfig{
-			ResourceTier: vals[0].(models.ResourceTier),
-			EnvVars:      vals[1].(map[string]string),
-			Ports:        vals[2].([]models.PortMapping),
-			HealthCheck:  vals[3].(*models.HealthCheckConfig),
+			Resources:   vals[0].(*models.ResourceSpec),
+			EnvVars:     vals[1].(map[string]string),
+			Ports:       vals[2].([]models.PortMapping),
+			HealthCheck: vals[3].(*models.HealthCheckConfig),
 		}
 	})
 }
@@ -94,11 +96,11 @@ func genRuntimeConfig() gopter.Gen {
 // genValidDeployRequest generates a valid DeployRequest with all required fields.
 func genValidDeployRequest() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                                                    // DeploymentID
+		gen.Identifier(), // DeploymentID
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // Artifact
-		genBuildType(),                                                       // BuildType
-		genRuntimeConfig(),                                                   // Config
-		gen.MapOf(gen.AlphaString(), gen.AlphaString()),                      // Secrets
+		genBuildType(),     // BuildType
+		genRuntimeConfig(), // Config
+		gen.MapOf(gen.AlphaString(), gen.AlphaString()), // Secrets
 	).Map(func(vals []interface{}) *DeployRequest {
 		return &DeployRequest{
 			DeploymentID: vals[0].(string),
@@ -109,7 +111,6 @@ func genValidDeployRequest() gopter.Gen {
 		}
 	})
 }
-
 
 // TestPropertyDeploymentCommandCompleteness tests that all valid deploy requests
 // have non-empty artifact references and runtime configuration.
@@ -181,7 +182,7 @@ func TestPropertyInvalidDeployRequestsRejected(t *testing.T) {
 				DeploymentID: "", // Empty
 				Artifact:     artifact,
 				BuildType:    buildType,
-				Config:       &models.RuntimeConfig{ResourceTier: models.ResourceTierSmall},
+				Config:       &models.RuntimeConfig{Resources: models.DefaultResourceSpec()},
 			}
 			err := ValidateDeployRequest(req)
 			return err != nil
@@ -197,7 +198,7 @@ func TestPropertyInvalidDeployRequestsRejected(t *testing.T) {
 				DeploymentID: deploymentID,
 				Artifact:     "", // Empty
 				BuildType:    buildType,
-				Config:       &models.RuntimeConfig{ResourceTier: models.ResourceTierSmall},
+				Config:       &models.RuntimeConfig{Resources: models.DefaultResourceSpec()},
 			}
 			err := ValidateDeployRequest(req)
 			return err != nil
@@ -225,7 +226,6 @@ func TestPropertyInvalidDeployRequestsRejected(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: control-plane, Property 26: Status report synchronization**
 // For any deployment status reported by a node agent, the deployment record
@@ -302,7 +302,7 @@ func TestPropertyStatusReportSynchronization(t *testing.T) {
 		func(deploymentID string, initialStatus, reportedStatus models.DeploymentStatus) bool {
 			// Create a handler with an initial deployment
 			handler := NewStatusReportHandler()
-			
+
 			initialDeployment := &models.Deployment{
 				ID:     deploymentID,
 				Status: initialStatus,
@@ -357,7 +357,7 @@ func TestPropertyStatusReportWithStartTime(t *testing.T) {
 		func(deploymentID string, startedAtUnix int64) bool {
 			// Create a handler with an initial deployment
 			handler := NewStatusReportHandler()
-			
+
 			initialDeployment := &models.Deployment{
 				ID:        deploymentID,
 				Status:    models.DeploymentStatusScheduled,
