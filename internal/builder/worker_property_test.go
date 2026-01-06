@@ -25,10 +25,10 @@ func genPositiveTimeout() gopter.Gen {
 // genBuildJobWithTimeout generates a BuildJob with various timeout configurations.
 func genBuildJobWithTimeout() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                    // job ID
-		gen.Identifier(),                    // deployment ID
-		gen.IntRange(0, 3600),               // job timeout seconds (0 means not set)
-		gen.IntRange(0, 3600),               // build config timeout (0 means not set)
+		gen.Identifier(),      // job ID
+		gen.Identifier(),      // deployment ID
+		gen.IntRange(0, 3600), // job timeout seconds (0 means not set)
+		gen.IntRange(0, 3600), // build config timeout (0 means not set)
 	).Map(func(vals []interface{}) *models.BuildJob {
 		jobID := vals[0].(string)
 		deploymentID := vals[1].(string)
@@ -258,7 +258,6 @@ func TestTimeoutPrecedence(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: flexible-build-strategies, Property 20: Build Validation Completeness**
 // For any ServiceConfig, the BuildValidator SHALL check all required fields and
 // return specific errors for each invalid field.
@@ -267,8 +266,8 @@ func TestTimeoutPrecedence(t *testing.T) {
 // genValidBuildJob generates a valid BuildJob.
 func genValidBuildJob() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                    // job ID
-		gen.Identifier(),                    // deployment ID
+		gen.Identifier(), // job ID
+		gen.Identifier(), // deployment ID
 		gen.OneConstOf(models.BuildTypePureNix, models.BuildTypeOCI),
 	).Map(func(vals []interface{}) *models.BuildJob {
 		return &models.BuildJob{

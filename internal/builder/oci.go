@@ -60,7 +60,6 @@ func NewOCIBuilder(cfg *OCIBuilderConfig, logger *slog.Logger) (*OCIBuilder, err
 	}, nil
 }
 
-
 // OCIBuildResult holds the result of an OCI build.
 type OCIBuildResult struct {
 	ImageTag  string        // Full image tag (registry/repo:tag)

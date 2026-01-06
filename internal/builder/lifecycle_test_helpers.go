@@ -111,7 +111,6 @@ func NewMockOCIBuilder() *MockOCIBuilder {
 	}
 }
 
-
 // BuildWithLogCallback implements the OCIBuilder interface.
 func (m *MockOCIBuilder) BuildWithLogCallback(ctx context.Context, job *models.BuildJob, callback func(line string)) (*executor.OCIBuildResult, error) {
 	m.mu.Lock()
@@ -161,11 +160,11 @@ func (m *MockOCIBuilder) Reset() {
 
 // MockAtticClient is a mock implementation of the AtticClient for testing.
 type MockAtticClient struct {
-	mu          sync.Mutex
-	PushCalls   []MockPushCall
-	PushResultVal  *PushResult
-	PushError   error
-	ShouldFail  bool
+	mu            sync.Mutex
+	PushCalls     []MockPushCall
+	PushResultVal *PushResult
+	PushError     error
+	ShouldFail    bool
 }
 
 // MockPushCall records a call to the mock Attic client.
@@ -234,36 +233,36 @@ type MockStore struct {
 // NewMockStore creates a new MockStore.
 func NewMockStore() *MockStore {
 	return &MockStore{
-		orgs:        NewMockOrgStore(),
-		apps:        NewMockAppStore(),
-		deployments: NewMockDeploymentStore(),
-		nodes:       NewMockNodeStore(),
-		builds:      NewMockBuildStore(),
-		secrets:     NewMockSecretStore(),
-		logs:        NewLifecycleMockLogStore(),
-		users:       NewMockUserStore(),
-		github:      NewMockGitHubStore(),
+		orgs:           NewMockOrgStore(),
+		apps:           NewMockAppStore(),
+		deployments:    NewMockDeploymentStore(),
+		nodes:          NewMockNodeStore(),
+		builds:         NewMockBuildStore(),
+		secrets:        NewMockSecretStore(),
+		logs:           NewLifecycleMockLogStore(),
+		users:          NewMockUserStore(),
+		github:         NewMockGitHubStore(),
 		githubAccounts: NewMockGitHubAccountStore(),
-		settings:    NewMockSettingsStore(),
-		domains:     NewMockDomainStore(),
+		settings:       NewMockSettingsStore(),
+		domains:        NewMockDomainStore(),
 	}
 }
 
-func (m *MockStore) Orgs() store.OrgStore           { return m.orgs }
-func (m *MockStore) Apps() store.AppStore           { return m.apps }
-func (m *MockStore) Deployments() store.DeploymentStore { return m.deployments }
-func (m *MockStore) Nodes() store.NodeStore         { return m.nodes }
-func (m *MockStore) Builds() store.BuildStore       { return m.builds }
-func (m *MockStore) Secrets() store.SecretStore     { return m.secrets }
-func (m *MockStore) Logs() store.LogStore           { return m.logs }
-func (m *MockStore) Users() store.UserStore         { return m.users }
-func (m *MockStore) GitHub() store.GitHubStore      { return m.github }
-func (m *MockStore) GitHubAccounts() store.GitHubAccountStore { return m.githubAccounts }
-func (m *MockStore) Settings() store.SettingsStore      { return m.settings }
-func (m *MockStore) Domains() store.DomainStore         { return m.domains }
-func (m *MockStore) Invitations() store.InvitationStore { return nil }
+func (m *MockStore) Orgs() store.OrgStore                                         { return m.orgs }
+func (m *MockStore) Apps() store.AppStore                                         { return m.apps }
+func (m *MockStore) Deployments() store.DeploymentStore                           { return m.deployments }
+func (m *MockStore) Nodes() store.NodeStore                                       { return m.nodes }
+func (m *MockStore) Builds() store.BuildStore                                     { return m.builds }
+func (m *MockStore) Secrets() store.SecretStore                                   { return m.secrets }
+func (m *MockStore) Logs() store.LogStore                                         { return m.logs }
+func (m *MockStore) Users() store.UserStore                                       { return m.users }
+func (m *MockStore) GitHub() store.GitHubStore                                    { return m.github }
+func (m *MockStore) GitHubAccounts() store.GitHubAccountStore                     { return m.githubAccounts }
+func (m *MockStore) Settings() store.SettingsStore                                { return m.settings }
+func (m *MockStore) Domains() store.DomainStore                                   { return m.domains }
+func (m *MockStore) Invitations() store.InvitationStore                           { return nil }
 func (m *MockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
-func (m *MockStore) Close() error                   { return nil }
+func (m *MockStore) Close() error                                                 { return nil }
 
 // MockOrgStore is a mock implementation of OrgStore for testing.
 type MockOrgStore struct {
@@ -363,7 +362,6 @@ func (m *MockOrgStore) IsMember(ctx context.Context, orgID, userID string) (bool
 func (m *MockOrgStore) GetDefaultForUser(ctx context.Context, userID string) (*models.Organization, error) {
 	return m.GetDefault(ctx)
 }
-
 
 // MockBuildStore is a mock implementation of BuildStore for testing.
 type MockBuildStore struct {
@@ -649,7 +647,6 @@ func (m *MockDeploymentStore) Reset() {
 	m.deployments = make(map[string]*models.Deployment)
 }
 
-
 // MockQueue is a mock implementation of Queue for testing.
 type MockQueue struct {
 	mu       sync.Mutex
@@ -857,7 +854,6 @@ func (m *MockNodeStore) ListHealthy(ctx context.Context) ([]*models.Node, error)
 func (m *MockNodeStore) ListWithClosure(ctx context.Context, storePath string) ([]*models.Node, error) {
 	return m.List(ctx)
 }
-
 
 // MockSecretStore is a mock implementation of SecretStore for testing.
 type MockSecretStore struct {
@@ -1323,18 +1319,18 @@ func (m *MockProgressTracker) GetStageHistory(buildID string) []StageRecord {
 func (m *MockProgressTracker) IsProgressMonotonic(buildID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	var buildReports []ProgressReport
 	for _, report := range m.ProgressReports {
 		if report.BuildID == buildID {
 			buildReports = append(buildReports, report)
 		}
 	}
-	
+
 	if len(buildReports) <= 1 {
 		return true
 	}
-	
+
 	for i := 1; i < len(buildReports); i++ {
 		if buildReports[i].Percent < buildReports[i-1].Percent {
 			return false
@@ -1347,7 +1343,7 @@ func (m *MockProgressTracker) IsProgressMonotonic(buildID string) bool {
 func (m *MockProgressTracker) HasTerminalStage(buildID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	for _, report := range m.StageReports {
 		if report.BuildID == buildID {
 			if report.Stage == StageCompleted || report.Stage == StageFailed {
@@ -1362,7 +1358,7 @@ func (m *MockProgressTracker) HasTerminalStage(buildID string) bool {
 func (m *MockProgressTracker) GetLastStage(buildID string) (BuildStage, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	var lastStage BuildStage
 	found := false
 	for _, report := range m.StageReports {
@@ -1381,7 +1377,6 @@ func (m *MockProgressTracker) Reset() {
 	m.StageReports = nil
 	m.ProgressReports = nil
 }
-
 
 // Test fixtures for build jobs with various configurations.
 
@@ -1685,4 +1680,3 @@ func (m *MockDomainStore) ListAll(ctx context.Context) ([]*models.Domain, error)
 	}
 	return result, nil
 }
-

@@ -476,17 +476,17 @@ type SchedulerInterface interface {
 }
 
 type Worker struct {
-	store           store.Store
-	queue           queue.Queue
-	nixBuilder      *NixBuilder
-	ociBuilder      *OCIBuilder
-	atticClient     *AtticClient
+	store            store.Store
+	queue            queue.Queue
+	nixBuilder       *NixBuilder
+	ociBuilder       *OCIBuilder
+	atticClient      *AtticClient
 	executorRegistry *executor.ExecutorRegistry
-	retryManager    *retry.Manager
-	progressTracker BuildProgressTracker
-	validator       BuildValidator
-	scheduler       SchedulerInterface
-	logger          *slog.Logger
+	retryManager     *retry.Manager
+	progressTracker  BuildProgressTracker
+	validator        BuildValidator
+	scheduler        SchedulerInterface
+	logger           *slog.Logger
 
 	concurrency    int
 	defaultTimeout int // Default build timeout in seconds
@@ -496,11 +496,11 @@ type Worker struct {
 
 // WorkerConfig holds configuration for the build worker.
 type WorkerConfig struct {
-	Concurrency     int
-	NixConfig       *NixBuilderConfig
-	OCIConfig       *OCIBuilderConfig
-	AtticConfig     *AtticConfig
-	DefaultTimeout  int // Default build timeout in seconds (default: 1800 = 30 minutes)
+	Concurrency    int
+	NixConfig      *NixBuilderConfig
+	OCIConfig      *OCIBuilderConfig
+	AtticConfig    *AtticConfig
+	DefaultTimeout int // Default build timeout in seconds (default: 1800 = 30 minutes)
 }
 
 // DefaultWorkerConfig returns a WorkerConfig with sensible defaults.
@@ -664,7 +664,6 @@ func (a *ociBuilderAdapter) BuildWithLogCallback(ctx context.Context, job *model
 		ExitCode:  result.ExitCode,
 	}, nil
 }
-
 
 // Start begins processing build jobs from the queue.
 // It spawns multiple goroutines based on the configured concurrency.
@@ -943,10 +942,26 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 	job.FinishedAt = &finishedAt
 
 	if buildErr != nil {
-		w.logger.Error("build failed",
+		// Include detection info in build failure log
+		// **Validates: Requirements 2.2** - Include detection information in error messages
+		logFields := []any{
 			"job_id", job.ID,
 			"error", buildErr,
-		)
+		}
+		if job.DetectionResult != nil {
+			logFields = append(logFields,
+				"detected_strategy", job.DetectionResult.Strategy,
+				"detected_framework", job.DetectionResult.Framework,
+				"detected_version", job.DetectionResult.Version,
+			)
+			if cgoEnabled, ok := job.DetectionResult.SuggestedConfig["cgo_enabled"].(bool); ok {
+				logFields = append(logFields, "cgo_enabled", cgoEnabled)
+			}
+			if len(job.DetectionResult.EntryPoints) > 0 {
+				logFields = append(logFields, "entry_points", job.DetectionResult.EntryPoints)
+			}
+		}
+		w.logger.Error("build failed", logFields...)
 
 		// Check if we should retry
 		if w.retryManager.ShouldRetry(ctx, job, buildErr) {
@@ -1010,6 +1025,24 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 		}
 		deployment.Status = models.DeploymentStatusFailed
 
+		// Stream detection info to build logs on failure
+		// **Validates: Requirements 2.2** - Include detection information in error messages
+		if job.DetectionResult != nil {
+			w.streamLog(ctx, job.DeploymentID, "=== Detection Results ===")
+			w.streamLog(ctx, job.DeploymentID, fmt.Sprintf("Strategy: %s", job.DetectionResult.Strategy))
+			w.streamLog(ctx, job.DeploymentID, fmt.Sprintf("Framework: %s", job.DetectionResult.Framework))
+			w.streamLog(ctx, job.DeploymentID, fmt.Sprintf("Version: %s", job.DetectionResult.Version))
+			if cgoEnabled, ok := job.DetectionResult.SuggestedConfig["cgo_enabled"].(bool); ok {
+				w.streamLog(ctx, job.DeploymentID, fmt.Sprintf("CGO Enabled: %v", cgoEnabled))
+			}
+			if len(job.DetectionResult.EntryPoints) > 0 {
+				w.streamLog(ctx, job.DeploymentID, fmt.Sprintf("Entry Points: %v", job.DetectionResult.EntryPoints))
+			}
+			if len(job.DetectionResult.Warnings) > 0 {
+				w.streamLog(ctx, job.DeploymentID, fmt.Sprintf("Warnings: %v", job.DetectionResult.Warnings))
+			}
+		}
+
 		// Store the build logs even on failure
 		w.storeBuildLogs(ctx, job.DeploymentID, buildLogs)
 	} else {
@@ -1050,7 +1083,7 @@ func (w *Worker) processJob(ctx context.Context, job *models.BuildJob) error {
 func (w *Worker) executeWithStrategy(ctx context.Context, job *models.BuildJob, logCallback func(string)) (string, string, error) {
 	// Determine the timeout for this build
 	timeout := w.getBuildTimeout(job)
-	
+
 	// Create a context with timeout
 	buildCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -1088,17 +1121,17 @@ func (w *Worker) getBuildTimeout(job *models.BuildJob) time.Duration {
 	if job.TimeoutSeconds > 0 {
 		return time.Duration(job.TimeoutSeconds) * time.Second
 	}
-	
+
 	// Use build config timeout if available
 	if job.BuildConfig != nil && job.BuildConfig.BuildTimeout > 0 {
 		return time.Duration(job.BuildConfig.BuildTimeout) * time.Second
 	}
-	
+
 	// Use worker default timeout
 	if w.defaultTimeout > 0 {
 		return time.Duration(w.defaultTimeout) * time.Second
 	}
-	
+
 	// Fall back to global default
 	return time.Duration(DefaultBuildTimeout) * time.Second
 }
@@ -1131,6 +1164,25 @@ func (w *Worker) executeBuild(ctx context.Context, job *models.BuildJob, logCall
 
 			// Use ExecuteWithLogs to stream logs in real-time
 			result, execErr := strategyExecutor.ExecuteWithLogs(ctx, job, logCallback)
+
+			// Persist detection results immediately after PreBuild completes
+			// **Validates: Requirements 2.1** - Store DetectionResult in BuildJob record
+			if job.DetectionResult != nil {
+				if updateErr := w.store.Builds().Update(ctx, job); updateErr != nil {
+					w.logger.Error("failed to persist detection results",
+						"job_id", job.ID,
+						"error", updateErr,
+					)
+				} else {
+					w.logger.Info("persisted detection results",
+						"job_id", job.ID,
+						"strategy", job.DetectionResult.Strategy,
+						"framework", job.DetectionResult.Framework,
+						"cgo_enabled", job.DetectionResult.SuggestedConfig["cgo_enabled"],
+					)
+				}
+			}
+
 			if result != nil {
 				if execErr == nil {
 					w.progressTracker.ReportProgress(ctx, job.ID, 90, "Build completed successfully")

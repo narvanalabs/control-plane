@@ -76,7 +76,6 @@ func NewNixBuilder(cfg *NixBuilderConfig, logger *slog.Logger) (*NixBuilder, err
 	}, nil
 }
 
-
 // NixBuildResult holds the result of a Nix build.
 type NixBuildResult struct {
 	StorePath string        // The Nix store path of the built derivation
@@ -150,11 +149,17 @@ func (b *NixBuilder) Build(ctx context.Context, job *models.BuildJob) (*NixBuild
 }
 
 // buildInContainer executes the nix build inside a Podman container.
+// **Validates: Requirements 4.2** - Reuses pre-cloned repo when available
 func (b *NixBuilder) buildInContainer(ctx context.Context, job *models.BuildJob, buildDir, flakeRef string, logWriter io.Writer) (*NixBuildResult, error) {
 	start := time.Now()
 
+	// Check if we have a pre-cloned repository from the pre-build phase
+	// **Validates: Requirements 4.2** - Reuse cloned repository for build
+	hasPreClonedRepo := job.PreClonedRepoPath != "" && job.GeneratedFlake != ""
+
 	// Determine if we need to clone the repo (for generated flakes, the source needs to be present)
-	needsClone := job.GeneratedFlake != "" && job.GitURL != ""
+	// Skip clone if we have a pre-cloned repo
+	needsClone := job.GeneratedFlake != "" && job.GitURL != "" && !hasPreClonedRepo
 
 	var cloneScript string
 	if needsClone {
@@ -202,6 +207,56 @@ git commit -m "narvana: clean source for build"
 echo "Clean source directory created without vendor/"
 `, gitRef, job.GitURL, job.GitURL)
 		// Update flakeRef to point to the cloned directory
+		flakeRef = "/build/src"
+		if job.FlakeOutput != "" {
+			flakeRef = fmt.Sprintf("/build/src#%s", job.FlakeOutput)
+		}
+	} else if hasPreClonedRepo {
+		// **Validates: Requirements 4.2** - Use pre-cloned repository
+		// The pre-cloned repo is mounted at /build/precloned, we need to set up /build/src
+		cloneScript = `
+echo "=== Using pre-cloned repository ==="
+echo "Pre-cloned repo detected at /build/precloned"
+
+# Check if /build/src already exists (pre-cloned repo mounted)
+if [ -d "/build/precloned" ]; then
+  echo "=== Creating clean source directory from pre-cloned repo ==="
+  mkdir -p /build/src
+
+  # Copy all files except vendor and .git to clean directory
+  cd /build/precloned
+  for item in *; do
+    if [ "$item" != "vendor" ]; then
+      cp -r "$item" /build/src/
+    fi
+  done
+  # Copy hidden files except .git
+  for item in .[!.]*; do
+    if [ "$item" != ".git" ] && [ -e "$item" ]; then
+      cp -r "$item" /build/src/ 2>/dev/null || true
+    fi
+  done
+
+  # Initialize fresh git repo in clean directory
+  cd /build/src
+  git init
+  git config user.email "narvana@localhost"
+  git config user.name "Narvana Builder"
+
+  # Copy the generated flake.nix
+  cp /build/flake.nix /build/src/flake.nix
+
+  # Add all files and commit
+  git add -A
+  git commit -m "narvana: clean source for build (from pre-cloned repo)"
+
+  echo "Clean source directory created from pre-cloned repo without vendor/"
+else
+  echo "ERROR: Pre-cloned repo not found at /build/precloned"
+  exit 1
+fi
+`
+		// Update flakeRef to point to the source directory
 		flakeRef = "/build/src"
 		if job.FlakeOutput != "" {
 			flakeRef = fmt.Sprintf("/build/src#%s", job.FlakeOutput)
@@ -293,19 +348,36 @@ echo "=== Build Complete ==="
 
 	containerName := fmt.Sprintf("narvana-build-%s", job.ID)
 
+	// Set up mounts - always mount the build directory
+	// **Validates: Requirements 4.2** - Mount pre-cloned repo when available
+	mounts := []podman.Mount{
+		{Source: buildDir, Target: "/build", ReadOnly: false},
+		// No need to mount host's nix store - builds happen in container,
+		// then push to Attic binary cache for distribution to nodes.
+	}
+
+	// Add pre-cloned repo mount if available
+	if hasPreClonedRepo {
+		mounts = append(mounts, podman.Mount{
+			Source:   job.PreClonedRepoPath,
+			Target:   "/build/precloned",
+			ReadOnly: true, // Read-only since we copy to /build/src
+		})
+		b.logger.Info("mounting pre-cloned repository",
+			"job_id", job.ID,
+			"pre_cloned_path", job.PreClonedRepoPath,
+		)
+	}
+
 	cfg := &podman.ContainerConfig{
 		Name:       containerName,
 		Image:      b.nixImage,
 		Entrypoint: []string{"/root/.nix-profile/bin/bash", "-c"},
 		Command:    []string{buildScript},
 		WorkDir:    "/build",
-		User:       "root",  // Run as root
-		Privileged: true,    // Privileged mode for nix builds
-		Mounts: []podman.Mount{
-			{Source: buildDir, Target: "/build", ReadOnly: false},
-			// No need to mount host's nix store - builds happen in container,
-			// then push to Attic binary cache for distribution to nodes.
-		},
+		User:       "root", // Run as root
+		Privileged: true,   // Privileged mode for nix builds
+		Mounts:     mounts,
 		Limits: &podman.ResourceLimits{
 			CPUQuota:  2.0,  // Allow 2 CPUs for builds
 			MemoryMB:  4096, // 4GB for builds

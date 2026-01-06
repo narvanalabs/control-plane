@@ -115,12 +115,12 @@ func TestBuildJobStateMachineInvariants(t *testing.T) {
 	properties.Property("state machine has no cycles except retry", prop.ForAll(
 		func(statePair [2]models.BuildStatus) bool {
 			from, to := statePair[0], statePair[1]
-			
+
 			// If we can go from A to B (non-retry), we should not be able to go from B to A (non-retry)
 			// Exception: running -> queued is only allowed for retry
 			forwardAllowed := CanTransition(from, to, false)
 			backwardAllowed := CanTransition(to, from, false)
-			
+
 			// If both directions are allowed (non-retry), that's a cycle
 			if forwardAllowed && backwardAllowed {
 				return false
@@ -135,7 +135,7 @@ func TestBuildJobStateMachineInvariants(t *testing.T) {
 		func(statePair [2]models.BuildStatus, isRetry bool) bool {
 			from, to := statePair[0], statePair[1]
 			canTransition := CanTransition(from, to, isRetry)
-			
+
 			// Verify against our known valid transitions
 			switch from {
 			case models.BuildStatusQueued:
@@ -144,7 +144,7 @@ func TestBuildJobStateMachineInvariants(t *testing.T) {
 					return canTransition == true
 				}
 				return canTransition == false
-				
+
 			case models.BuildStatusRunning:
 				// running -> succeeded, failed are always valid
 				if to == models.BuildStatusSucceeded || to == models.BuildStatusFailed {
@@ -155,12 +155,12 @@ func TestBuildJobStateMachineInvariants(t *testing.T) {
 					return canTransition == isRetry
 				}
 				return canTransition == false
-				
+
 			case models.BuildStatusSucceeded, models.BuildStatusFailed:
 				// Terminal states - no transitions allowed
 				return canTransition == false
 			}
-			
+
 			return true
 		},
 		genBuildStatusPair(),
@@ -182,7 +182,7 @@ func TestStateMachineCompleteness(t *testing.T) {
 			if IsTerminalState(status) {
 				return true // Skip terminal states
 			}
-			
+
 			// Check if there's at least one valid transition
 			allStatuses := []models.BuildStatus{
 				models.BuildStatusQueued,
@@ -190,7 +190,7 @@ func TestStateMachineCompleteness(t *testing.T) {
 				models.BuildStatusSucceeded,
 				models.BuildStatusFailed,
 			}
-			
+
 			for _, toStatus := range allStatuses {
 				if CanTransition(status, toStatus, false) || CanTransition(status, toStatus, true) {
 					return true
@@ -222,7 +222,7 @@ func TestStateMachineCompleteness(t *testing.T) {
 	properties.Property("IsTerminalState is correct", prop.ForAll(
 		func(status models.BuildStatus) bool {
 			isTerminal := IsTerminalState(status)
-			
+
 			// Succeeded and failed should be terminal
 			if status == models.BuildStatusSucceeded || status == models.BuildStatusFailed {
 				return isTerminal == true
@@ -235,7 +235,6 @@ func TestStateMachineCompleteness(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 2: Terminal State Immutability**
 // For any build job in `succeeded` or `failed` status, no further state transitions SHALL be allowed.
@@ -289,7 +288,7 @@ func TestTerminalStateImmutability(t *testing.T) {
 	properties.Property("terminal states are correctly identified", prop.ForAll(
 		func(status models.BuildStatus) bool {
 			isTerminal := IsTerminalState(status)
-			
+
 			// Only succeeded and failed should be terminal
 			expectedTerminal := (status == models.BuildStatusSucceeded || status == models.BuildStatusFailed)
 			return isTerminal == expectedTerminal
@@ -301,7 +300,7 @@ func TestTerminalStateImmutability(t *testing.T) {
 	properties.Property("non-terminal states are not terminal", prop.ForAll(
 		func(status models.BuildStatus) bool {
 			isTerminal := IsTerminalState(status)
-			
+
 			// Queued and running should not be terminal
 			if status == models.BuildStatusQueued || status == models.BuildStatusRunning {
 				return isTerminal == false
@@ -326,7 +325,7 @@ func TestTerminalStateImmutability(t *testing.T) {
 			// Try both with and without retry flag
 			withoutRetry := CanTransition(terminalStatus, targetStatus, false)
 			withRetry := CanTransition(terminalStatus, targetStatus, true)
-			
+
 			// Both should fail
 			return withoutRetry == false && withRetry == false
 		},
@@ -377,7 +376,7 @@ func TestTerminalStateImmutabilityWithBuildJobs(t *testing.T) {
 			if !IsTerminalState(job.Status) {
 				return true // Skip non-terminal jobs
 			}
-			
+
 			// Attempting to transition should fail
 			canTransition := CanTransition(job.Status, newStatus, isRetry)
 			return canTransition == false
@@ -396,7 +395,7 @@ func TestTerminalStateImmutabilityWithBuildJobs(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       models.BuildStatusSucceeded,
 			}
-			
+
 			// Cannot transition to any status
 			return CanTransition(job.Status, newStatus, false) == false &&
 				CanTransition(job.Status, newStatus, true) == false
@@ -415,7 +414,7 @@ func TestTerminalStateImmutabilityWithBuildJobs(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       models.BuildStatusFailed,
 			}
-			
+
 			// Cannot transition to any status
 			return CanTransition(job.Status, newStatus, false) == false &&
 				CanTransition(job.Status, newStatus, true) == false
@@ -427,7 +426,6 @@ func TestTerminalStateImmutabilityWithBuildJobs(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 3: State Persistence Before Transition**
 // For any build job state transition, the new state SHALL be persisted to the database
@@ -457,10 +455,10 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 	properties.Property("state transitions are recorded in store", prop.ForAll(
 		func(jobID, deploymentID string, transition [2]models.BuildStatus) bool {
 			fromStatus, toStatus := transition[0], transition[1]
-			
+
 			// Create a mock store
 			mockStore := NewMockBuildStore()
-			
+
 			// Create a job in the initial state
 			initialJob := &models.BuildJob{
 				ID:           jobID,
@@ -468,18 +466,18 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       fromStatus,
 			}
-			
+
 			// Store the initial job
 			ctx := context.Background()
 			if err := mockStore.Create(ctx, initialJob); err != nil {
 				return false
 			}
-			
+
 			// Verify the transition is valid
 			if !models.CanTransition(fromStatus, toStatus, false) {
 				return true // Skip invalid transitions
 			}
-			
+
 			// Create a new job object with the new status for the update
 			updatedJob := &models.BuildJob{
 				ID:           jobID,
@@ -490,13 +488,13 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 			if err := mockStore.Update(ctx, updatedJob); err != nil {
 				return false
 			}
-			
+
 			// Verify the transition was recorded
 			transitions := mockStore.GetStateTransitions()
 			if len(transitions) != 1 {
 				return false
 			}
-			
+
 			// Verify the recorded transition matches
 			recorded := transitions[0]
 			return recorded.BuildID == jobID &&
@@ -512,10 +510,10 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 	properties.Property("retrieved job reflects persisted state", prop.ForAll(
 		func(jobID, deploymentID string, transition [2]models.BuildStatus) bool {
 			fromStatus, toStatus := transition[0], transition[1]
-			
+
 			// Create a mock store
 			mockStore := NewMockBuildStore()
-			
+
 			// Create a job in the initial state
 			initialJob := &models.BuildJob{
 				ID:           jobID,
@@ -523,18 +521,18 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       fromStatus,
 			}
-			
+
 			// Store the initial job
 			ctx := context.Background()
 			if err := mockStore.Create(ctx, initialJob); err != nil {
 				return false
 			}
-			
+
 			// Verify the transition is valid
 			if !models.CanTransition(fromStatus, toStatus, false) {
 				return true // Skip invalid transitions
 			}
-			
+
 			// Create a new job object with the new status for the update
 			updatedJob := &models.BuildJob{
 				ID:           jobID,
@@ -545,13 +543,13 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 			if err := mockStore.Update(ctx, updatedJob); err != nil {
 				return false
 			}
-			
+
 			// Retrieve the job and verify state
 			retrieved, err := mockStore.Get(ctx, jobID)
 			if err != nil {
 				return false
 			}
-			
+
 			return retrieved.Status == toStatus
 		},
 		gen.Identifier().SuchThat(func(s string) bool { return len(s) > 0 }),
@@ -564,7 +562,7 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 		func(jobID, deploymentID string) bool {
 			// Create a mock store
 			mockStore := NewMockBuildStore()
-			
+
 			// Create a job in queued state
 			initialJob := &models.BuildJob{
 				ID:           jobID,
@@ -572,13 +570,13 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       models.BuildStatusQueued,
 			}
-			
+
 			// Store the initial job
 			ctx := context.Background()
 			if err := mockStore.Create(ctx, initialJob); err != nil {
 				return false
 			}
-			
+
 			// Transition queued -> running
 			runningJob := &models.BuildJob{
 				ID:           jobID,
@@ -589,7 +587,7 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 			if err := mockStore.Update(ctx, runningJob); err != nil {
 				return false
 			}
-			
+
 			// Transition running -> succeeded
 			succeededJob := &models.BuildJob{
 				ID:           jobID,
@@ -600,13 +598,13 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 			if err := mockStore.Update(ctx, succeededJob); err != nil {
 				return false
 			}
-			
+
 			// Verify both transitions were recorded
 			transitions := mockStore.GetStateTransitions()
 			if len(transitions) != 2 {
 				return false
 			}
-			
+
 			// Verify order: first queued->running, then running->succeeded
 			return transitions[0].FromState == models.BuildStatusQueued &&
 				transitions[0].ToState == models.BuildStatusRunning &&
@@ -622,7 +620,7 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 		func(jobID, deploymentID string) bool {
 			// Create a mock store
 			mockStore := NewMockBuildStore()
-			
+
 			// Create a job in running state
 			initialJob := &models.BuildJob{
 				ID:           jobID,
@@ -630,18 +628,18 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       models.BuildStatusRunning,
 			}
-			
+
 			// Store the initial job
 			ctx := context.Background()
 			if err := mockStore.Create(ctx, initialJob); err != nil {
 				return false
 			}
-			
+
 			// Verify retry transition is valid
 			if !models.CanTransition(models.BuildStatusRunning, models.BuildStatusQueued, true) {
 				return false
 			}
-			
+
 			// Perform retry transition
 			queuedJob := &models.BuildJob{
 				ID:           jobID,
@@ -652,13 +650,13 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 			if err := mockStore.Update(ctx, queuedJob); err != nil {
 				return false
 			}
-			
+
 			// Verify the transition was recorded
 			transitions := mockStore.GetStateTransitions()
 			if len(transitions) != 1 {
 				return false
 			}
-			
+
 			return transitions[0].FromState == models.BuildStatusRunning &&
 				transitions[0].ToState == models.BuildStatusQueued
 		},
@@ -670,10 +668,10 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 	properties.Property("transition timestamps are recorded", prop.ForAll(
 		func(jobID, deploymentID string, transition [2]models.BuildStatus) bool {
 			fromStatus, toStatus := transition[0], transition[1]
-			
+
 			// Create a mock store
 			mockStore := NewMockBuildStore()
-			
+
 			// Create a job in the initial state
 			initialJob := &models.BuildJob{
 				ID:           jobID,
@@ -681,21 +679,21 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       fromStatus,
 			}
-			
+
 			// Store the initial job
 			ctx := context.Background()
 			if err := mockStore.Create(ctx, initialJob); err != nil {
 				return false
 			}
-			
+
 			// Verify the transition is valid
 			if !models.CanTransition(fromStatus, toStatus, false) {
 				return true // Skip invalid transitions
 			}
-			
+
 			// Record time before transition
 			beforeTransition := time.Now()
-			
+
 			// Create a new job object with the new status for the update
 			updatedJob := &models.BuildJob{
 				ID:           jobID,
@@ -706,16 +704,16 @@ func TestStatePersistenceBeforeTransition(t *testing.T) {
 			if err := mockStore.Update(ctx, updatedJob); err != nil {
 				return false
 			}
-			
+
 			// Record time after transition
 			afterTransition := time.Now()
-			
+
 			// Verify the transition was recorded with a valid timestamp
 			transitions := mockStore.GetStateTransitions()
 			if len(transitions) != 1 {
 				return false
 			}
-			
+
 			recorded := transitions[0]
 			return !recorded.Timestamp.Before(beforeTransition) &&
 				!recorded.Timestamp.After(afterTransition)
@@ -744,10 +742,10 @@ func TestStatePersistenceWithTransitionHelper(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       fromStatus,
 			}
-			
+
 			err := transitionJobStatus(job, toStatus, isRetry)
 			expectedValid := models.CanTransition(fromStatus, toStatus, isRetry)
-			
+
 			if expectedValid {
 				// Should succeed and update status
 				return err == nil && job.Status == toStatus
@@ -769,10 +767,10 @@ func TestStatePersistenceWithTransitionHelper(t *testing.T) {
 				BuildType:    models.BuildTypePureNix,
 				Status:       fromStatus,
 			}
-			
+
 			err := transitionJobStatus(job, toStatus, isRetry)
 			expectedValid := models.CanTransition(fromStatus, toStatus, isRetry)
-			
+
 			if expectedValid {
 				return err == nil
 			}
@@ -786,7 +784,6 @@ func TestStatePersistenceWithTransitionHelper(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 6: Validation Before Execution**
 // For any build job picked up by a worker, the Build_Validator SHALL be invoked
@@ -925,7 +922,6 @@ func TestValidationBeforeExecution(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 7: Validation Error Detection**
 // For any build job with invalid fields (empty id, empty deployment_id, empty build_type,
@@ -1168,11 +1164,11 @@ func TestValidationErrorDetection(t *testing.T) {
 
 			// Job with multiple invalid fields
 			job := &models.BuildJob{
-				ID:             "",                                  // Invalid: empty
-				DeploymentID:   "",                                  // Invalid: empty
-				BuildType:      models.BuildType("invalid"),         // Invalid: not a valid type
+				ID:             "",                                   // Invalid: empty
+				DeploymentID:   "",                                   // Invalid: empty
+				BuildType:      models.BuildType("invalid"),          // Invalid: not a valid type
 				BuildStrategy:  models.BuildStrategy("bad-strategy"), // Invalid: not a valid strategy
-				TimeoutSeconds: negativeTimeout,                     // Invalid: negative
+				TimeoutSeconds: negativeTimeout,                      // Invalid: negative
 			}
 
 			ctx := context.Background()
@@ -1194,7 +1190,6 @@ func TestValidationErrorDetection(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 8: Validation Failure Handling**
 // For any build job that fails validation, the Build_System SHALL mark the job as failed
@@ -1371,7 +1366,6 @@ func TestValidationFailureHandling(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 9: Progress Monotonicity**
 // For any build execution, the progress percentage reported by the Progress_Tracker
 // SHALL be monotonically increasing.
@@ -1400,14 +1394,14 @@ func genMonotonicProgressSequence() gopter.Gen {
 // genNonMonotonicProgressSequence generates a sequence that is NOT monotonically increasing.
 func genNonMonotonicProgressSequence() gopter.Gen {
 	return gopter.CombineGens(
-		gen.IntRange(1, 9),  // Position to insert decrease
+		gen.IntRange(1, 9),    // Position to insert decrease
 		gen.IntRange(50, 100), // Higher value
 		gen.IntRange(0, 49),   // Lower value (to create decrease)
 	).Map(func(vals []interface{}) []int {
 		pos := vals[0].(int)
 		high := vals[1].(int)
 		low := vals[2].(int)
-		
+
 		// Create a sequence with a decrease at position pos
 		result := make([]int, 10)
 		for i := 0; i < 10; i++ {
@@ -1702,7 +1696,6 @@ func TestProgressMonotonicityWithMockTracker(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 10: Terminal Stage Reporting**
 // For any build that completes (success or failure), the Progress_Tracker SHALL report
@@ -2005,7 +1998,6 @@ func TestTerminalStageReportingWithMockTracker(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 18: Timeout Selection Priority**
 // For any build job, the effective timeout SHALL be: job.TimeoutSeconds if set,
 // else job.BuildConfig.BuildTimeout if set, else 1800 seconds (default).
@@ -2232,7 +2224,6 @@ func TestTimeoutSelectionPriority(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 19: Timeout Enforcement**
 // For any build that exceeds its effective timeout, the Build_System SHALL terminate
 // the build and mark it as failed with a timeout error.
@@ -2433,8 +2424,6 @@ func toLower(s string) string {
 	return string(result)
 }
 
-
-
 // **Feature: build-lifecycle-correctness, Property 20: Artifact Persistence on Success**
 // For any successful build, the Build_System SHALL store the artifact (store path for pure-nix,
 // image tag for OCI) and update the deployment status to `built`.
@@ -2630,7 +2619,6 @@ func TestArtifactPersistenceOnSuccess(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 21: No Artifact on Failure**
 // For any failed build, the Build_System SHALL NOT update the deployment artifact,
@@ -2848,7 +2836,6 @@ func TestNoArtifactOnFailure(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 22: Deployment Status Synchronization**
 // For any build job, the deployment status SHALL reflect the build status:
@@ -3129,7 +3116,6 @@ func TestDeploymentStatusSynchronization(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 23: Database Record Before Queue**
 // For any build job, a database record SHALL exist before the job is enqueued.
 // **Validates: Requirements 17.1**
@@ -3351,7 +3337,6 @@ func TestDatabaseRecordBeforeQueue(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 24: Orphan Job Handling**
 // For any queued job without a corresponding database record, the worker SHALL
@@ -3587,7 +3572,6 @@ func TestOrphanJobHandling(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 28: Pure-Nix Artifact Push**
 // For any successful pure-nix build, the Build_System SHALL push the closure to Attic
@@ -3837,7 +3821,6 @@ func TestPureNixArtifactPush(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 29: Push Stage Reporting**
 // For any pure-nix build during Attic push, the Progress_Tracker SHALL report stage `pushing`.

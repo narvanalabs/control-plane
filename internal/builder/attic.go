@@ -56,7 +56,6 @@ func NewAtticClient(cfg *AtticConfig, logger *slog.Logger) *AtticClient {
 	}
 }
 
-
 // PushResult holds the result of pushing a closure to Attic.
 type PushResult struct {
 	StorePath string        // The store path that was pushed
@@ -228,10 +227,10 @@ func (c *AtticClient) GetCacheInfo(ctx context.Context) (*CacheInfo, error) {
 
 // CacheInfo holds information about an Attic cache.
 type CacheInfo struct {
-	Name           string `json:"name"`
-	IsPublic       bool   `json:"is_public"`
-	StoreDir       string `json:"store_dir"`
-	Priority       int    `json:"priority"`
+	Name           string   `json:"name"`
+	IsPublic       bool     `json:"is_public"`
+	StoreDir       string   `json:"store_dir"`
+	Priority       int      `json:"priority"`
 	UpstreamCaches []string `json:"upstream_caches,omitempty"`
 }
 

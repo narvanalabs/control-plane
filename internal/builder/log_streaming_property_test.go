@@ -547,4 +547,3 @@ func TestLogEntryTimestampOrdering(t *testing.T) {
 
 // Ensure context is used (for linting)
 var _ = context.Background
-

@@ -179,7 +179,6 @@ func TestOCIImageTagFormat(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: control-plane, Property 9: Pure Nix artifact format**
 // For any completed Pure Nix mode build, the artifact should be a valid Nix store path
 // (/nix/store/hash-name format).
@@ -308,7 +307,6 @@ func TestNixStorePathFormat(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: control-plane, Property 10: Build failure preserves logs**
 // For any failed build, the deployment should have status "failed" and associated
