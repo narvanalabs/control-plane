@@ -1,0 +1,415 @@
+package apps
+
+// EnvironmentVariablesScript provides the JavaScript for the dynamic environment variables form.
+// **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5**
+templ EnvironmentVariablesScript() {
+	<script>
+		(function() {
+			const container = document.getElementById('env-tab-container');
+			if (!container) return;
+			
+			const appId = container.dataset.appId;
+			const serviceName = container.dataset.serviceName;
+			const varsList = document.getElementById('env-vars-list');
+			const emptyState = document.getElementById('env-empty-state');
+			const errorDisplay = document.getElementById('env-error-display');
+			const errorMessage = document.getElementById('env-error-message');
+			const addBtn = document.getElementById('add-env-var-btn');
+			const fileInput = document.getElementById('env-file-input');
+			const importPreview = document.getElementById('env-import-preview');
+			const importList = document.getElementById('env-import-list');
+			const importCount = document.getElementById('env-import-count');
+			const importCancelBtn = document.getElementById('env-import-cancel-btn');
+			const importConfirmBtn = document.getElementById('env-import-confirm-btn');
+			
+			let pendingImport = {};
+			
+			// Show error message
+			// **Validates: Requirements 1.5**
+			function showError(msg) {
+				if (errorDisplay && errorMessage) {
+					errorMessage.textContent = msg;
+					errorDisplay.classList.remove('hidden');
+					setTimeout(() => {
+						errorDisplay.classList.add('hidden');
+					}, 5000);
+				}
+			}
+			
+			function hideError() {
+				if (errorDisplay) {
+					errorDisplay.classList.add('hidden');
+				}
+			}
+			
+			// Update empty state visibility
+			function updateEmptyState() {
+				const rows = varsList.querySelectorAll('.env-var-row');
+				if (emptyState) {
+					emptyState.classList.toggle('hidden', rows.length > 0);
+				}
+			}
+			
+			// Create a new env var row
+			// **Validates: Requirements 1.1**
+			function createEnvVarRow(key = '', value = '', isNew = true) {
+				const row = document.createElement('div');
+				row.className = 'env-var-row flex items-center gap-2 group';
+				row.dataset.originalKey = key;
+				row.dataset.saved = isNew ? 'false' : 'true';
+				
+				row.innerHTML = `
+					<div class="flex-1">
+						<div class="relative w-full">
+							<input type="text" 
+								class="env-key-input flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm dark:bg-input/30 placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] font-mono text-sm"
+								value="${escapeHtml(key)}"
+								placeholder="KEY_NAME"
+								data-original="${escapeHtml(key)}"
+							/>
+						</div>
+					</div>
+					<div class="flex-1">
+						<div class="relative w-full">
+							<input type="password" 
+								class="env-value-input flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm dark:bg-input/30 placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] font-mono text-sm"
+								value="${escapeHtml(value)}"
+								placeholder="value"
+								data-original="${escapeHtml(value)}"
+							/>
+						</div>
+					</div>
+					<div class="flex items-center gap-1">
+						<span class="env-status text-xs text-muted-foreground">
+							<span class="saving hidden">Saving...</span>
+							<span class="saved hidden text-green-500">✓</span>
+							<span class="error hidden text-destructive">✗</span>
+						</span>
+						<button type="button" 
+							class="env-delete-btn inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all cursor-pointer hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 size-9 h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive">
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+						</button>
+					</div>
+				`;
+				
+				// Attach event listeners
+				const keyInput = row.querySelector('.env-key-input');
+				const valueInput = row.querySelector('.env-value-input');
+				const deleteBtn = row.querySelector('.env-delete-btn');
+				
+				// Auto-save on blur
+				// **Validates: Requirements 1.2, 1.3**
+				keyInput.addEventListener('blur', () => handleBlur(row));
+				valueInput.addEventListener('blur', () => handleBlur(row));
+				
+				// Delete button
+				// **Validates: Requirements 1.4**
+				deleteBtn.addEventListener('click', () => handleDelete(row));
+				
+				return row;
+			}
+			
+			// Handle blur event for auto-save
+			// **Validates: Requirements 1.2, 1.3**
+			async function handleBlur(row) {
+				const keyInput = row.querySelector('.env-key-input');
+				const valueInput = row.querySelector('.env-value-input');
+				const status = row.querySelector('.env-status');
+				
+				const currentKey = keyInput.value.trim();
+				const currentValue = valueInput.value;
+				const originalKey = row.dataset.originalKey;
+				const isSaved = row.dataset.saved === 'true';
+				
+				// Skip if empty key
+				if (!currentKey) {
+					// If it was a new unsaved row with empty key, just remove it
+					if (!isSaved && !originalKey) {
+						row.remove();
+						updateEmptyState();
+					}
+					return;
+				}
+				
+				// Check if anything changed
+				const keyChanged = currentKey !== originalKey;
+				const valueChanged = currentValue !== valueInput.dataset.original;
+				
+				if (!keyChanged && !valueChanged && isSaved) {
+					return; // Nothing to save
+				}
+				
+				// Show saving status
+				showStatus(status, 'saving');
+				hideError();
+				
+				try {
+					if (!isSaved || (keyChanged && originalKey)) {
+						// New variable or key changed - need to create (and delete old if key changed)
+						if (keyChanged && originalKey && isSaved) {
+							// Delete old key first
+							await deleteEnvVar(originalKey);
+						}
+						// Create new
+						await createEnvVar(currentKey, currentValue);
+					} else {
+						// Just value changed - update
+						await updateEnvVar(currentKey, currentValue);
+					}
+					
+					// Update row state
+					row.dataset.originalKey = currentKey;
+					row.dataset.saved = 'true';
+					keyInput.dataset.original = currentKey;
+					valueInput.dataset.original = currentValue;
+					
+					showStatus(status, 'saved');
+				} catch (err) {
+					showStatus(status, 'error');
+					showError(err.message || 'Failed to save variable');
+					
+					// Revert to original values if it was saved before
+					if (isSaved && originalKey) {
+						keyInput.value = originalKey;
+						valueInput.value = valueInput.dataset.original;
+					}
+				}
+			}
+			
+			// Handle delete
+			// **Validates: Requirements 1.4**
+			async function handleDelete(row) {
+				const keyInput = row.querySelector('.env-key-input');
+				const key = row.dataset.originalKey || keyInput.value.trim();
+				const isSaved = row.dataset.saved === 'true';
+				
+				if (isSaved && key) {
+					if (!confirm(`Delete "${key}"?`)) return;
+					
+					try {
+						await deleteEnvVar(key);
+						row.remove();
+						updateEmptyState();
+					} catch (err) {
+						showError(err.message || 'Failed to delete variable');
+					}
+				} else {
+					// Just remove unsaved row
+					row.remove();
+					updateEmptyState();
+				}
+			}
+			
+			// Show status indicator
+			function showStatus(statusEl, state) {
+				if (!statusEl) return;
+				statusEl.classList.remove('hidden');
+				statusEl.querySelector('.saving').classList.toggle('hidden', state !== 'saving');
+				statusEl.querySelector('.saved').classList.toggle('hidden', state !== 'saved');
+				statusEl.querySelector('.error').classList.toggle('hidden', state !== 'error');
+				
+				if (state === 'saved') {
+					setTimeout(() => {
+						statusEl.classList.add('hidden');
+					}, 2000);
+				}
+			}
+			
+			// API calls
+			async function createEnvVar(key, value) {
+				const res = await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ key, value })
+				});
+				if (!res.ok) {
+					const err = await res.json().catch(() => ({}));
+					throw new Error(err.error || `Failed to create variable (${res.status})`);
+				}
+				return res.json();
+			}
+			
+			async function updateEnvVar(key, value) {
+				const res = await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env/${encodeURIComponent(key)}`, {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ value })
+				});
+				if (!res.ok) {
+					const err = await res.json().catch(() => ({}));
+					throw new Error(err.error || `Failed to update variable (${res.status})`);
+				}
+				return res.json();
+			}
+			
+			async function deleteEnvVar(key) {
+				const res = await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env/${encodeURIComponent(key)}`, {
+					method: 'DELETE'
+				});
+				if (!res.ok) {
+					const err = await res.json().catch(() => ({}));
+					throw new Error(err.error || `Failed to delete variable (${res.status})`);
+				}
+			}
+			
+			// Parse .env file content
+			// **Validates: Requirements 2.2, 2.3**
+			function parseEnvFile(content) {
+				const vars = {};
+				const lines = content.split('\n');
+				
+				for (const line of lines) {
+					let trimmed = line.trim();
+					
+					// Skip empty lines and comments
+					if (!trimmed || trimmed.startsWith('#')) continue;
+					
+					// Handle export prefix
+					if (trimmed.startsWith('export ')) {
+						trimmed = trimmed.substring(7).trim();
+					}
+					
+					const eqIndex = trimmed.indexOf('=');
+					if (eqIndex > 0) {
+						const key = trimmed.substring(0, eqIndex).trim();
+						let value = trimmed.substring(eqIndex + 1);
+						
+						// Handle quoted values
+						value = value.trim();
+						if ((value.startsWith('"') && value.endsWith('"')) || 
+							(value.startsWith("'") && value.endsWith("'"))) {
+							value = value.slice(1, -1);
+							// Handle escape sequences in double-quoted strings
+							if (value.includes('\\')) {
+								value = value.replace(/\\n/g, '\n')
+									.replace(/\\t/g, '\t')
+									.replace(/\\r/g, '\r')
+									.replace(/\\\\/g, '\\')
+									.replace(/\\"/g, '"');
+							}
+						}
+						
+						vars[key] = value;
+					}
+				}
+				
+				return vars;
+			}
+			
+			// Show import preview
+			function showImportPreview(vars) {
+				const keys = Object.keys(vars);
+				importCount.textContent = `(${keys.length} variable${keys.length !== 1 ? 's' : ''})`;
+				
+				importList.innerHTML = keys.map(key => `
+					<div class="flex items-center justify-between text-sm py-1">
+						<code class="font-mono text-xs">${escapeHtml(key)}</code>
+						<code class="font-mono text-xs text-muted-foreground">••••••••</code>
+					</div>
+				`).join('');
+				
+				importPreview.classList.remove('hidden');
+			}
+			
+			// Hide import preview
+			function hideImportPreview() {
+				importPreview.classList.add('hidden');
+				pendingImport = {};
+				if (fileInput) fileInput.value = '';
+			}
+			
+			// Import all variables
+			// **Validates: Requirements 2.4, 2.5**
+			async function importAllVariables() {
+				const keys = Object.keys(pendingImport);
+				if (keys.length === 0) return;
+				
+				importConfirmBtn.disabled = true;
+				importConfirmBtn.innerHTML = '<span class="animate-spin mr-2">⏳</span> Importing...';
+				
+				let successCount = 0;
+				let errorCount = 0;
+				
+				for (const key of keys) {
+					try {
+						await createEnvVar(key, pendingImport[key]);
+						successCount++;
+					} catch (err) {
+						errorCount++;
+						console.error(`Failed to import ${key}:`, err);
+					}
+				}
+				
+				hideImportPreview();
+				
+				if (errorCount > 0) {
+					showError(`Imported ${successCount} variables, ${errorCount} failed`);
+				}
+				
+				// Reload to show new variables
+				window.location.reload();
+			}
+			
+			function escapeHtml(text) {
+				const div = document.createElement('div');
+				div.textContent = text;
+				return div.innerHTML;
+			}
+			
+			// Event Listeners
+			
+			// Add Variable button
+			// **Validates: Requirements 1.1**
+			if (addBtn) {
+				addBtn.addEventListener('click', () => {
+					const newRow = createEnvVarRow('', '', true);
+					varsList.appendChild(newRow);
+					updateEmptyState();
+					// Focus the key input
+					newRow.querySelector('.env-key-input').focus();
+				});
+			}
+			
+			// File input for .env import
+			// **Validates: Requirements 2.1**
+			if (fileInput) {
+				fileInput.addEventListener('change', (e) => {
+					const file = e.target.files[0];
+					if (!file) return;
+					
+					const reader = new FileReader();
+					reader.onload = (e) => {
+						const content = e.target.result;
+						pendingImport = parseEnvFile(content);
+						showImportPreview(pendingImport);
+					};
+					reader.readAsText(file);
+				});
+			}
+			
+			// Import cancel button
+			if (importCancelBtn) {
+				importCancelBtn.addEventListener('click', hideImportPreview);
+			}
+			
+			// Import confirm button
+			if (importConfirmBtn) {
+				importConfirmBtn.addEventListener('click', importAllVariables);
+			}
+			
+			// Attach event listeners to existing rows
+			document.querySelectorAll('.env-var-row').forEach(row => {
+				const keyInput = row.querySelector('.env-key-input');
+				const valueInput = row.querySelector('.env-value-input');
+				const deleteBtn = row.querySelector('.env-delete-btn');
+				
+				if (keyInput) keyInput.addEventListener('blur', () => handleBlur(row));
+				if (valueInput) valueInput.addEventListener('blur', () => handleBlur(row));
+				if (deleteBtn) deleteBtn.addEventListener('click', () => handleDelete(row));
+			});
+			
+			// Initialize empty state
+			updateEmptyState();
+		})();
+	</script>
+}

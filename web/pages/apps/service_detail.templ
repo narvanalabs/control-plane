@@ -33,6 +33,7 @@ type ServiceDetailData struct {
 	SuccessMsg      string
 	ErrorMsg        string
 	ServiceState    models.ServiceState // Current state of the service
+	AppSecrets      []api.Secret        // App-level secrets for display in environment tab
 }
 
 // ServiceDetail renders the service detail page
@@ -1105,108 +1106,174 @@ templ ServiceDetail(data ServiceDetailData) {
 				}
 				
 				// Environment Tab - Environment variables for web services
+				// **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 3.4**
 				if !isDatabaseService(data.Service) {
 					@tabs.Content(tabs.ContentProps{Value: "environment"}) {
-						<div class="pt-4 space-y-6">
-							// Import .env file
-							@card.Card() {
-								@card.Header() {
-									@card.Title() { 
-										@icon.Upload(icon.Props{Class: "size-4 mr-2 inline"})
-										Import from .env file
-									}
-									@card.Description() { Upload a .env file to bulk import environment variables }
-								}
-								@card.Content() {
-									<div class="space-y-4">
-										<div class="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer" id="env-dropzone">
-											<input type="file" id="env-file-input" accept=".env,.env.local,.env.example" class="hidden" />
-											<div class="space-y-2">
-												@icon.FileText(icon.Props{Class: "size-8 mx-auto text-muted-foreground"})
-												<p class="text-sm font-medium">Drop .env file here or click to browse</p>
-												<p class="text-xs text-muted-foreground">Supports .env, .env.local, .env.example</p>
-											</div>
-										</div>
-										<div id="env-preview" class="hidden space-y-3">
-											<div class="flex items-center justify-between">
-												<p class="text-sm font-medium">Preview (<span id="env-count">0</span> variables)</p>
-												<div class="flex gap-2">
-													@button.Button(button.Props{
-														ID: "env-cancel-btn",
-														Type: "button",
-														Variant: button.VariantGhost,
-														Size: button.SizeSm,
-													}) {
-														Cancel
-													}
-													@button.Button(button.Props{
-														ID: "env-import-btn",
-														Type: "button",
-														Size: button.SizeSm,
-													}) {
-														Import All
-													}
-												</div>
-											</div>
-											<div id="env-preview-list" class="max-h-48 overflow-y-auto space-y-2 rounded-lg border p-3 bg-muted/30"></div>
-										</div>
-									</div>
-								}
-							}
-							
-							// Add single variable
-							@card.Card() {
-								@card.Header() {
-									@card.Title() { Add Environment Variable }
-									@card.Description() { Add a new environment variable to this service }
-								}
-								@card.Content() {
-									<form id="add-env-form" class="space-y-4">
-										<div class="grid grid-cols-2 gap-4">
-											<div class="space-y-2">
-												@label.Label(label.Props{For: "env-key"}) { Key }
-												@input.Input(input.Props{
-													ID: "env-key",
-													Placeholder: "DATABASE_URL",
-													Class: "font-mono",
-												})
-											</div>
-											<div class="space-y-2">
-												@label.Label(label.Props{For: "env-value"}) { Value }
-												@input.Input(input.Props{
-													ID: "env-value",
-													Placeholder: "postgres://...",
-													Type: input.TypePassword,
-												})
-											</div>
-										</div>
-										<div class="flex justify-end">
-											@button.Button(button.Props{Type: "submit"}) {
-												@icon.Plus(icon.Props{Class: "size-4 mr-2"})
-												Add Variable
-											}
-										</div>
-									</form>
-								}
-							}
-							
-							// Current variables
+						<div class="pt-4 space-y-6" id="env-tab-container" data-app-id={ data.App.ID } data-service-name={ data.Service.Name }>
+							// Service-level Environment Variables Card
 							@card.Card() {
 								@card.Header() {
 									<div class="flex items-center justify-between">
 										<div>
-											@card.Title() { Environment Variables }
+											@card.Title() { 
+												@icon.Settings(icon.Props{Class: "size-4 mr-2 inline"})
+												Service Environment Variables
+											}
 											@card.Description() { 
-												{ intToString(len(data.Service.EnvVars)) } variable(s) configured
+												Variables specific to this service. These override app-level secrets with the same key.
+											}
+										</div>
+										<div class="flex items-center gap-2">
+											// Import .env button
+											// **Validates: Requirements 2.1**
+											<label for="env-file-input" class="cursor-pointer">
+												@button.Button(button.Props{
+													Type: "button",
+													Variant: button.VariantOutline,
+													Size: button.SizeSm,
+													Attributes: templ.Attributes{"onclick": "document.getElementById('env-file-input').click()"},
+												}) {
+													@icon.Upload(icon.Props{Class: "size-4 mr-2"})
+													Import .env
+												}
+											</label>
+											<input type="file" id="env-file-input" accept=".env,.env.local,.env.example,.env.development,.env.production" class="hidden" />
+											// Add Variable button
+											// **Validates: Requirements 1.1**
+											@button.Button(button.Props{
+												ID: "add-env-var-btn",
+												Type: "button",
+												Size: button.SizeSm,
+											}) {
+												@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+												Add Variable
 											}
 										</div>
 									</div>
 								}
 								@card.Content() {
-									if len(data.Service.EnvVars) == 0 {
-										<div class="text-center py-8 text-muted-foreground">
-											<p class="text-sm">No environment variables configured yet.</p>
-											<p class="text-xs mt-1">Add variables above or import from a .env file.</p>
+									// Error display area
+									// **Validates: Requirements 1.5**
+									<div id="env-error-display" class="hidden mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+										<div class="flex items-center gap-2">
+											@icon.CircleAlert(icon.Props{Class: "size-4"})
+											<span id="env-error-message"></span>
+										</div>
+									</div>
+									
+									// Import preview area (hidden by default)
+									<div id="env-import-preview" class="hidden mb-4 p-4 rounded-lg border border-dashed bg-muted/30">
+										<div class="flex items-center justify-between mb-3">
+											<div class="flex items-center gap-2">
+												@icon.FileText(icon.Props{Class: "size-4 text-muted-foreground"})
+												<span class="text-sm font-medium">Import Preview</span>
+												<span id="env-import-count" class="text-xs text-muted-foreground">(0 variables)</span>
+											</div>
+											<div class="flex gap-2">
+												@button.Button(button.Props{
+													ID: "env-import-cancel-btn",
+													Type: "button",
+													Variant: button.VariantGhost,
+													Size: button.SizeSm,
+												}) {
+													Cancel
+												}
+												@button.Button(button.Props{
+													ID: "env-import-confirm-btn",
+													Type: "button",
+													Size: button.SizeSm,
+												}) {
+													@icon.Check(icon.Props{Class: "size-4 mr-2"})
+													Import All
+												}
+											</div>
+										</div>
+										<div id="env-import-list" class="max-h-48 overflow-y-auto space-y-1"></div>
+									</div>
+									
+									// Dynamic environment variables list
+									<div id="env-vars-container">
+										if len(data.Service.EnvVars) == 0 {
+											<div id="env-empty-state" class="text-center py-8 text-muted-foreground">
+												<p class="text-sm">No environment variables configured yet.</p>
+												<p class="text-xs mt-1">Click "Add Variable" to create one or import from a .env file.</p>
+											</div>
+										}
+										<div id="env-vars-list" class="space-y-2">
+											for key, value := range data.Service.EnvVars {
+												// Each row is a dynamic key-value pair with auto-save on blur
+												// **Validates: Requirements 1.2, 1.3, 1.4**
+												<div class="env-var-row flex items-center gap-2 group" data-original-key={ key } data-saved="true">
+													<div class="flex-1">
+														@input.Input(input.Props{
+															Class: "font-mono text-sm env-key-input",
+															Value: key,
+															Placeholder: "KEY_NAME",
+															Attributes: templ.Attributes{
+																"data-original": key,
+															},
+														})
+													</div>
+													<div class="flex-1">
+														@input.Input(input.Props{
+															Type: input.TypePassword,
+															Class: "font-mono text-sm env-value-input",
+															Value: value,
+															Placeholder: "value",
+															Attributes: templ.Attributes{
+																"data-original": value,
+															},
+														})
+													</div>
+													<div class="flex items-center gap-1">
+														// Status indicator
+														<span class="env-status text-xs text-muted-foreground hidden">
+															<span class="saving hidden">Saving...</span>
+															<span class="saved hidden text-green-500">✓</span>
+															<span class="error hidden text-destructive">✗</span>
+														</span>
+														// Delete button
+														// **Validates: Requirements 1.4**
+														@button.Button(button.Props{
+															Type: "button",
+															Variant: button.VariantGhost,
+															Size: button.SizeIcon,
+															Class: "h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive env-delete-btn",
+														}) {
+															@icon.Trash2(icon.Props{Class: "size-4"})
+														}
+													</div>
+												</div>
+											}
+										</div>
+									</div>
+								}
+							}
+							
+							// App-level Secrets Card (read-only)
+							// **Validates: Requirements 3.1, 3.2, 3.3, 3.4**
+							@card.Card() {
+								@card.Header() {
+									<div class="flex items-center justify-between">
+										<div>
+											@card.Title() { 
+												@icon.Lock(icon.Props{Class: "size-4 mr-2 inline"})
+												App-Level Secrets
+											}
+											@card.Description() { 
+												Shared secrets available to all services in this app. 
+												<a href={ templ.SafeURL("/apps/" + data.App.ID + "?tab=secrets") } class="text-primary hover:underline">Manage in app settings →</a>
+											}
+										</div>
+									</div>
+								}
+								@card.Content() {
+									if len(data.AppSecrets) == 0 {
+										<div class="text-center py-6 text-muted-foreground">
+											<p class="text-sm">No app-level secrets configured.</p>
+											<p class="text-xs mt-1">
+												<a href={ templ.SafeURL("/apps/" + data.App.ID + "?tab=secrets") } class="text-primary hover:underline">Add secrets in app settings</a>
+											</p>
 										</div>
 									} else {
 										<div class="rounded-lg border overflow-hidden">
@@ -1215,37 +1282,30 @@ templ ServiceDetail(data ServiceDetailData) {
 													@table.Row() {
 														@table.Head() { Key }
 														@table.Head() { Value }
-														@table.Head(table.HeadProps{Class: "w-20 text-right"}) { Actions }
+														@table.Head(table.HeadProps{Class: "w-24"}) { Status }
 													}
 												}
-												@table.Body(table.BodyProps{ID: "env-vars-list"}) {
-													for key, value := range data.Service.EnvVars {
-														@table.Row(table.RowProps{Class: "group"}) {
+												@table.Body() {
+													for _, secret := range data.AppSecrets {
+														{{ isOverridden := isSecretOverridden(secret.Key, data.Service.EnvVars) }}
+														@table.Row(table.RowProps{Class: utils.IfElse(isOverridden, "opacity-60", "")}) {
 															@table.Cell() { 
-																<code class="font-mono text-xs">{ key }</code>
+																<code class="font-mono text-xs">{ secret.Key }</code>
 															}
 															@table.Cell() { 
-																<div class="flex items-center gap-2">
-																	<code class="font-mono text-xs text-muted-foreground env-value" data-value={ value }>••••••••</code>
-																	@button.Button(button.Props{
-																		Type: "button",
-																		Variant: button.VariantGhost,
-																		Size: button.SizeIcon,
-																		Class: "h-6 w-6 toggle-visibility",
-																	}) {
-																		@icon.Eye(icon.Props{Class: "size-3"})
+																// **Validates: Requirements 3.3**
+																<span class="text-muted-foreground font-mono text-xs">••••••••</span>
+															}
+															@table.Cell() {
+																if isOverridden {
+																	// **Validates: Requirements 3.2**
+																	@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-xs"}) {
+																		Overridden
 																	}
-																</div>
-															}
-															@table.Cell(table.CellProps{Class: "text-right"}) {
-																@button.Button(button.Props{
-																	Type: "button",
-																	Variant: button.VariantGhost,
-																	Size: button.SizeIcon,
-																	Class: "h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive delete-env-btn",
-																	Attributes: templ.Attributes{"data-key": key},
-																}) {
-																	@icon.Trash2(icon.Props{Class: "size-4"})
+																} else {
+																	@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-xs"}) {
+																		Active
+																	}
 																}
 															}
 														}
@@ -1257,189 +1317,8 @@ templ ServiceDetail(data ServiceDetailData) {
 								}
 							}
 							
-							// Environment tab script
-							<script>
-								document.addEventListener('DOMContentLoaded', function() {
-									const appId = '{ data.App.ID }';
-									const serviceName = '{ data.Service.Name }';
-									
-									// File drop zone
-									const dropzone = document.getElementById('env-dropzone');
-									const fileInput = document.getElementById('env-file-input');
-									const preview = document.getElementById('env-preview');
-									const previewList = document.getElementById('env-preview-list');
-									const envCount = document.getElementById('env-count');
-									const cancelBtn = document.getElementById('env-cancel-btn');
-									const importBtn = document.getElementById('env-import-btn');
-									
-									let parsedEnvVars = {};
-									
-									if (dropzone) {
-										dropzone.addEventListener('click', () => fileInput.click());
-										dropzone.addEventListener('dragover', (e) => {
-											e.preventDefault();
-											dropzone.classList.add('border-primary');
-										});
-										dropzone.addEventListener('dragleave', () => {
-											dropzone.classList.remove('border-primary');
-										});
-										dropzone.addEventListener('drop', (e) => {
-											e.preventDefault();
-											dropzone.classList.remove('border-primary');
-											const file = e.dataTransfer.files[0];
-											if (file) handleEnvFile(file);
-										});
-									}
-									
-									if (fileInput) {
-										fileInput.addEventListener('change', (e) => {
-											const file = e.target.files[0];
-											if (file) handleEnvFile(file);
-										});
-									}
-									
-									function handleEnvFile(file) {
-										const reader = new FileReader();
-										reader.onload = (e) => {
-											const content = e.target.result;
-											parsedEnvVars = parseEnvFile(content);
-											showPreview(parsedEnvVars);
-										};
-										reader.readAsText(file);
-									}
-									
-									function parseEnvFile(content) {
-										const vars = {};
-										const lines = content.split('\n');
-										for (const line of lines) {
-											const trimmed = line.trim();
-											if (!trimmed || trimmed.startsWith('#')) continue;
-											const eqIndex = trimmed.indexOf('=');
-											if (eqIndex > 0) {
-												const key = trimmed.substring(0, eqIndex).trim();
-												let value = trimmed.substring(eqIndex + 1).trim();
-												// Remove quotes if present
-												if ((value.startsWith('"') && value.endsWith('"')) || 
-													(value.startsWith("'") && value.endsWith("'"))) {
-													value = value.slice(1, -1);
-												}
-												vars[key] = value;
-											}
-										}
-										return vars;
-									}
-									
-									function showPreview(vars) {
-										const keys = Object.keys(vars);
-										envCount.textContent = keys.length;
-										previewList.innerHTML = keys.map(key => 
-											`<div class="flex items-center justify-between text-sm">
-												<code class="font-mono text-xs">${key}</code>
-												<code class="font-mono text-xs text-muted-foreground">••••••••</code>
-											</div>`
-										).join('');
-										preview.classList.remove('hidden');
-										dropzone.classList.add('hidden');
-									}
-									
-									if (cancelBtn) {
-										cancelBtn.addEventListener('click', () => {
-											parsedEnvVars = {};
-											preview.classList.add('hidden');
-											dropzone.classList.remove('hidden');
-											fileInput.value = '';
-										});
-									}
-									
-									if (importBtn) {
-										importBtn.addEventListener('click', async () => {
-											importBtn.disabled = true;
-											importBtn.textContent = 'Importing...';
-											
-											try {
-												for (const [key, value] of Object.entries(parsedEnvVars)) {
-													await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env`, {
-														method: 'POST',
-														headers: { 'Content-Type': 'application/json' },
-														body: JSON.stringify({ key, value })
-													});
-												}
-												window.location.reload();
-											} catch (err) {
-												console.error(err);
-												alert('Failed to import variables');
-												importBtn.disabled = false;
-												importBtn.textContent = 'Import All';
-											}
-										});
-									}
-									
-									// Add single variable form
-									const addForm = document.getElementById('add-env-form');
-									if (addForm) {
-										addForm.addEventListener('submit', async (e) => {
-											e.preventDefault();
-											const key = document.getElementById('env-key').value.trim();
-											const value = document.getElementById('env-value').value;
-											
-											if (!key) return;
-											
-											try {
-												const res = await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env`, {
-													method: 'POST',
-													headers: { 'Content-Type': 'application/json' },
-													body: JSON.stringify({ key, value })
-												});
-												
-												if (res.ok) {
-													window.location.reload();
-												} else {
-													const err = await res.json();
-													alert(err.error || 'Failed to add variable');
-												}
-											} catch (err) {
-												console.error(err);
-												alert('Failed to add variable');
-											}
-										});
-									}
-									
-									// Toggle visibility
-									document.querySelectorAll('.toggle-visibility').forEach(btn => {
-										btn.addEventListener('click', function() {
-											const valueEl = this.parentElement.querySelector('.env-value');
-											const actualValue = valueEl.dataset.value;
-											if (valueEl.textContent === '••••••••') {
-												valueEl.textContent = actualValue;
-											} else {
-												valueEl.textContent = '••••••••';
-											}
-										});
-									});
-									
-									// Delete variable
-									document.querySelectorAll('.delete-env-btn').forEach(btn => {
-										btn.addEventListener('click', async function() {
-											const key = this.dataset.key;
-											if (!confirm(`Delete ${key}?`)) return;
-											
-											try {
-												const res = await fetch(`/api/v1/apps/${appId}/services/${serviceName}/env/${key}`, {
-													method: 'DELETE'
-												});
-												if (res.ok) {
-													window.location.reload();
-												} else {
-													alert('Failed to delete variable');
-												}
-											} catch (err) {
-												console.error(err);
-												alert('Failed to delete variable');
-											}
-										});
-									});
-								});
-							</script>
+							// Environment Variables JavaScript
+							@EnvironmentVariablesScript()
 						</div>
 					}
 				}

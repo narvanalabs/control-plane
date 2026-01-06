@@ -322,3 +322,13 @@ func DatabaseConfigJSON(ctx context.Context) string {
 	result += "}"
 	return result
 }
+
+// isSecretOverridden checks if an app-level secret key is overridden by a service-level env var.
+// **Validates: Requirements 3.2**
+func isSecretOverridden(secretKey string, serviceEnvVars map[string]string) bool {
+	if serviceEnvVars == nil {
+		return false
+	}
+	_, exists := serviceEnvVars[secretKey]
+	return exists
+}
