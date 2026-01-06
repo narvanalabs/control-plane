@@ -86,21 +86,20 @@ func (m *mockStoreRBAC) Users() store.UserStore {
 }
 
 // Stub implementations for other store methods (not used in these tests).
-func (m *mockStoreRBAC) Orgs() store.OrgStore                       { return nil }
-func (m *mockStoreRBAC) Apps() store.AppStore                       { return nil }
-func (m *mockStoreRBAC) Deployments() store.DeploymentStore         { return nil }
-func (m *mockStoreRBAC) Nodes() store.NodeStore                     { return nil }
-func (m *mockStoreRBAC) Builds() store.BuildStore                   { return nil }
-func (m *mockStoreRBAC) Secrets() store.SecretStore                 { return nil }
-func (m *mockStoreRBAC) Logs() store.LogStore                       { return nil }
-func (m *mockStoreRBAC) GitHub() store.GitHubStore                  { return nil }
-func (m *mockStoreRBAC) GitHubAccounts() store.GitHubAccountStore   { return nil }
-func (m *mockStoreRBAC) Settings() store.SettingsStore              { return nil }
-func (m *mockStoreRBAC) Domains() store.DomainStore                 { return nil }
-func (m *mockStoreRBAC) Invitations() store.InvitationStore         { return nil }
+func (m *mockStoreRBAC) Orgs() store.OrgStore                                         { return nil }
+func (m *mockStoreRBAC) Apps() store.AppStore                                         { return nil }
+func (m *mockStoreRBAC) Deployments() store.DeploymentStore                           { return nil }
+func (m *mockStoreRBAC) Nodes() store.NodeStore                                       { return nil }
+func (m *mockStoreRBAC) Builds() store.BuildStore                                     { return nil }
+func (m *mockStoreRBAC) Secrets() store.SecretStore                                   { return nil }
+func (m *mockStoreRBAC) Logs() store.LogStore                                         { return nil }
+func (m *mockStoreRBAC) GitHub() store.GitHubStore                                    { return nil }
+func (m *mockStoreRBAC) GitHubAccounts() store.GitHubAccountStore                     { return nil }
+func (m *mockStoreRBAC) Settings() store.SettingsStore                                { return nil }
+func (m *mockStoreRBAC) Domains() store.DomainStore                                   { return nil }
+func (m *mockStoreRBAC) Invitations() store.InvitationStore                           { return nil }
 func (m *mockStoreRBAC) WithTx(ctx context.Context, fn func(store.Store) error) error { return nil }
-func (m *mockStoreRBAC) Close() error                               { return nil }
-
+func (m *mockStoreRBAC) Close() error                                                 { return nil }
 
 // genRBACUserID generates a valid user ID.
 func genRBACUserID() gopter.Gen {
@@ -266,7 +265,6 @@ func TestOwnerRegistrationBlocksPublicSignup(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: platform-enhancements, Property 10: RBAC Permission Enforcement**
 // For any user with "member" role attempting to access admin functions (user management,

@@ -61,7 +61,6 @@ type APIKeyStore interface {
 	ListByUser(ctx context.Context, userID string) ([]*APIKey, error)
 }
 
-
 // Config holds authentication configuration.
 type Config struct {
 	JWTSecret   []byte
@@ -99,11 +98,11 @@ func (s *Service) GenerateToken(userID, email string) (string, error) {
 	exp := now.Add(s.tokenExpiry)
 
 	claims := jwt.MapClaims{
-		"sub":     userID,
-		"email":   email,
-		"iat":     now.Unix(),
-		"exp":     exp.Unix(),
-		"nbf":     now.Unix(),
+		"sub":   userID,
+		"email": email,
+		"iat":   now.Unix(),
+		"exp":   exp.Unix(),
+		"nbf":   now.Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -173,7 +172,6 @@ func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 		Exp:    exp,
 	}, nil
 }
-
 
 // ValidateAPIKey validates an API key and returns the associated user.
 func (s *Service) ValidateAPIKey(ctx context.Context, apiKey string) (*User, error) {

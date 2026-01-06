@@ -79,7 +79,6 @@ func TestJWTTokenRoundTrip(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: control-plane, Property 19: Invalid token rejection**
 // For any malformed or expired token, validation should fail with an unauthorized error.
 // **Validates: Requirements 7.3**
