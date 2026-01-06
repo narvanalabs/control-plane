@@ -13,7 +13,6 @@ import (
 	"github.com/narvanalabs/control-plane/web/components/dialog"
 	"github.com/narvanalabs/control-plane/web/components/dropdown"
 	"github.com/narvanalabs/control-plane/web/components/selectbox"
-	"github.com/narvanalabs/control-plane/web/components/table"
 	"github.com/narvanalabs/control-plane/web/components/textarea"
 	"github.com/narvanalabs/control-plane/web/api"
 )
@@ -226,69 +225,149 @@ templ Detail(data DetailData) {
 					</div>
 				}
 				
-				// Secrets Tab
+				// Secrets Tab - Dynamic form with auto-save
+				// **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
 				@tabs.Content(tabs.ContentProps{Value: "secrets"}) {
-					<div class="pt-6 space-y-4">
-						// Add Secret Form
+					<div class="pt-6 space-y-4" id="secrets-tab-container" data-app-id={ data.App.ID }>
 						@card.Card() {
 							@card.Header() {
-								@card.Title() { Add Secret }
-								@card.Description() { Environment variables available to all services in this app }
+								<div class="flex items-center justify-between">
+									<div>
+										@card.Title() { 
+											@icon.Lock(icon.Props{Class: "size-4 mr-2 inline"})
+											App-Level Secrets
+										}
+										@card.Description() { 
+											Environment variables available to all services in this app. Changes are saved automatically.
+										}
+									</div>
+									<div class="flex items-center gap-2">
+										// Import .env button
+										<label for="secrets-file-input" class="cursor-pointer">
+											@button.Button(button.Props{
+												Type: "button",
+												Variant: button.VariantOutline,
+												Size: button.SizeSm,
+												Attributes: templ.Attributes{"onclick": "document.getElementById('secrets-file-input').click()"},
+											}) {
+												@icon.Upload(icon.Props{Class: "size-4 mr-2"})
+												Import .env
+											}
+										</label>
+										<input type="file" id="secrets-file-input" accept=".env,.env.local,.env.example,.env.development,.env.production" class="hidden" />
+										// Add Variable button
+										// **Validates: Requirements 4.1**
+										@button.Button(button.Props{
+											ID: "add-secret-btn",
+											Type: "button",
+											Size: button.SizeSm,
+										}) {
+											@icon.Plus(icon.Props{Class: "size-4 mr-2"})
+											Add Secret
+										}
+									</div>
+								</div>
 							}
 							@card.Content() {
-								<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/secrets") } class="flex gap-3">
-									<div class="flex-1">
-										@input.Input(input.Props{
-											Name:        "key",
-											Placeholder: "DATABASE_URL",
-											Attributes:  templ.Attributes{"required": true},
-										})
+								// Error display area
+								// **Validates: Requirements 4.5**
+								<div id="secrets-error-display" class="hidden mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+									<div class="flex items-center gap-2">
+										@icon.CircleAlert(icon.Props{Class: "size-4"})
+										<span id="secrets-error-message"></span>
 									</div>
-									<div class="flex-1">
-										@input.Input(input.Props{
-											Name:        "value",
-											Type:        input.TypePassword,
-											Placeholder: "secret_value",
-											Attributes:  templ.Attributes{"required": true},
-										})
+								</div>
+								
+								// Import preview area (hidden by default)
+								<div id="secrets-import-preview" class="hidden mb-4 p-4 rounded-lg border border-dashed bg-muted/30">
+									<div class="flex items-center justify-between mb-3">
+										<div class="flex items-center gap-2">
+											@icon.FileText(icon.Props{Class: "size-4 text-muted-foreground"})
+											<span class="text-sm font-medium">Import Preview</span>
+											<span id="secrets-import-count" class="text-xs text-muted-foreground">(0 variables)</span>
+										</div>
+										<div class="flex gap-2">
+											@button.Button(button.Props{
+												ID: "secrets-import-cancel-btn",
+												Type: "button",
+												Variant: button.VariantGhost,
+												Size: button.SizeSm,
+											}) {
+												Cancel
+											}
+											@button.Button(button.Props{
+												ID: "secrets-import-confirm-btn",
+												Type: "button",
+												Size: button.SizeSm,
+											}) {
+												@icon.Check(icon.Props{Class: "size-4 mr-2"})
+												Import All
+											}
+										</div>
 									</div>
-									@button.Button(button.Props{Type: "submit"}) {
-										@icon.Plus(icon.Props{Class: "size-4 mr-2"})
-										Add
+									<div id="secrets-import-list" class="max-h-48 overflow-y-auto space-y-1"></div>
+								</div>
+								
+								// Dynamic secrets list
+								<div id="secrets-vars-container">
+									if len(data.Secrets) == 0 {
+										<div id="secrets-empty-state" class="text-center py-8 text-muted-foreground">
+											<p class="text-sm">No secrets configured yet.</p>
+											<p class="text-xs mt-1">Click "Add Secret" to create one or import from a .env file.</p>
+										</div>
 									}
-								</form>
+									<div id="secrets-vars-list" class="space-y-2">
+										for _, s := range data.Secrets {
+											// Each row is a dynamic key-value pair with auto-save on blur
+											// **Validates: Requirements 4.2, 4.3, 4.4**
+											<div class="secret-var-row flex items-center gap-2 group" data-original-key={ s.Key } data-saved="true">
+												<div class="flex-1">
+													@input.Input(input.Props{
+														Class: "font-mono text-sm secret-key-input",
+														Value: s.Key,
+														Placeholder: "KEY_NAME",
+														Attributes: templ.Attributes{
+															"data-original": s.Key,
+														},
+													})
+												</div>
+												<div class="flex-1">
+													@input.Input(input.Props{
+														Type: input.TypePassword,
+														Class: "font-mono text-sm secret-value-input",
+														Placeholder: "value",
+														Attributes: templ.Attributes{
+															"data-original": "",
+														},
+													})
+												</div>
+												<div class="flex items-center gap-1">
+													// Status indicator
+													<span class="secret-status text-xs text-muted-foreground hidden">
+														<span class="saving hidden">Saving...</span>
+														<span class="saved hidden text-green-500">✓</span>
+														<span class="error hidden text-destructive">✗</span>
+													</span>
+													// Delete button
+													// **Validates: Requirements 4.3**
+													@button.Button(button.Props{
+														Type: "button",
+														Variant: button.VariantGhost,
+														Size: button.SizeIcon,
+														Class: "h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive secret-delete-btn",
+													}) {
+														@icon.Trash2(icon.Props{Class: "size-4"})
+													}
+												</div>
+											</div>
+										}
+									</div>
+								</div>
 							}
 						}
 						
-						// Secrets Table
-						if len(data.Secrets) > 0 {
-							<div class="rounded-lg border">
-								@table.Table() {
-									@table.Header() {
-										@table.Row() {
-											@table.Head() { Key }
-											@table.Head() { Value }
-											@table.Head(table.HeadProps{Class: "text-right"}) { Actions }
-										}
-									}
-									@table.Body() {
-										for _, s := range data.Secrets {
-											@table.Row() {
-												@table.Cell() { <code class="font-mono">{ s.Key }</code> }
-												@table.Cell() { <span class="text-muted-foreground">••••••••</span> }
-												@table.Cell(table.CellProps{Class: "text-right"}) {
-													<form method="POST" action={ templ.SafeURL("/apps/" + data.App.ID + "/secrets/" + s.Key + "/delete") }>
-														@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm}) {
-															@icon.Trash2(icon.Props{Class: "size-4 text-destructive"})
-														}
-													</form>
-												}
-											}
-										}
-									}
-								}
-							</div>
-						}
+						// App Secrets JavaScript
+						@AppSecretsScript()
 					</div>
 				}
 				
@@ -1091,6 +1170,428 @@ templ DatabaseConfigScript() {
 		// Database configuration from backend
 		// **Validates: Requirements 4.4**
 		window.databaseConfig = { DatabaseConfigJSON(ctx) };
+	</script>
+}
+
+// AppSecretsScript provides the JavaScript for the dynamic app secrets form.
+// **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
+templ AppSecretsScript() {
+	<script>
+		(function() {
+			const container = document.getElementById('secrets-tab-container');
+			if (!container) return;
+			
+			const appId = container.dataset.appId;
+			const varsList = document.getElementById('secrets-vars-list');
+			const emptyState = document.getElementById('secrets-empty-state');
+			const errorDisplay = document.getElementById('secrets-error-display');
+			const errorMessage = document.getElementById('secrets-error-message');
+			const addBtn = document.getElementById('add-secret-btn');
+			const fileInput = document.getElementById('secrets-file-input');
+			const importPreview = document.getElementById('secrets-import-preview');
+			const importList = document.getElementById('secrets-import-list');
+			const importCount = document.getElementById('secrets-import-count');
+			const importCancelBtn = document.getElementById('secrets-import-cancel-btn');
+			const importConfirmBtn = document.getElementById('secrets-import-confirm-btn');
+			
+			let pendingImport = {};
+			
+			// Show error message
+			// **Validates: Requirements 4.5**
+			function showError(msg) {
+				if (errorDisplay && errorMessage) {
+					errorMessage.textContent = msg;
+					errorDisplay.classList.remove('hidden');
+					setTimeout(() => {
+						errorDisplay.classList.add('hidden');
+					}, 5000);
+				}
+			}
+			
+			function hideError() {
+				if (errorDisplay) {
+					errorDisplay.classList.add('hidden');
+				}
+			}
+			
+			// Update empty state visibility
+			function updateEmptyState() {
+				const rows = varsList.querySelectorAll('.secret-var-row');
+				if (emptyState) {
+					emptyState.classList.toggle('hidden', rows.length > 0);
+				}
+			}
+			
+			// Create a new secret row
+			// **Validates: Requirements 4.1**
+			function createSecretRow(key = '', value = '', isNew = true) {
+				const row = document.createElement('div');
+				row.className = 'secret-var-row flex items-center gap-2 group';
+				row.dataset.originalKey = key;
+				row.dataset.saved = isNew ? 'false' : 'true';
+				
+				row.innerHTML = `
+					<div class="flex-1">
+						<div class="relative w-full">
+							<input type="text" 
+								class="secret-key-input flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm dark:bg-input/30 placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] font-mono text-sm"
+								value="${escapeHtml(key)}"
+								placeholder="KEY_NAME"
+								data-original="${escapeHtml(key)}"
+							/>
+						</div>
+					</div>
+					<div class="flex-1">
+						<div class="relative w-full">
+							<input type="password" 
+								class="secret-value-input flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm dark:bg-input/30 placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] font-mono text-sm"
+								value="${escapeHtml(value)}"
+								placeholder="value"
+								data-original="${escapeHtml(value)}"
+							/>
+						</div>
+					</div>
+					<div class="flex items-center gap-1">
+						<span class="secret-status text-xs text-muted-foreground">
+							<span class="saving hidden">Saving...</span>
+							<span class="saved hidden text-green-500">✓</span>
+							<span class="error hidden text-destructive">✗</span>
+						</span>
+						<button type="button" 
+							class="secret-delete-btn inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all cursor-pointer hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 size-9 h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive">
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+						</button>
+					</div>
+				`;
+				
+				// Attach event listeners
+				const keyInput = row.querySelector('.secret-key-input');
+				const valueInput = row.querySelector('.secret-value-input');
+				const deleteBtn = row.querySelector('.secret-delete-btn');
+				
+				// Auto-save on blur
+				// **Validates: Requirements 4.2, 4.4**
+				keyInput.addEventListener('blur', () => handleBlur(row));
+				valueInput.addEventListener('blur', () => handleBlur(row));
+				
+				// Delete button
+				// **Validates: Requirements 4.3**
+				deleteBtn.addEventListener('click', () => handleDelete(row));
+				
+				return row;
+			}
+			
+			// Handle blur event for auto-save
+			// **Validates: Requirements 4.2, 4.4**
+			async function handleBlur(row) {
+				const keyInput = row.querySelector('.secret-key-input');
+				const valueInput = row.querySelector('.secret-value-input');
+				const status = row.querySelector('.secret-status');
+				
+				const currentKey = keyInput.value.trim();
+				const currentValue = valueInput.value;
+				const originalKey = row.dataset.originalKey;
+				const isSaved = row.dataset.saved === 'true';
+				
+				// Skip if empty key
+				if (!currentKey) {
+					// If it was a new unsaved row with empty key, just remove it
+					if (!isSaved && !originalKey) {
+						row.remove();
+						updateEmptyState();
+					}
+					return;
+				}
+				
+				// Skip if empty value for new secrets
+				if (!currentValue && !isSaved) {
+					return; // Wait for value to be entered
+				}
+				
+				// Check if anything changed
+				const keyChanged = currentKey !== originalKey;
+				const valueChanged = currentValue !== valueInput.dataset.original;
+				
+				if (!keyChanged && !valueChanged && isSaved) {
+					return; // Nothing to save
+				}
+				
+				// For existing secrets, only save if value changed (key changes require delete + create)
+				if (isSaved && keyChanged) {
+					// Key changed - need to delete old and create new
+					showStatus(status, 'saving');
+					hideError();
+					
+					try {
+						// Delete old key first
+						await deleteSecret(originalKey);
+						// Create new
+						await createSecret(currentKey, currentValue);
+						
+						// Update row state
+						row.dataset.originalKey = currentKey;
+						row.dataset.saved = 'true';
+						keyInput.dataset.original = currentKey;
+						valueInput.dataset.original = currentValue;
+						
+						showStatus(status, 'saved');
+					} catch (err) {
+						showStatus(status, 'error');
+						showError(err.message || 'Failed to save secret');
+						
+						// Revert to original values
+						keyInput.value = originalKey;
+						valueInput.value = valueInput.dataset.original;
+					}
+					return;
+				}
+				
+				// Show saving status
+				showStatus(status, 'saving');
+				hideError();
+				
+				try {
+					// Create or update (API uses upsert behavior)
+					await createSecret(currentKey, currentValue);
+					
+					// Update row state
+					row.dataset.originalKey = currentKey;
+					row.dataset.saved = 'true';
+					keyInput.dataset.original = currentKey;
+					valueInput.dataset.original = currentValue;
+					
+					showStatus(status, 'saved');
+				} catch (err) {
+					showStatus(status, 'error');
+					showError(err.message || 'Failed to save secret');
+					
+					// Revert to original values if it was saved before
+					if (isSaved && originalKey) {
+						keyInput.value = originalKey;
+						valueInput.value = valueInput.dataset.original;
+					}
+				}
+			}
+			
+			// Handle delete
+			// **Validates: Requirements 4.3**
+			async function handleDelete(row) {
+				const keyInput = row.querySelector('.secret-key-input');
+				const key = row.dataset.originalKey || keyInput.value.trim();
+				const isSaved = row.dataset.saved === 'true';
+				
+				if (isSaved && key) {
+					if (!confirm(`Delete "${key}"?`)) return;
+					
+					try {
+						await deleteSecret(key);
+						row.remove();
+						updateEmptyState();
+					} catch (err) {
+						showError(err.message || 'Failed to delete secret');
+					}
+				} else {
+					// Just remove unsaved row
+					row.remove();
+					updateEmptyState();
+				}
+			}
+			
+			// Show status indicator
+			function showStatus(statusEl, state) {
+				if (!statusEl) return;
+				statusEl.classList.remove('hidden');
+				statusEl.querySelector('.saving').classList.toggle('hidden', state !== 'saving');
+				statusEl.querySelector('.saved').classList.toggle('hidden', state !== 'saved');
+				statusEl.querySelector('.error').classList.toggle('hidden', state !== 'error');
+				
+				if (state === 'saved') {
+					setTimeout(() => {
+						statusEl.classList.add('hidden');
+					}, 2000);
+				}
+			}
+			
+			// API calls
+			async function createSecret(key, value) {
+				const res = await fetch(`/api/v1/apps/${appId}/secrets`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ key, value })
+				});
+				if (!res.ok) {
+					const err = await res.json().catch(() => ({}));
+					throw new Error(err.error || `Failed to create secret (${res.status})`);
+				}
+				return res.json();
+			}
+			
+			async function deleteSecret(key) {
+				const res = await fetch(`/api/v1/apps/${appId}/secrets/${encodeURIComponent(key)}`, {
+					method: 'DELETE'
+				});
+				if (!res.ok) {
+					const err = await res.json().catch(() => ({}));
+					throw new Error(err.error || `Failed to delete secret (${res.status})`);
+				}
+			}
+			
+			// Parse .env file content
+			function parseEnvFile(content) {
+				const vars = {};
+				const lines = content.split('\n');
+				
+				for (const line of lines) {
+					let trimmed = line.trim();
+					
+					// Skip empty lines and comments
+					if (!trimmed || trimmed.startsWith('#')) continue;
+					
+					// Handle export prefix
+					if (trimmed.startsWith('export ')) {
+						trimmed = trimmed.substring(7).trim();
+					}
+					
+					const eqIndex = trimmed.indexOf('=');
+					if (eqIndex > 0) {
+						const key = trimmed.substring(0, eqIndex).trim();
+						let value = trimmed.substring(eqIndex + 1);
+						
+						// Handle quoted values
+						value = value.trim();
+						if ((value.startsWith('"') && value.endsWith('"')) || 
+							(value.startsWith("'") && value.endsWith("'"))) {
+							value = value.slice(1, -1);
+							// Handle escape sequences in double-quoted strings
+							if (value.includes('\\')) {
+								value = value.replace(/\\n/g, '\n')
+									.replace(/\\t/g, '\t')
+									.replace(/\\r/g, '\r')
+									.replace(/\\\\/g, '\\')
+									.replace(/\\"/g, '"');
+							}
+						}
+						
+						vars[key] = value;
+					}
+				}
+				
+				return vars;
+			}
+			
+			// Show import preview
+			function showImportPreview(vars) {
+				const keys = Object.keys(vars);
+				importCount.textContent = `(${keys.length} variable${keys.length !== 1 ? 's' : ''})`;
+				
+				importList.innerHTML = keys.map(key => `
+					<div class="flex items-center justify-between text-sm py-1">
+						<code class="font-mono text-xs">${escapeHtml(key)}</code>
+						<code class="font-mono text-xs text-muted-foreground">••••••••</code>
+					</div>
+				`).join('');
+				
+				importPreview.classList.remove('hidden');
+			}
+			
+			// Hide import preview
+			function hideImportPreview() {
+				importPreview.classList.add('hidden');
+				pendingImport = {};
+				if (fileInput) fileInput.value = '';
+			}
+			
+			// Import all secrets
+			async function importAllSecrets() {
+				const keys = Object.keys(pendingImport);
+				if (keys.length === 0) return;
+				
+				importConfirmBtn.disabled = true;
+				importConfirmBtn.innerHTML = '<span class="animate-spin mr-2">⏳</span> Importing...';
+				
+				let successCount = 0;
+				let errorCount = 0;
+				
+				for (const key of keys) {
+					try {
+						await createSecret(key, pendingImport[key]);
+						successCount++;
+					} catch (err) {
+						errorCount++;
+						console.error(`Failed to import ${key}:`, err);
+					}
+				}
+				
+				hideImportPreview();
+				
+				if (errorCount > 0) {
+					showError(`Imported ${successCount} secrets, ${errorCount} failed`);
+				}
+				
+				// Reload to show new secrets
+				window.location.reload();
+			}
+			
+			function escapeHtml(text) {
+				const div = document.createElement('div');
+				div.textContent = text;
+				return div.innerHTML;
+			}
+			
+			// Event Listeners
+			
+			// Add Secret button
+			// **Validates: Requirements 4.1**
+			if (addBtn) {
+				addBtn.addEventListener('click', () => {
+					const newRow = createSecretRow('', '', true);
+					varsList.appendChild(newRow);
+					updateEmptyState();
+					// Focus the key input
+					newRow.querySelector('.secret-key-input').focus();
+				});
+			}
+			
+			// File input for .env import
+			if (fileInput) {
+				fileInput.addEventListener('change', (e) => {
+					const file = e.target.files[0];
+					if (!file) return;
+					
+					const reader = new FileReader();
+					reader.onload = (e) => {
+						const content = e.target.result;
+						pendingImport = parseEnvFile(content);
+						showImportPreview(pendingImport);
+					};
+					reader.readAsText(file);
+				});
+			}
+			
+			// Import cancel button
+			if (importCancelBtn) {
+				importCancelBtn.addEventListener('click', hideImportPreview);
+			}
+			
+			// Import confirm button
+			if (importConfirmBtn) {
+				importConfirmBtn.addEventListener('click', importAllSecrets);
+			}
+			
+			// Attach event listeners to existing rows
+			document.querySelectorAll('.secret-var-row').forEach(row => {
+				const keyInput = row.querySelector('.secret-key-input');
+				const valueInput = row.querySelector('.secret-value-input');
+				const deleteBtn = row.querySelector('.secret-delete-btn');
+				
+				if (keyInput) keyInput.addEventListener('blur', () => handleBlur(row));
+				if (valueInput) valueInput.addEventListener('blur', () => handleBlur(row));
+				if (deleteBtn) deleteBtn.addEventListener('click', () => handleDelete(row));
+			});
+			
+			// Initialize empty state
+			updateEmptyState();
+		})();
 	</script>
 }
 
