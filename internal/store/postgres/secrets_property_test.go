@@ -96,7 +96,6 @@ func simpleEncrypt(plaintext []byte, key byte) []byte {
 	return encrypted
 }
 
-
 // **Feature: control-plane, Property 23: Secret encryption at rest**
 // For any stored secret, the persisted value should not equal the plaintext input
 // (indicating encryption).
