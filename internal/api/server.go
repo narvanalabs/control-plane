@@ -168,7 +168,9 @@ func (s *Server) setupRouter() {
 					r.Post("/{serviceName}/retry", serviceHandler.RetryService)
 
 					// Environment variable endpoints
+					r.Get("/{serviceName}/env", serviceHandler.ListEnvVars)
 					r.Post("/{serviceName}/env", serviceHandler.AddEnvVar)
+					r.Put("/{serviceName}/env/{key}", serviceHandler.UpdateEnvVar)
 					r.Delete("/{serviceName}/env/{key}", serviceHandler.DeleteEnvVar)
 
 					// Preview endpoint for build preview
