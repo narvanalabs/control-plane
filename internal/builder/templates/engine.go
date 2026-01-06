@@ -102,9 +102,9 @@ func templateFuncs() template.FuncMap {
 			s = strings.ReplaceAll(s, "${", "\\${")
 			return fmt.Sprintf("\"%s\"", s)
 		},
-		"join": strings.Join,
-		"hasPrefix": strings.HasPrefix,
-		"hasSuffix": strings.HasSuffix,
+		"join":       strings.Join,
+		"hasPrefix":  strings.HasPrefix,
+		"hasSuffix":  strings.HasSuffix,
 		"trimPrefix": strings.TrimPrefix,
 		"trimSuffix": strings.TrimSuffix,
 		// formatLdflags formats ldflags string for Nix template
@@ -116,7 +116,6 @@ func templateFuncs() template.FuncMap {
 		},
 	}
 }
-
 
 // Render generates a flake.nix from a template.
 func (e *DefaultTemplateEngine) Render(ctx context.Context, templateName string, data TemplateData) (string, error) {
@@ -340,7 +339,6 @@ var (
 	ErrTemplateRenderFailed = fmt.Errorf("failed to render template")
 	ErrInvalidFlakeSyntax   = fmt.Errorf("generated flake has invalid syntax")
 )
-
 
 // createTempFlakeDir creates a temporary directory with a flake.nix for validation.
 func createTempFlakeDir(flakeContent string) (string, error) {

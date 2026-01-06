@@ -147,7 +147,6 @@ func TestGoTemplateRenderingProducesValidNix(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: flexible-build-strategies, Property 15: Template Idempotency**
 // For any DetectionResult and BuildConfig, rendering the same template twice
 // SHALL produce identical output.
@@ -198,7 +197,6 @@ func TestTemplateIdempotency(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: ui-api-alignment, Property 15: Pre-Build Hook Execution Order**
 // For any build with pre-build commands, those commands SHALL execute before the main build step,
