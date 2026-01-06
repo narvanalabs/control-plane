@@ -28,10 +28,17 @@ type AgentClient interface {
 	Stop(ctx context.Context, nodeID string, deploymentID string) error
 }
 
+// EnvMergerInterface defines the interface for merging environment variables.
+// **Validates: Requirements 6.1, 6.2, 6.3**
+type EnvMergerInterface interface {
+	MergeForDeployment(ctx context.Context, appID, serviceName string, serviceEnvVars map[string]string) (map[string]string, error)
+}
+
 // Scheduler determines optimal node placement for deployments.
 type Scheduler struct {
 	store           store.Store
 	agentClient     AgentClient
+	envMerger       EnvMergerInterface
 	healthThreshold time.Duration
 	maxRetries      int
 	retryBackoff    time.Duration
@@ -51,6 +58,13 @@ func NewScheduler(s store.Store, agentClient AgentClient, cfg *config.SchedulerC
 		retryBackoff:    cfg.RetryBackoff,
 		logger:          logger,
 	}
+}
+
+// SetEnvMerger sets the environment merger for the scheduler.
+// This allows merging app-level secrets with service-level env vars before deployment.
+// **Validates: Requirements 6.1, 6.2, 6.3**
+func (s *Scheduler) SetEnvMerger(envMerger EnvMergerInterface) {
+	s.envMerger = envMerger
 }
 
 // Schedule assigns a deployment to an appropriate node.
@@ -138,7 +152,7 @@ func (s *Scheduler) GetHealthThreshold() time.Duration {
 
 // ScheduleAndAssign schedules a deployment and updates the deployment record with the placement.
 // If no healthy nodes are available, the deployment remains in "built" status (queued).
-// **Validates: Requirements 16.1**
+// **Validates: Requirements 16.1, 6.2**
 func (s *Scheduler) ScheduleAndAssign(ctx context.Context, deployment *models.Deployment) error {
 	// Check if dependencies are running before scheduling
 	if len(deployment.DependsOn) > 0 {
@@ -178,6 +192,30 @@ func (s *Scheduler) ScheduleAndAssign(ctx context.Context, deployment *models.De
 			return ErrDeploymentQueued
 		}
 		return err
+	}
+
+	// Merge environment variables if EnvMerger is configured
+	// **Validates: Requirements 6.1, 6.2, 6.3**
+	if s.envMerger != nil && deployment.Config != nil {
+		serviceEnvVars := deployment.Config.EnvVars
+		if serviceEnvVars == nil {
+			serviceEnvVars = make(map[string]string)
+		}
+
+		mergedEnvVars, err := s.envMerger.MergeForDeployment(ctx, deployment.AppID, deployment.ServiceName, serviceEnvVars)
+		if err != nil {
+			s.logger.Error("failed to merge environment variables",
+				"deployment_id", deployment.ID,
+				"error", err,
+			)
+			// Continue with original env vars if merge fails
+		} else {
+			deployment.Config.EnvVars = mergedEnvVars
+			s.logger.Debug("environment variables merged for deployment",
+				"deployment_id", deployment.ID,
+				"merged_count", len(mergedEnvVars),
+			)
+		}
 	}
 
 	// Update deployment with placement
