@@ -252,7 +252,6 @@ func (e *testError) Error() string {
 	return e.msg
 }
 
-
 // TestNpmHashCalculation tests npm hash calculation with different lock files.
 func TestNpmHashCalculation(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
@@ -340,7 +339,6 @@ func TestNpmHashDeterminism(t *testing.T) {
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
-
 
 // TestCargoHashCalculation tests Cargo hash calculation.
 func TestCargoHashCalculation(t *testing.T) {

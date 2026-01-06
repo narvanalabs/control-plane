@@ -83,7 +83,6 @@ func NewCalculatorWithOptions(opts ...CalculatorOption) *Calculator {
 	return c
 }
 
-
 // CalculateGoVendorHash calculates the vendor hash for a Go module.
 // It uses the fake-hash retry mechanism: first attempts with a fake hash,
 // then extracts the real hash from the Nix error output.
@@ -225,7 +224,6 @@ func isHashMismatchError(err error) bool {
 		strings.Contains(errStr, "got:") ||
 		strings.Contains(errStr, "specified:")
 }
-
 
 // CalculateNpmHash calculates the hash for npm dependencies from package-lock.json.
 // This uses the SRI hash format compatible with Nix.
