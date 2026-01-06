@@ -80,7 +80,6 @@ func NewManagerWithOptions(opts ...ManagerOption) *Manager {
 	return m
 }
 
-
 // Generate creates a new flake.lock for a flake.nix at the given path.
 // It runs `nix flake lock` to generate the lock file.
 func (m *Manager) Generate(ctx context.Context, flakePath string) (string, error) {
@@ -263,7 +262,6 @@ func (m *Manager) ShouldRegenerate(ctx context.Context, buildID string, sourceHa
 
 	return false
 }
-
 
 // GetStoredLock retrieves the full stored lock metadata.
 func (m *Manager) GetStoredLock(ctx context.Context, buildID string) (*StoredLock, error) {
