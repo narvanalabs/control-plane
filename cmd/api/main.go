@@ -13,10 +13,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/narvanalabs/control-plane/internal/api"
 	"github.com/narvanalabs/control-plane/internal/auth"
+	"github.com/narvanalabs/control-plane/internal/deploy"
 	grpcserver "github.com/narvanalabs/control-plane/internal/grpc"
 	"github.com/narvanalabs/control-plane/internal/models"
 	pgqueue "github.com/narvanalabs/control-plane/internal/queue/postgres"
 	"github.com/narvanalabs/control-plane/internal/scheduler"
+	"github.com/narvanalabs/control-plane/internal/secrets"
 	pgstore "github.com/narvanalabs/control-plane/internal/store/postgres"
 	"github.com/narvanalabs/control-plane/pkg/config"
 	"github.com/narvanalabs/control-plane/pkg/logger"
@@ -86,6 +88,25 @@ func main() {
 		MaxRetries:      cfg.Scheduler.MaxRetries,
 		RetryBackoff:    cfg.Scheduler.RetryBackoff,
 	}, log.Logger)
+
+	// Initialize SOPS service for secret decryption (if configured)
+	// **Validates: Requirements 6.1, 6.2, 6.3**
+	var sopsService *secrets.SOPSService
+	if cfg.SOPS.AgePublicKey != "" || cfg.SOPS.AgePrivateKey != "" {
+		var err error
+		sopsService, err = secrets.NewSOPSService(&secrets.Config{
+			AgePublicKey:  cfg.SOPS.AgePublicKey,
+			AgePrivateKey: cfg.SOPS.AgePrivateKey,
+		}, log.Logger)
+		if err != nil {
+			log.Warn("failed to initialize SOPS service, secrets will not be decrypted", "error", err)
+		}
+	}
+
+	// Initialize EnvMerger for merging app-level secrets with service-level env vars
+	// **Validates: Requirements 6.1, 6.2, 6.3**
+	envMerger := deploy.NewEnvMerger(store, sopsService, log.Logger)
+	sched.SetEnvMerger(envMerger)
 
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
