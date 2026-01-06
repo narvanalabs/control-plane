@@ -282,7 +282,6 @@ func TestHealthCheckSkipsAuth(t *testing.T) {
 	}
 }
 
-
 // **Feature: grpc-node-communication, Property 2: Heartbeat Updates Metrics**
 // For any heartbeat with resource metrics, the stored node record should
 // reflect those exact metrics.
@@ -401,12 +400,12 @@ func (m *mockNodeStore) GetResources(id string) *mockNodeResources {
 // genResourceMetrics generates random resource metrics for testing.
 func genResourceMetrics() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Float64Range(1, 64),         // cpu_total
-		gen.Float64Range(0, 64),         // cpu_available
-		gen.Int64Range(1<<30, 256<<30),  // memory_total
-		gen.Int64Range(0, 256<<30),      // memory_available
-		gen.Int64Range(1<<30, 1<<40),    // disk_total
-		gen.Int64Range(0, 1<<40),        // disk_available
+		gen.Float64Range(1, 64),        // cpu_total
+		gen.Float64Range(0, 64),        // cpu_available
+		gen.Int64Range(1<<30, 256<<30), // memory_total
+		gen.Int64Range(0, 256<<30),     // memory_available
+		gen.Int64Range(1<<30, 1<<40),   // disk_total
+		gen.Int64Range(0, 1<<40),       // disk_available
 	).Map(func(vals []interface{}) *pb.ResourceMetrics {
 		return &pb.ResourceMetrics{
 			CpuTotal:        vals[0].(float64),

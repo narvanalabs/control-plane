@@ -17,9 +17,9 @@ import (
 // genStatusReport generates random status reports for testing.
 func genStatusReport() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                                                                       // node_id
-		gen.Identifier(),                                                                       // deployment_id
-		gen.Identifier(),                                                                       // command_id
+		gen.Identifier(), // node_id
+		gen.Identifier(), // deployment_id
+		gen.Identifier(), // command_id
 		gen.OneConstOf(
 			pb.DeploymentStatus_STATUS_PENDING,
 			pb.DeploymentStatus_STATUS_PULLING,
@@ -29,9 +29,9 @@ func genStatusReport() gopter.Gen {
 			pb.DeploymentStatus_STATUS_STOPPED,
 			pb.DeploymentStatus_STATUS_FAILED,
 		),
-		gen.Identifier(),                                                                       // container_id
-		gen.Int32Range(-128, 255),                                                              // exit_code
-		gen.AnyString(),                                                                        // error_message
+		gen.Identifier(),          // container_id
+		gen.Int32Range(-128, 255), // exit_code
+		gen.AnyString(),           // error_message
 	).Map(func(vals []interface{}) *pb.StatusReport {
 		return &pb.StatusReport{
 			NodeId:       vals[0].(string),
@@ -48,12 +48,12 @@ func genStatusReport() gopter.Gen {
 // genFailedStatusReport generates status reports with FAILED status for testing.
 func genFailedStatusReport() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                                                                       // node_id
-		gen.Identifier(),                                                                       // deployment_id
-		gen.Identifier(),                                                                       // command_id
-		gen.Identifier(),                                                                       // container_id
-		gen.Int32Range(1, 255),                                                                 // exit_code (non-zero for failures)
-		gen.AnyString().SuchThat(func(s string) bool { return len(s) > 0 }),                   // error_message (non-empty)
+		gen.Identifier(),       // node_id
+		gen.Identifier(),       // deployment_id
+		gen.Identifier(),       // command_id
+		gen.Identifier(),       // container_id
+		gen.Int32Range(1, 255), // exit_code (non-zero for failures)
+		gen.AnyString().SuchThat(func(s string) bool { return len(s) > 0 }), // error_message (non-empty)
 	).Map(func(vals []interface{}) *pb.StatusReport {
 		return &pb.StatusReport{
 			NodeId:       vals[0].(string),
@@ -214,10 +214,10 @@ func TestFailedStatusRequiresErrorDetails(t *testing.T) {
 
 	// Generate failed status reports with varying error details
 	genFailedReport := gopter.CombineGens(
-		gen.Identifier(),                                                                       // node_id
-		gen.Identifier(),                                                                       // deployment_id
-		gen.Int32Range(-128, 255),                                                              // exit_code
-		gen.AnyString(),                                                                        // error_message
+		gen.Identifier(),          // node_id
+		gen.Identifier(),          // deployment_id
+		gen.Int32Range(-128, 255), // exit_code
+		gen.AnyString(),           // error_message
 	).Map(func(vals []interface{}) *pb.StatusReport {
 		return &pb.StatusReport{
 			NodeId:       vals[0].(string),

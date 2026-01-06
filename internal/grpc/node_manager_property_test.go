@@ -58,13 +58,13 @@ func (m *mockCommandStream) GetSentCommands() []*pb.DeploymentCommand {
 // genDeployRequest generates random deploy requests for testing.
 func genDeployRequest() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                                                                       // deployment_id
-		gen.Identifier(),                                                                       // app_id
-		gen.Identifier(),                                                                       // service_name
-		gen.Identifier(),                                                                       // artifact
-		gen.OneConstOf(pb.CPBuildType_CP_BUILD_TYPE_OCI, pb.CPBuildType_CP_BUILD_TYPE_NIX),    // build_type
-		gen.Int32Range(1, 10),                                                                  // replicas
-		gen.Int32Range(1, 65535),                                                               // port
+		gen.Identifier(), // deployment_id
+		gen.Identifier(), // app_id
+		gen.Identifier(), // service_name
+		gen.Identifier(), // artifact
+		gen.OneConstOf(pb.CPBuildType_CP_BUILD_TYPE_OCI, pb.CPBuildType_CP_BUILD_TYPE_NIX), // build_type
+		gen.Int32Range(1, 10),    // replicas
+		gen.Int32Range(1, 65535), // port
 	).Map(func(vals []interface{}) *pb.CPDeployRequest {
 		return &pb.CPDeployRequest{
 			DeploymentId: vals[0].(string),
@@ -73,9 +73,12 @@ func genDeployRequest() gopter.Gen {
 			Artifact:     vals[3].(string),
 			BuildType:    vals[4].(pb.CPBuildType),
 			Config: &pb.CPDeploymentConfig{
-				ResourceTier: "small",
-				Replicas:     vals[5].(int32),
-				Port:         vals[6].(int32),
+				Resources: &pb.CPResourceSpec{
+					Cpu:    "0.5",
+					Memory: "512Mi",
+				},
+				Replicas: vals[5].(int32),
+				Port:     vals[6].(int32),
 			},
 		}
 	})
