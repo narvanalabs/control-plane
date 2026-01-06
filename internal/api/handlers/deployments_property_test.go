@@ -330,7 +330,7 @@ func TestDeploymentInheritsBuildType(t *testing.T) {
 				OwnerID: userID,
 				Name:    appName,
 				Services: []models.ServiceConfig{
-					{Name: "web", ResourceTier: models.ResourceTierSmall},
+					{Name: "web", Resources: models.DefaultResourceSpec()},
 				},
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -350,12 +350,12 @@ func TestDeploymentInheritsBuildType(t *testing.T) {
 			req := httptest.NewRequest("POST", "/v1/apps/"+app.ID+"/deploy", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
-			
+
 			// Add the appID to chi URL params
 			rctx := chi.NewRouteContext()
 			rctx.URLParams.Add("appID", app.ID)
 			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
-			
+
 			req = req.WithContext(ctx)
 
 			// Execute the request
@@ -416,15 +416,15 @@ func TestRollbackUsesPreviousArtifact(t *testing.T) {
 
 			// Create a successful deployment with an artifact
 			originalDeployment := &models.Deployment{
-				ID:           "deploy-original",
-				AppID:        app.ID,
-				ServiceName:  "web",
-				GitRef:       "main",
-				Artifact:     artifact,
-				Status:       models.DeploymentStatusRunning,
-				ResourceTier: models.ResourceTierSmall,
-				CreatedAt:    now,
-				UpdatedAt:    now,
+				ID:          "deploy-original",
+				AppID:       app.ID,
+				ServiceName: "web",
+				GitRef:      "main",
+				Artifact:    artifact,
+				Status:      models.DeploymentStatusRunning,
+				Resources:   models.DefaultResourceSpec(),
+				CreatedAt:   now,
+				UpdatedAt:   now,
 			}
 			st.deploymentStore.deployments[originalDeployment.ID] = originalDeployment
 
@@ -434,12 +434,12 @@ func TestRollbackUsesPreviousArtifact(t *testing.T) {
 			// Create a rollback request
 			req := httptest.NewRequest("POST", "/v1/deployments/"+originalDeployment.ID+"/rollback", nil)
 			ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
-			
+
 			// Add the deploymentID to chi URL params
 			rctx := chi.NewRouteContext()
 			rctx.URLParams.Add("deploymentID", originalDeployment.ID)
 			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
-			
+
 			req = req.WithContext(ctx)
 
 			// Execute the request
@@ -484,16 +484,16 @@ func TestMultiServiceDeploymentCreation(t *testing.T) {
 
 	// Generator for service configs with unique names
 	genUniqueServices := func(count int) []models.ServiceConfig {
-		tiers := []models.ResourceTier{
-			models.ResourceTierNano,
-			models.ResourceTierSmall,
-			models.ResourceTierMedium,
+		resources := []*models.ResourceSpec{
+			{CPU: "0.25", Memory: "256Mi"},
+			{CPU: "0.5", Memory: "512Mi"},
+			{CPU: "1", Memory: "1Gi"},
 		}
 		services := make([]models.ServiceConfig, count)
 		for i := 0; i < count; i++ {
 			services[i] = models.ServiceConfig{
-				Name:         "service-" + string(rune('a'+i)),
-				ResourceTier: tiers[i%len(tiers)],
+				Name:      "service-" + string(rune('a'+i)),
+				Resources: resources[i%len(resources)],
 			}
 		}
 		return services
@@ -578,12 +578,11 @@ func TestMultiServiceDeploymentCreation(t *testing.T) {
 		genUserID(),
 		genAppName(),
 		gen.RegexMatch("[a-z0-9]{6,12}"), // git ref
-		gen.IntRange(1, 5), // service count (1-5 services)
+		gen.IntRange(1, 5),               // service count (1-5 services)
 	))
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: service-git-repos, Property 8: Per-Service Deployment Isolation**
 // *For any* deployment triggered for a specific service, only that service SHALL be
@@ -604,13 +603,13 @@ func TestPerServiceDeploymentIsolation(t *testing.T) {
 		services := make([]models.ServiceConfig, count)
 		for i := 0; i < count; i++ {
 			services[i] = models.ServiceConfig{
-				Name:         "service-" + string(rune('a'+i)),
-				SourceType:   models.SourceTypeGit,
-				GitRepo:      "github.com/test/repo" + string(rune('a'+i)),
-				GitRef:       "main",
-				FlakeOutput:  "packages.x86_64-linux.default",
-				ResourceTier: models.ResourceTierSmall,
-				Replicas:     1,
+				Name:        "service-" + string(rune('a'+i)),
+				SourceType:  models.SourceTypeGit,
+				GitRepo:     "github.com/test/repo" + string(rune('a'+i)),
+				GitRef:      "main",
+				FlakeOutput: "packages.x86_64-linux.default",
+				Resources:   models.DefaultResourceSpec(),
+				Replicas:    1,
 			}
 		}
 		return services
@@ -732,13 +731,13 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 				Name:    appName,
 				Services: []models.ServiceConfig{
 					{
-						Name:         serviceName,
-						SourceType:   models.SourceTypeGit,
-						GitRepo:      gitRepo,
-						GitRef:       "main",
-						FlakeOutput:  flakeOutput,
-						ResourceTier: models.ResourceTierSmall,
-						Replicas:     1,
+						Name:        serviceName,
+						SourceType:  models.SourceTypeGit,
+						GitRepo:     gitRepo,
+						GitRef:      "main",
+						FlakeOutput: flakeOutput,
+						Resources:   models.DefaultResourceSpec(),
+						Replicas:    1,
 					},
 				},
 				CreatedAt: now,
@@ -825,13 +824,13 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 				Name:    appName,
 				Services: []models.ServiceConfig{
 					{
-						Name:         serviceName,
-						SourceType:   models.SourceTypeGit,
-						GitRepo:      "github.com/test/repo",
-						GitRef:       "main", // Default ref
-						FlakeOutput:  "packages.x86_64-linux.default",
-						ResourceTier: models.ResourceTierSmall,
-						Replicas:     1,
+						Name:        serviceName,
+						SourceType:  models.SourceTypeGit,
+						GitRepo:     "github.com/test/repo",
+						GitRef:      "main", // Default ref
+						FlakeOutput: "packages.x86_64-linux.default",
+						Resources:   models.DefaultResourceSpec(),
+						Replicas:    1,
 					},
 				},
 				CreatedAt: now,
@@ -885,7 +884,6 @@ func TestDeploymentUsesServiceSource(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: service-git-repos, Property 12: Dependency Order in Deployment**
 // *For any* deployment of multiple services with dependencies, services SHALL be
 // deployed in topological order (dependencies before dependents).
@@ -905,34 +903,34 @@ func TestDependencyOrderInDeployment(t *testing.T) {
 			// Create services with a dependency chain: A -> B -> C (C depends on B, B depends on A)
 			services := []models.ServiceConfig{
 				{
-					Name:         "service-c",
-					SourceType:   models.SourceTypeGit,
-					GitRepo:      "github.com/test/repoc",
-					GitRef:       "main",
-					FlakeOutput:  "packages.x86_64-linux.default",
-					ResourceTier: models.ResourceTierSmall,
-					Replicas:     1,
-					DependsOn:    []string{"service-b"},
+					Name:        "service-c",
+					SourceType:  models.SourceTypeGit,
+					GitRepo:     "github.com/test/repoc",
+					GitRef:      "main",
+					FlakeOutput: "packages.x86_64-linux.default",
+					Resources:   models.DefaultResourceSpec(),
+					Replicas:    1,
+					DependsOn:   []string{"service-b"},
 				},
 				{
-					Name:         "service-a",
-					SourceType:   models.SourceTypeGit,
-					GitRepo:      "github.com/test/repoa",
-					GitRef:       "main",
-					FlakeOutput:  "packages.x86_64-linux.default",
-					ResourceTier: models.ResourceTierSmall,
-					Replicas:     1,
-					DependsOn:    []string{}, // No dependencies
+					Name:        "service-a",
+					SourceType:  models.SourceTypeGit,
+					GitRepo:     "github.com/test/repoa",
+					GitRef:      "main",
+					FlakeOutput: "packages.x86_64-linux.default",
+					Resources:   models.DefaultResourceSpec(),
+					Replicas:    1,
+					DependsOn:   []string{}, // No dependencies
 				},
 				{
-					Name:         "service-b",
-					SourceType:   models.SourceTypeGit,
-					GitRepo:      "github.com/test/repob",
-					GitRef:       "main",
-					FlakeOutput:  "packages.x86_64-linux.default",
-					ResourceTier: models.ResourceTierSmall,
-					Replicas:     1,
-					DependsOn:    []string{"service-a"},
+					Name:        "service-b",
+					SourceType:  models.SourceTypeGit,
+					GitRepo:     "github.com/test/repob",
+					GitRef:      "main",
+					FlakeOutput: "packages.x86_64-linux.default",
+					Resources:   models.DefaultResourceSpec(),
+					Replicas:    1,
+					DependsOn:   []string{"service-a"},
 				},
 			}
 
@@ -1047,24 +1045,24 @@ func TestDependencyOrderInDeployment(t *testing.T) {
 			// Create independent services (no dependencies between them)
 			services := []models.ServiceConfig{
 				{
-					Name:         "service-x",
-					SourceType:   models.SourceTypeGit,
-					GitRepo:      "github.com/test/repox",
-					GitRef:       "main",
-					FlakeOutput:  "packages.x86_64-linux.default",
-					ResourceTier: models.ResourceTierSmall,
-					Replicas:     1,
-					DependsOn:    []string{},
+					Name:        "service-x",
+					SourceType:  models.SourceTypeGit,
+					GitRepo:     "github.com/test/repox",
+					GitRef:      "main",
+					FlakeOutput: "packages.x86_64-linux.default",
+					Resources:   models.DefaultResourceSpec(),
+					Replicas:    1,
+					DependsOn:   []string{},
 				},
 				{
-					Name:         "service-y",
-					SourceType:   models.SourceTypeGit,
-					GitRepo:      "github.com/test/repoy",
-					GitRef:       "main",
-					FlakeOutput:  "packages.x86_64-linux.default",
-					ResourceTier: models.ResourceTierSmall,
-					Replicas:     1,
-					DependsOn:    []string{},
+					Name:        "service-y",
+					SourceType:  models.SourceTypeGit,
+					GitRepo:     "github.com/test/repoy",
+					GitRef:      "main",
+					FlakeOutput: "packages.x86_64-linux.default",
+					Resources:   models.DefaultResourceSpec(),
+					Replicas:    1,
+					DependsOn:   []string{},
 				},
 			}
 

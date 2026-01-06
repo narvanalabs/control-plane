@@ -54,7 +54,6 @@ func (r *ServiceDeployRequest) Validate() error {
 	return nil
 }
 
-
 // Create handles POST /v1/apps/:appID/deploy - triggers a new deployment.
 func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Use resolved app ID from middleware (handles both UUID and name lookup)
@@ -109,8 +108,8 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// If no services defined, create a default deployment
 	if len(servicesToDeploy) == 0 {
 		servicesToDeploy = []models.ServiceConfig{{
-			Name:         "default",
-			ResourceTier: models.ResourceTierSmall,
+			Name:      "default",
+			Resources: models.DefaultResourceSpec(),
 		}}
 	}
 
@@ -141,19 +140,19 @@ func (h *DeploymentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 
 		deployment := &models.Deployment{
-			ID:           uuid.New().String(),
-			AppID:        appID,
-			ServiceName:  svc.Name,
-			Version:      version,
-			GitRef:       gitRef,
-			BuildType:    buildType,
-			Status:       models.DeploymentStatusPending,
-			ResourceTier: svc.ResourceTier,
+			ID:          uuid.New().String(),
+			AppID:       appID,
+			ServiceName: svc.Name,
+			Version:     version,
+			GitRef:      gitRef,
+			BuildType:   buildType,
+			Status:      models.DeploymentStatusPending,
+			Resources:   svc.Resources,
 			Config: &models.RuntimeConfig{
-				ResourceTier: svc.ResourceTier,
-				EnvVars:      svc.EnvVars,
-				Ports:        svc.Ports,
-				HealthCheck:  svc.HealthCheck,
+				Resources:   svc.Resources,
+				EnvVars:     svc.EnvVars,
+				Ports:       svc.Ports,
+				HealthCheck: svc.HealthCheck,
 			},
 			DependsOn: svc.DependsOn, // Track service dependencies
 			CreatedAt: now,
@@ -437,19 +436,19 @@ func (h *DeploymentHandler) CreateForService(w http.ResponseWriter, r *http.Requ
 
 	// Create deployment for this service only
 	deployment := &models.Deployment{
-		ID:           uuid.New().String(),
-		AppID:        appID,
-		ServiceName:  service.Name,
-		Version:      version,
-		GitRef:       gitRef,
-		BuildType:    buildType,
-		Status:       models.DeploymentStatusPending,
-		ResourceTier: service.ResourceTier,
+		ID:          uuid.New().String(),
+		AppID:       appID,
+		ServiceName: service.Name,
+		Version:     version,
+		GitRef:      gitRef,
+		BuildType:   buildType,
+		Status:      models.DeploymentStatusPending,
+		Resources:   service.Resources,
 		Config: &models.RuntimeConfig{
-			ResourceTier: service.ResourceTier,
-			EnvVars:      service.EnvVars,
-			Ports:        service.Ports,
-			HealthCheck:  service.HealthCheck,
+			Resources:   service.Resources,
+			EnvVars:     service.EnvVars,
+			Ports:       service.Ports,
+			HealthCheck: service.HealthCheck,
 		},
 		DependsOn: service.DependsOn,
 		CreatedAt: now,
@@ -648,19 +647,19 @@ func (h *DeploymentHandler) Rollback(w http.ResponseWriter, r *http.Request) {
 	// Create a new deployment using the artifact from the target
 	now := time.Now()
 	newDeployment := &models.Deployment{
-		ID:           uuid.New().String(),
-		AppID:        targetDeployment.AppID,
-		ServiceName:  targetDeployment.ServiceName,
-		Version:      version,
-		GitRef:       targetDeployment.GitRef,
-		GitCommit:    targetDeployment.GitCommit,
-		BuildType:    targetDeployment.BuildType,
-		Artifact:     targetDeployment.Artifact, // Use the same artifact
-		Status:       models.DeploymentStatusBuilt, // Skip build phase
-		ResourceTier: targetDeployment.ResourceTier,
-		Config:       targetDeployment.Config,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:          uuid.New().String(),
+		AppID:       targetDeployment.AppID,
+		ServiceName: targetDeployment.ServiceName,
+		Version:     version,
+		GitRef:      targetDeployment.GitRef,
+		GitCommit:   targetDeployment.GitCommit,
+		BuildType:   targetDeployment.BuildType,
+		Artifact:    targetDeployment.Artifact,    // Use the same artifact
+		Status:      models.DeploymentStatusBuilt, // Skip build phase
+		Resources:   targetDeployment.Resources,
+		Config:      targetDeployment.Config,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := h.store.Deployments().Create(r.Context(), newDeployment); err != nil {

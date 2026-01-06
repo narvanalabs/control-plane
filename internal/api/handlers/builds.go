@@ -95,7 +95,7 @@ func (h *BuildHandler) Retry(w http.ResponseWriter, r *http.Request) {
 	// Reset build job
 	build.Status = "queued"
 	build.RetryCount++
-	
+
 	if err := h.store.Builds().Update(r.Context(), build); err != nil {
 		h.logger.Error("failed to update build for retry", "error", err, "build_id", buildID)
 		WriteInternalError(w, "Failed to retry build")

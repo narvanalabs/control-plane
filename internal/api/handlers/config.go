@@ -51,9 +51,9 @@ type DatabaseTypeDef struct {
 
 // StatusMapping defines how a status should be displayed in the UI.
 type StatusMapping struct {
-	Label   string `json:"label"`
-	Color   string `json:"color"`
-	Icon    string `json:"icon,omitempty"`
+	Label string `json:"label"`
+	Color string `json:"color"`
+	Icon  string `json:"icon,omitempty"`
 }
 
 // Settings keys for configuration values.
@@ -84,7 +84,6 @@ func (h *ConfigHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 	WriteJSON(w, http.StatusOK, config)
 }
-
 
 // buildPlatformConfig constructs the platform configuration from settings and defaults.
 // Requirements: 2.1, 2.2, 2.3, 2.4
@@ -119,28 +118,28 @@ func (h *ConfigHandler) getDomain(settings map[string]string) string {
 func (h *ConfigHandler) getDefaultPorts() map[string]int {
 	return map[string]int{
 		// Web frameworks
-		"nextjs":   3000,
-		"react":    3000,
-		"vue":      3000,
-		"angular":  4200,
-		"svelte":   5173,
-		"express":  3000,
-		"fastify":  3000,
-		"koa":      3000,
-		"hono":     3000,
-		
+		"nextjs":  3000,
+		"react":   3000,
+		"vue":     3000,
+		"angular": 4200,
+		"svelte":  5173,
+		"express": 3000,
+		"fastify": 3000,
+		"koa":     3000,
+		"hono":    3000,
+
 		// Backend frameworks
-		"django":   8000,
-		"flask":    5000,
-		"fastapi":  8000,
-		"rails":    3000,
-		"phoenix":  4000,
-		"gin":      8080,
-		"echo":     8080,
-		"fiber":    3000,
-		"actix":    8080,
-		"axum":     3000,
-		
+		"django":  8000,
+		"flask":   5000,
+		"fastapi": 8000,
+		"rails":   3000,
+		"phoenix": 4000,
+		"gin":     8080,
+		"echo":    8080,
+		"fiber":   3000,
+		"actix":   8080,
+		"axum":    3000,
+
 		// Databases
 		"postgres": 5432,
 		"mysql":    3306,
@@ -148,11 +147,11 @@ func (h *ConfigHandler) getDefaultPorts() map[string]int {
 		"mongodb":  27017,
 		"redis":    6379,
 		"sqlite":   0, // No network port
-		
+
 		// Generic defaults
-		"http":     8080,
-		"https":    8443,
-		"default":  8080,
+		"http":    8080,
+		"https":   8443,
+		"default": 8080,
 	}
 }
 
@@ -231,10 +230,10 @@ func (h *ConfigHandler) getDefaultResources(settings map[string]string) Resource
 // Requirements: 2.1
 func (h *ConfigHandler) getSupportedDBTypes() []DatabaseTypeDef {
 	types := make([]DatabaseTypeDef, 0, len(validation.SupportedDatabaseTypes))
-	
+
 	// Define order for consistent output
 	orderedTypes := []string{"postgres", "mysql", "mariadb", "mongodb", "redis", "sqlite"}
-	
+
 	for _, dbType := range orderedTypes {
 		versions, ok := validation.SupportedDatabaseTypes[dbType]
 		if !ok {

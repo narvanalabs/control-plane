@@ -33,7 +33,6 @@ type CreateDomainRequest struct {
 	Domain  string `json:"domain"`
 }
 
-
 // ValidateDomain validates a domain string, supporting both standard and wildcard domains.
 // Standard domain: example.com, sub.example.com
 // Wildcard domain: *.example.com
@@ -64,7 +63,6 @@ func (r *CreateDomainRequest) Validate() error {
 	r.Domain = strings.ToLower(r.Domain)
 	return nil
 }
-
 
 // Create handles POST /v1/apps/:appID/domains - adds a custom domain.
 func (h *DomainHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +143,6 @@ func (h *DomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusCreated, domain)
 }
 
-
 // List handles GET /v1/apps/:appID/domains - lists domains for an app.
 func (h *DomainHandler) List(w http.ResponseWriter, r *http.Request) {
 	appID := middleware.GetResolvedAppID(r.Context())
@@ -188,7 +185,6 @@ func (h *DomainHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("domain deleted", "domain_id", domainID)
 	w.WriteHeader(http.StatusNoContent)
 }
-
 
 // ListAll handles GET /v1/domains - lists all domains across all applications.
 func (h *DomainHandler) ListAll(w http.ResponseWriter, r *http.Request) {
@@ -298,7 +294,6 @@ func (h *DomainHandler) CreateGlobal(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("domain created", "app_id", req.AppID, "domain", req.Domain, "is_wildcard", isWildcard)
 	WriteJSON(w, http.StatusCreated, domain)
 }
-
 
 // DeleteGlobal handles DELETE /v1/domains/:domainID - removes a domain by ID.
 func (h *DomainHandler) DeleteGlobal(w http.ResponseWriter, r *http.Request) {

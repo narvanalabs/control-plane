@@ -55,6 +55,7 @@ type DetectResponse struct {
 	EntryPoints          []string               `json:"entry_points,omitempty"`
 	Confidence           float64                `json:"confidence"`
 	Warnings             []string               `json:"warnings,omitempty"`
+	DefaultBranch        string                 `json:"default_branch,omitempty"`
 }
 
 // DetectErrorResponse represents an error response for detection failures.
@@ -83,11 +84,8 @@ func (h *DetectHandler) Detect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default git ref to main
+	// Default git ref to empty to detect default branch
 	gitRef := req.GitRef
-	if gitRef == "" {
-		gitRef = "main"
-	}
 
 	// Create temporary directory for cloning
 	tempDir, err := os.MkdirTemp("", "detect-*")
@@ -102,7 +100,8 @@ func (h *DetectHandler) Detect(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 
-	if err := h.cloneRepository(ctx, req.GitURL, gitRef, tempDir); err != nil {
+	clonedBranch, err := h.cloneRepository(ctx, req.GitURL, gitRef, tempDir)
+	if err != nil {
 		h.logger.Error("failed to clone repository", "error", err, "url", req.GitURL)
 		h.writeDetectionError(w, "Failed to clone repository", "clone_failed", []string{
 			"Verify the repository URL is correct",
@@ -130,19 +129,22 @@ func (h *DetectHandler) Detect(w http.ResponseWriter, r *http.Request) {
 		EntryPoints:          result.EntryPoints,
 		Confidence:           result.Confidence,
 		Warnings:             result.Warnings,
+		DefaultBranch:        clonedBranch,
 	}
 
 	h.logger.Info("detection completed",
 		"url", req.GitURL,
 		"strategy", result.Strategy,
 		"framework", result.Framework,
+		"default_branch", clonedBranch,
 	)
 
 	WriteJSON(w, http.StatusOK, response)
 }
 
 // cloneRepository clones a git repository to the specified directory.
-func (h *DetectHandler) cloneRepository(ctx context.Context, gitURL, gitRef, destDir string) error {
+// Returns the branch that was cloned (either the requested branch or the default branch).
+func (h *DetectHandler) cloneRepository(ctx context.Context, gitURL, gitRef, destDir string) (string, error) {
 	// Normalize git URL for cloning
 	cloneURL := normalizeGitURL(gitURL)
 
@@ -157,11 +159,28 @@ func (h *DetectHandler) cloneRepository(ctx context.Context, gitURL, gitRef, des
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		output, err = cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("git clone failed: %s: %w", string(output), err)
+			return "", fmt.Errorf("git clone failed: %s: %w", string(output), err)
 		}
+		// Get the default branch name from the cloned repo
+		defaultBranch, branchErr := h.getClonedBranch(ctx, destDir)
+		if branchErr != nil {
+			return "", nil // Clone succeeded but couldn't get branch name
+		}
+		return defaultBranch, nil
 	}
 
-	return nil
+	return gitRef, nil
+}
+
+// getClonedBranch returns the current branch name of a cloned repository.
+func (h *DetectHandler) getClonedBranch(ctx context.Context, repoDir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = repoDir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get branch name: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 // handleDetectionError handles detection errors and writes appropriate responses.
@@ -256,7 +275,8 @@ func (h *DetectHandler) CloneAndDetect(ctx context.Context, gitURL, gitRef strin
 	defer os.RemoveAll(tempDir)
 
 	// Clone the repository
-	if err := h.cloneRepository(ctx, gitURL, gitRef, tempDir); err != nil {
+	_, err = h.cloneRepository(ctx, gitURL, gitRef, tempDir)
+	if err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w", err)
 	}
 

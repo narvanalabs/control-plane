@@ -81,7 +81,7 @@ func (h *GitHubHandler) getBaseURLs(r *http.Request) (string, string) {
 		// We'll assume the ports are standard or same as detected
 		h.logger.Debug("using server_domain from settings", "domain", dbDomain)
 
-		// We need to be careful with ports. 
+		// We need to be careful with ports.
 		// For now, if dbDomain doesn't have a port, we'll append standard ports if they exist in detected URLs
 		apiUrlObj, _ := url.Parse(apiURL)
 		webUrlObj, _ := url.Parse(webURL)
@@ -114,9 +114,9 @@ func (h *GitHubHandler) ManifestStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	manifest := map[string]interface{}{
-		"name":        appName,
-		"url":         webURL,
-		"description": "Automated GitHub integration for Narvana Control Plane.",
+		"name":         appName,
+		"url":          webURL,
+		"description":  "Automated GitHub integration for Narvana Control Plane.",
 		"redirect_url": apiURL + "/github/callback",
 		"callback_urls": []string{
 			apiURL + "/github/callback", // Needed for manifest redirect

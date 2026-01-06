@@ -61,7 +61,7 @@ func (h *LogHandler) Get(w http.ResponseWriter, r *http.Request) {
 			WriteJSON(w, http.StatusOK, map[string][]*models.LogEntry{"logs": {}})
 			return
 		}
-		
+
 		// If service_name is specified, find the latest for that service
 		if serviceName != "" {
 			for _, d := range deployments {

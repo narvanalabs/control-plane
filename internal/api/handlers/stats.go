@@ -61,7 +61,6 @@ func (h *StatsHandler) GetDashboardStats(w http.ResponseWriter, r *http.Request)
 	WriteJSON(w, http.StatusOK, stats)
 }
 
-
 // calculateStats computes dashboard statistics for the given organization.
 // Requirements: 1.1, 1.2, 1.3
 func (h *StatsHandler) calculateStats(ctx context.Context, orgID string) (*DashboardStats, error) {

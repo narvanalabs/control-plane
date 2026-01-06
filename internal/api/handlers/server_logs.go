@@ -128,24 +128,24 @@ func (h *ServerLogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 // streamDevLogs streams logs in development mode using journalctl for current user session
 func (h *ServerLogsHandler) streamDevLogs(w http.ResponseWriter, r *http.Request, service, lines, level string) {
 	h.sendEvent(w, "connected", map[string]string{"status": "streaming (dev mode)"})
-	
+
 	// Send initial message
 	h.sendEvent(w, "log", map[string]interface{}{
 		"timestamp": time.Now(),
 		"level":     "info",
 		"message":   "[dev] Server log streaming started",
 	})
-	
+
 	// In dev mode, try to tail journalctl for the current user session
 	// This captures logs from processes started in the current session
 	journalArgs := []string{"-f", "--output", "short-iso", "--user"}
-	
+
 	if lines != "" {
 		journalArgs = append(journalArgs, "-n", lines)
 	} else {
 		journalArgs = append(journalArgs, "-n", "100")
 	}
-	
+
 	cmd := exec.CommandContext(r.Context(), "journalctl", journalArgs...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -154,20 +154,20 @@ func (h *ServerLogsHandler) streamDevLogs(w http.ResponseWriter, r *http.Request
 		h.streamHeartbeat(w, r)
 		return
 	}
-	
+
 	if err := cmd.Start(); err != nil {
 		h.logger.Error("failed to start journalctl --user", "error", err)
 		// Fallback to heartbeat mode
 		h.streamHeartbeat(w, r)
 		return
 	}
-	
+
 	defer func() {
 		if cmd.Process != nil {
 			cmd.Process.Kill()
 		}
 	}()
-	
+
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -187,10 +187,10 @@ func (h *ServerLogsHandler) streamHeartbeat(w http.ResponseWriter, r *http.Reque
 		"level":     "info",
 		"message":   "[dev] No log source available. Logs will appear when services are running as systemd units.",
 	})
-	
+
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -255,7 +255,7 @@ func (h *ServerLogsHandler) Download(w http.ResponseWriter, r *http.Request) {
 // Restart handles POST /v1/server/restart - restarts systemd services.
 func (h *ServerLogsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 	services := []string{"narvana-api", "narvana-web", "narvana-worker"}
-	
+
 	for _, svc := range services {
 		cmd := exec.Command("sudo", "systemctl", "restart", svc)
 		if err := cmd.Run(); err != nil {
@@ -264,7 +264,7 @@ func (h *ServerLogsHandler) Restart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "restarted"})
 }
@@ -285,13 +285,13 @@ func (h *ServerLogsHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 	// Spawn shell with PTY
 	h.logger.Info("starting bash pty")
 	c := exec.Command("bash", "--norc") // Use --norc to avoid local bashrc pollution
-	c.Env = append(os.Environ(), 
-		"TERM=xterm-256color", 
+	c.Env = append(os.Environ(),
+		"TERM=xterm-256color",
 		"PS1=\\u@\\h:\\w\\$ ",
 		"LANG=en_US.UTF-8",
 		"LC_ALL=en_US.UTF-8",
 	)
-	
+
 	f, err := pty.Start(c)
 	if err != nil {
 		h.logger.Error("failed to start pty", "error", err)

@@ -40,21 +40,21 @@ func newStatsMockStore() *statsMockStore {
 	}
 }
 
-func (m *statsMockStore) Apps() store.AppStore             { return m.appStore }
-func (m *statsMockStore) Deployments() store.DeploymentStore { return m.deploymentStore }
-func (m *statsMockStore) Nodes() store.NodeStore           { return m.nodeStore }
-func (m *statsMockStore) Orgs() store.OrgStore             { return nil }
-func (m *statsMockStore) Builds() store.BuildStore         { return nil }
-func (m *statsMockStore) Secrets() store.SecretStore       { return nil }
-func (m *statsMockStore) Logs() store.LogStore             { return nil }
-func (m *statsMockStore) Users() store.UserStore           { return nil }
-func (m *statsMockStore) GitHub() store.GitHubStore        { return nil }
-func (m *statsMockStore) GitHubAccounts() store.GitHubAccountStore { return nil }
-func (m *statsMockStore) Settings() store.SettingsStore    { return nil }
-func (m *statsMockStore) Domains() store.DomainStore       { return nil }
-func (m *statsMockStore) Invitations() store.InvitationStore { return nil }
+func (m *statsMockStore) Apps() store.AppStore                                         { return m.appStore }
+func (m *statsMockStore) Deployments() store.DeploymentStore                           { return m.deploymentStore }
+func (m *statsMockStore) Nodes() store.NodeStore                                       { return m.nodeStore }
+func (m *statsMockStore) Orgs() store.OrgStore                                         { return nil }
+func (m *statsMockStore) Builds() store.BuildStore                                     { return nil }
+func (m *statsMockStore) Secrets() store.SecretStore                                   { return nil }
+func (m *statsMockStore) Logs() store.LogStore                                         { return nil }
+func (m *statsMockStore) Users() store.UserStore                                       { return nil }
+func (m *statsMockStore) GitHub() store.GitHubStore                                    { return nil }
+func (m *statsMockStore) GitHubAccounts() store.GitHubAccountStore                     { return nil }
+func (m *statsMockStore) Settings() store.SettingsStore                                { return nil }
+func (m *statsMockStore) Domains() store.DomainStore                                   { return nil }
+func (m *statsMockStore) Invitations() store.InvitationStore                           { return nil }
 func (m *statsMockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
-func (m *statsMockStore) Close() error { return nil }
+func (m *statsMockStore) Close() error                                                 { return nil }
 
 // statsAppStore implements store.AppStore for stats testing
 type statsAppStore struct {
@@ -258,7 +258,6 @@ func (m *statsNodeStore) ListWithClosure(ctx context.Context, storePath string) 
 	return nil, nil
 }
 
-
 // genOrgID generates valid organization IDs
 func genOrgID() gopter.Gen {
 	return gen.RegexMatch("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
@@ -431,12 +430,12 @@ func TestDashboardStatsAccuracy(t *testing.T) {
 
 			return true
 		},
-		gen.IntRange(0, 5),  // numApps
-		gen.IntRange(1, 3),  // numServicesPerApp
-		gen.IntRange(0, 3),  // numRunningDeployments per app
-		gen.IntRange(0, 3),  // numStoppedDeployments per app
-		gen.IntRange(0, 5),  // numHealthyNodes
-		gen.IntRange(0, 3),  // numUnhealthyNodes
+		gen.IntRange(0, 5), // numApps
+		gen.IntRange(1, 3), // numServicesPerApp
+		gen.IntRange(0, 3), // numRunningDeployments per app
+		gen.IntRange(0, 3), // numStoppedDeployments per app
+		gen.IntRange(0, 5), // numHealthyNodes
+		gen.IntRange(0, 3), // numUnhealthyNodes
 	))
 
 	properties.TestingRun(t)

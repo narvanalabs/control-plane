@@ -39,13 +39,13 @@ func NewNodeHandlerWithCleanup(st store.Store, cleanupSvc *cleanup.Service, logg
 
 // NodeInfo contains information about a node from registration/heartbeat.
 type NodeInfo struct {
-	ID          string                `json:"id"`
-	Hostname    string                `json:"hostname"`
-	Address     string                `json:"address"`
-	GRPCPort    int                   `json:"grpc_port"`
-	Resources   *models.NodeResources `json:"resources"`
+	ID          string                  `json:"id"`
+	Hostname    string                  `json:"hostname"`
+	Address     string                  `json:"address"`
+	GRPCPort    int                     `json:"grpc_port"`
+	Resources   *models.NodeResources   `json:"resources"`
 	DiskMetrics *models.NodeDiskMetrics `json:"disk_metrics,omitempty"`
-	CachedPaths []string              `json:"cached_paths,omitempty"`
+	CachedPaths []string                `json:"cached_paths,omitempty"`
 }
 
 // RegisterRequest represents the request body for node registration.
@@ -201,7 +201,7 @@ func (h *NodeHandler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if diskMetrics != nil {
 		err = h.store.Nodes().UpdateHeartbeatWithDiskMetrics(r.Context(), nodeID, resources, diskMetrics)
-		
+
 		// Check disk usage and log warnings
 		// **Validates: Requirements 20.2**
 		h.checkDiskUsageWarnings(nodeID, diskMetrics)
@@ -372,7 +372,7 @@ func (h *NodeHandler) HeartbeatByID(w http.ResponseWriter, r *http.Request, node
 	var err error
 	if diskMetrics != nil {
 		err = h.store.Nodes().UpdateHeartbeatWithDiskMetrics(r.Context(), nodeID, resources, diskMetrics)
-		
+
 		// Check disk usage and log warnings
 		h.checkDiskUsageWarnings(nodeID, diskMetrics)
 	} else {

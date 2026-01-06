@@ -53,7 +53,6 @@ func NewPreviewHandlerWithDeps(st store.Store, det detector.Detector, tmplEngine
 	}
 }
 
-
 // PreviewRequest represents the request body for build preview.
 type PreviewRequest struct {
 	// Optional: Override build strategy (if not specified, uses service's configured strategy)
@@ -108,7 +107,6 @@ type PreviewErrorResponse struct {
 	Code        string   `json:"code"`
 	Suggestions []string `json:"suggestions,omitempty"`
 }
-
 
 // Preview handles POST /v1/apps/{appID}/services/{serviceName}/preview - generates a build preview.
 func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +184,6 @@ func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
 
 	WriteJSON(w, http.StatusOK, response)
 }
-
 
 // generatePreview generates a build preview for a service.
 func (h *PreviewHandler) generatePreview(ctx context.Context, service *models.ServiceConfig, req *PreviewRequest) (*PreviewResponse, error) {
@@ -280,7 +277,6 @@ func (h *PreviewHandler) generatePreview(ctx context.Context, service *models.Se
 	return response, nil
 }
 
-
 // detectRepository detects the build strategy for a service's repository.
 func (h *PreviewHandler) detectRepository(ctx context.Context, service *models.ServiceConfig) (*models.DetectionResult, error) {
 	// Only git sources can be detected
@@ -344,7 +340,6 @@ func (h *PreviewHandler) normalizeGitURL(url string) string {
 	// Convert shorthand to https URL
 	return "https://" + url
 }
-
 
 // generateFlake generates a flake.nix for the given strategy and detection result.
 func (h *PreviewHandler) generateFlake(ctx context.Context, strategy models.BuildStrategy, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
@@ -456,7 +451,6 @@ func (h *PreviewHandler) mergeConfigs(base, override *models.BuildConfig) models
 	return result
 }
 
-
 // determineBuildType determines the build type based on strategy and config.
 func (h *PreviewHandler) determineBuildType(strategy models.BuildStrategy, config models.BuildConfig) models.BuildType {
 	// Dockerfile and Nixpacks always produce OCI
@@ -521,19 +515,18 @@ func (h *PreviewHandler) validateFlakeSyntax(flakeContent string) (bool, string)
 	return true, ""
 }
 
-
 // estimateBuildTime estimates the build time in seconds based on strategy and detection.
 func (h *PreviewHandler) estimateBuildTime(strategy models.BuildStrategy, detection *models.DetectionResult) int {
 	// Base estimates in seconds
 	baseEstimates := map[models.BuildStrategy]int{
-		models.BuildStrategyFlake:      300,  // 5 minutes
-		models.BuildStrategyAutoGo:     180,  // 3 minutes
-		models.BuildStrategyAutoRust:   600,  // 10 minutes (Rust is slow)
-		models.BuildStrategyAutoNode:   240,  // 4 minutes
-		models.BuildStrategyAutoPython: 120,  // 2 minutes
-		models.BuildStrategyDockerfile: 300,  // 5 minutes
-		models.BuildStrategyNixpacks:   360,  // 6 minutes
-		models.BuildStrategyAuto:       300,  // 5 minutes default
+		models.BuildStrategyFlake:      300, // 5 minutes
+		models.BuildStrategyAutoGo:     180, // 3 minutes
+		models.BuildStrategyAutoRust:   600, // 10 minutes (Rust is slow)
+		models.BuildStrategyAutoNode:   240, // 4 minutes
+		models.BuildStrategyAutoPython: 120, // 2 minutes
+		models.BuildStrategyDockerfile: 300, // 5 minutes
+		models.BuildStrategyNixpacks:   360, // 6 minutes
+		models.BuildStrategyAuto:       300, // 5 minutes default
 	}
 
 	estimate := baseEstimates[strategy]
@@ -571,7 +564,7 @@ func (h *PreviewHandler) estimateResources(strategy models.BuildStrategy, detect
 		resources.CPUCores = 4.0
 	case models.BuildStrategyAutoNode:
 		resources.MemoryMB = 3072 // Node.js can be memory hungry
-		resources.DiskMB = 8192  // node_modules can be large
+		resources.DiskMB = 8192   // node_modules can be large
 	case models.BuildStrategyDockerfile, models.BuildStrategyNixpacks:
 		resources.MemoryMB = 4096 // Container builds need more resources
 		resources.DiskMB = 10240
@@ -588,7 +581,6 @@ func (h *PreviewHandler) estimateResources(strategy models.BuildStrategy, detect
 
 	return resources
 }
-
 
 // writePreviewError writes a preview error response.
 func (h *PreviewHandler) writePreviewError(w http.ResponseWriter, err error) {
@@ -649,9 +641,9 @@ func (h *PreviewHandler) PreviewFromDetection(ctx context.Context, detection *mo
 	}
 
 	response := &PreviewResponse{
-		Strategy: strategy,
+		Strategy:  strategy,
 		BuildType: h.determineBuildType(strategy, config),
-		Warnings: []string{},
+		Warnings:  []string{},
 	}
 
 	// Add detection summary
