@@ -67,7 +67,6 @@ func NewServer(cfg *config.Config, st store.Store, q queue.Queue, authSvc *auth.
 	return s
 }
 
-
 // setupRouter configures the router with middleware and routes.
 func (s *Server) setupRouter() {
 	r := chi.NewRouter()
@@ -144,6 +143,7 @@ func (s *Server) setupRouter() {
 			r.Route("/{appID}", func(r chi.Router) {
 				r.Use(middleware.RequireOwnership(s.store, s.logger))
 				r.Get("/", appHandler.Get)
+				r.Patch("/", appHandler.Update)
 				r.Delete("/", appHandler.Delete)
 
 				// Deployment routes nested under apps
@@ -160,12 +160,16 @@ func (s *Server) setupRouter() {
 					r.Patch("/{serviceName}", serviceHandler.Update)
 					r.Delete("/{serviceName}", serviceHandler.Delete)
 					r.Post("/{serviceName}/deploy", deploymentHandler.CreateForService)
-					
+
 					// Service lifecycle actions
 					r.Post("/{serviceName}/stop", serviceHandler.StopService)
 					r.Post("/{serviceName}/start", serviceHandler.StartService)
 					r.Post("/{serviceName}/reload", serviceHandler.ReloadService)
 					r.Post("/{serviceName}/retry", serviceHandler.RetryService)
+
+					// Environment variable endpoints
+					r.Post("/{serviceName}/env", serviceHandler.AddEnvVar)
+					r.Delete("/{serviceName}/env/{key}", serviceHandler.DeleteEnvVar)
 
 					// Preview endpoint for build preview
 					previewHandler, err := handlers.NewPreviewHandler(s.store, s.logger)
@@ -174,14 +178,14 @@ func (s *Server) setupRouter() {
 					} else {
 						r.Post("/{serviceName}/preview", previewHandler.Preview)
 					}
-					
+
 					r.Get("/{serviceName}/terminal/ws", serviceHandler.TerminalWS)
 				})
 
 				// Log routes nested under apps
 				logHandler := handlers.NewLogHandler(s.store, s.logger)
 				r.Get("/logs", logHandler.Get)
-				
+
 				// Real-time log streaming via SSE
 				logStreamHandler := handlers.NewLogStreamHandler(s.store, s.logger)
 				r.Get("/logs/stream", logStreamHandler.Stream)
