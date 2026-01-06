@@ -25,7 +25,7 @@ func genBuildJob() gopter.Gen {
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // ID - must be non-empty
 		gen.AlphaString(), // DeploymentID
 		gen.AlphaString(), // AppID
-		gen.OneConstOf(models.BuildTypePureNix, models.BuildTypeOCI),                                       // BuildType
+		gen.OneConstOf(models.BuildTypePureNix, models.BuildTypeOCI),                                        // BuildType
 		gen.OneConstOf(models.BuildStrategyFlake, models.BuildStrategyAutoGo, models.BuildStrategyAutoNode), // BuildStrategy
 	).Map(func(values []interface{}) *models.BuildJob {
 		return &models.BuildJob{
@@ -418,7 +418,6 @@ func TestManagerConfiguration(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: flexible-build-strategies, Property 14: OCI Fallback Notification**
 // For any build that falls back from pure-nix to OCI, the Build_System SHALL
 // notify the user and log the reason for fallback.
@@ -797,7 +796,6 @@ func TestFallbackNotificationContent(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 25: Validation Error Non-Retry**
 // For any build that fails due to validation error, the Build_System SHALL NOT retry the build.
 // **Validates: Requirements 15.7**
@@ -904,7 +902,6 @@ func TestValidationErrorNonRetry(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 26: Max Retry Enforcement**
 // For any build job with retry_count >= MaxRetries (default 2), the Build_System
@@ -1030,7 +1027,6 @@ func TestMaxRetryEnforcement(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 27: OCI Fallback on Retry**
 // For any build job configured with AutoRetryAsOCI and retrying due to dependency error,

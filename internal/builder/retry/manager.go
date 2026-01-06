@@ -56,10 +56,10 @@ type BuildAttempt struct {
 
 // RetryStrategy defines retry behavior.
 type RetryStrategy struct {
-	MaxAttempts     int           `json:"max_attempts"`      // Default: 2
-	RetryAsOCI      bool          `json:"retry_as_oci"`      // Try OCI on pure-nix failure
-	RetryableErrors []string      `json:"retryable_errors"`  // Error codes that trigger retry
-	BackoffDuration time.Duration `json:"backoff_duration"`  // Wait between retries
+	MaxAttempts     int           `json:"max_attempts"`     // Default: 2
+	RetryAsOCI      bool          `json:"retry_as_oci"`     // Try OCI on pure-nix failure
+	RetryableErrors []string      `json:"retryable_errors"` // Error codes that trigger retry
+	BackoffDuration time.Duration `json:"backoff_duration"` // Wait between retries
 }
 
 // DefaultRetryStrategy returns the default retry strategy.
