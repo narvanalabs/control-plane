@@ -69,7 +69,7 @@ func main() {
 
 		r.Get("/", handleDashboard)
 		r.Get("/git", handleGitPage)
-		
+
 		// Organization routes
 		r.Route("/orgs", func(r chi.Router) {
 			r.Get("/new", handleNewOrgPage)
@@ -79,7 +79,7 @@ func main() {
 			r.Post("/{orgID}/delete", handleDeleteOrg)
 			r.Get("/{slug}/switch", handleSwitchOrg)
 		})
-		
+
 		r.Route("/apps", func(r chi.Router) {
 			r.Get("/", handleApps)
 			r.Post("/", handleCreateAppSubmit)
@@ -90,8 +90,10 @@ func main() {
 				r.Post("/", handleCreateService)
 				r.Get("/{serviceName}", handleServiceDetail)
 				r.Post("/{serviceName}", handleUpdateService)
+				r.Post("/{serviceName}/port", handleUpdateServicePort)
 				r.Delete("/{serviceName}", handleDeleteService)
 				r.Get("/{serviceName}/console/ws", handleServiceConsoleWS)
+				r.Get("/{serviceName}/terminal/ws", handleServiceConsoleWS)
 			})
 		})
 		r.Post("/apps/{appID}/services/{serviceName}/deploy", handleDeployService)
@@ -103,12 +105,12 @@ func main() {
 		r.Post("/apps/{appID}/secrets", handleCreateSecret)
 		r.Post("/apps/{appID}/secrets/{key}/delete", handleDeleteSecret)
 		r.Get("/nodes", handleNodes)
-		
+
 		// Domain management routes
 		r.Get("/domains", handleDomainsList)
 		r.Post("/domains", handleCreateDomain)
 		r.Post("/domains/{domainID}/delete", handleDeleteDomain)
-		
+
 		r.Route("/builds", func(r chi.Router) {
 			r.Get("/", handleBuildsList)
 			r.Route("/{buildID}", func(r chi.Router) {
@@ -139,6 +141,7 @@ func main() {
 		r.Post("/api/admin/cleanup/containers", handleCleanupContainersProxy)
 		r.Post("/api/admin/cleanup/images", handleCleanupImagesProxy)
 		r.Post("/api/admin/cleanup/nix-gc", handleCleanupNixGCProxy)
+		r.Post("/api/admin/cleanup/attic", handleCleanupAtticProxy)
 
 		// User profile proxy
 		r.Get("/api/user/profile", handleUserProfile)
@@ -172,7 +175,7 @@ func main() {
 		r.Get("/settings/cleanup", handleSettingsCleanup)
 		r.Post("/settings/cleanup", handleSettingsCleanupUpdate)
 		r.Post("/settings/server/resources", handleSettingsServerResourcesUpdate)
-		
+
 		// Users management routes (admin only)
 		r.Get("/settings/users", handleSettingsUsers)
 		r.Post("/settings/users/invite", handleInviteUser)
@@ -190,7 +193,7 @@ func main() {
 	})
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	
+
 	apiURL := os.Getenv("INTERNAL_API_URL")
 	if apiURL == "" {
 		apiURL = os.Getenv("API_URL")
@@ -198,9 +201,9 @@ func main() {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
-	logger.Info("starting web server", 
-		"addr", "0.0.0.0:8090", 
+
+	logger.Info("starting web server",
+		"addr", "0.0.0.0:8090",
 		"internal_api_url", apiURL,
 	)
 
@@ -249,7 +252,7 @@ func requireAuth(next http.Handler) http.Handler {
 func userContextMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		
+
 		// User should already be in context from requireAuth
 		// If not, just continue (shouldn't happen in protected routes)
 		user, ok := ctx.Value("user").(*store.User)
@@ -259,7 +262,7 @@ func userContextMiddleware(next http.Handler) http.Handler {
 		}
 
 		client := getAPIClient(r)
-		
+
 		// Load user's organizations
 		orgs, err := client.ListOrgs(ctx)
 		if err == nil && len(orgs) > 0 {
@@ -275,13 +278,13 @@ func userContextMiddleware(next http.Handler) http.Handler {
 				}
 			}
 			ctx = context.WithValue(ctx, "user_orgs", orgPtrs)
-			
+
 			// Determine current org from cookie or use first org
 			currentOrgSlug := ""
 			if cookie, err := r.Cookie("current_org"); err == nil {
 				currentOrgSlug = cookie.Value
 			}
-			
+
 			var currentOrg *models.Organization
 			for _, org := range orgPtrs {
 				if org.Slug == currentOrgSlug {
@@ -296,7 +299,7 @@ func userContextMiddleware(next http.Handler) http.Handler {
 				ctx = context.WithValue(ctx, "current_org", currentOrg)
 			}
 		}
-		
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -308,7 +311,7 @@ func platformConfigMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		client := getAPIClient(r)
-		
+
 		// Use the global config cache to fetch configuration
 		configCache := api.GetGlobalConfigCache()
 		config, err := configCache.Get(ctx, client)
@@ -316,11 +319,11 @@ func platformConfigMiddleware(next http.Handler) http.Handler {
 			// Log error but continue - templates will use fallback values
 			slog.Debug("failed to load platform config", "error", err)
 		}
-		
+
 		if config != nil {
 			ctx = context.WithValue(ctx, "platform_config", config)
 		}
-		
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -381,19 +384,19 @@ func getAPIClient(r *http.Request) *api.Client {
 	if apiURL == "http://localhost:8080" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	apiClient := api.NewClient(apiURL)
 	token := getAuthToken(r)
 	if token != "" {
 		apiClient = apiClient.WithToken(token)
 	}
-	
+
 	// Include current organization in API requests
 	// **Validates: Requirements 13.1**
 	if org := layouts.GetCurrentOrg(r.Context()); org != nil {
 		apiClient = apiClient.WithOrg(org.ID)
 	}
-	
+
 	return apiClient
 }
 
@@ -457,9 +460,9 @@ func parseAPIError(err error) *APIError {
 	if err == nil {
 		return nil
 	}
-	
+
 	errStr := err.Error()
-	
+
 	// Try to parse "API error (XXX): message" format
 	if strings.HasPrefix(errStr, "API error (") {
 		// Find the closing parenthesis
@@ -478,7 +481,7 @@ func parseAPIError(err error) *APIError {
 			}
 		}
 	}
-	
+
 	// Fallback: return the error as-is with status 0 (unknown)
 	return &APIError{
 		StatusCode: 0,
@@ -493,7 +496,7 @@ func extractUserFriendlyMessage(rawMessage string) string {
 	if rawMessage == "" {
 		return "An unexpected error occurred"
 	}
-	
+
 	// Try to parse as JSON to extract error message
 	if strings.HasPrefix(rawMessage, "{") {
 		var jsonErr struct {
@@ -509,7 +512,7 @@ func extractUserFriendlyMessage(rawMessage string) string {
 			}
 		}
 	}
-	
+
 	return rawMessage
 }
 
@@ -532,7 +535,7 @@ func isAuthorizationError(err error) bool {
 // **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
 func handleAPIError(w http.ResponseWriter, r *http.Request, err error, defaultRedirect string) {
 	apiErr := parseAPIError(err)
-	
+
 	// Handle authentication errors - redirect to login
 	// **Validates: Requirements 14.3**
 	if apiErr.StatusCode == 401 {
@@ -541,7 +544,7 @@ func handleAPIError(w http.ResponseWriter, r *http.Request, err error, defaultRe
 		http.Redirect(w, r, "/login?error="+url.QueryEscape("Your session has expired. Please log in again."), http.StatusFound)
 		return
 	}
-	
+
 	// Handle authorization errors - display forbidden message
 	// **Validates: Requirements 14.4**
 	if apiErr.StatusCode == 403 {
@@ -552,7 +555,7 @@ func handleAPIError(w http.ResponseWriter, r *http.Request, err error, defaultRe
 		http.Redirect(w, r, defaultRedirect+"?error="+url.QueryEscape(errorMsg), http.StatusFound)
 		return
 	}
-	
+
 	// For other errors, display the specific error message from the backend
 	// **Validates: Requirements 14.1, 14.2**
 	http.Redirect(w, r, defaultRedirect+"?error="+url.QueryEscape(apiErr.Message), http.StatusFound)
@@ -568,11 +571,11 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	
+
 	// Check if registration is allowed (to show/hide signup link)
 	client := getAPIClient(r)
 	canRegister, _ := client.CanRegister(r.Context())
-	
+
 	auth.Login(auth.LoginData{CanRegister: canRegister}).Render(r.Context(), w)
 }
 
@@ -606,13 +609,13 @@ func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	
+
 	if !canRegister {
 		// Owner exists, redirect to login
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	
+
 	auth.Register(auth.RegisterData{}).Render(r.Context(), w)
 }
 
@@ -624,7 +627,7 @@ func handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	
+
 	if err := r.ParseForm(); err != nil {
 		auth.Register(auth.RegisterData{Error: "Invalid form data"}).Render(r.Context(), w)
 		return
@@ -783,7 +786,7 @@ func handleDeleteOrg(w http.ResponseWriter, r *http.Request) {
 
 func handleSwitchOrg(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
-	
+
 	// Set a cookie to remember the current organization
 	http.SetCookie(w, &http.Cookie{
 		Name:     "current_org",
@@ -793,7 +796,7 @@ func handleSwitchOrg(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400 * 365, // 1 year
 	})
-	
+
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -905,7 +908,7 @@ func handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 	if len(deployments) > 0 {
 		// Fetch service-level runtime logs
 		logs, _ = client.GetServiceLogs(ctx, appID, serviceName)
-		
+
 		// Fetch build logs for the latest deployment
 		latestDeployment := deployments[0]
 		if build, _ := client.GetBuildByDeployment(ctx, latestDeployment.ID); build != nil {
@@ -975,6 +978,31 @@ func handleUpdateService(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?success=Service+updated+successfully", appID, serviceName), http.StatusSeeOther)
 }
 
+// handleUpdateServicePort updates a service's port configuration.
+func handleUpdateServicePort(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	client := getAPIClient(r)
+	ctx := r.Context()
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?error=Failed+to+parse+form", appID, serviceName), http.StatusSeeOther)
+		return
+	}
+
+	port := 8080
+	fmt.Sscanf(r.FormValue("port"), "%d", &port)
+
+	// Update the service with the new port via the UpdateServicePort method
+	_, err := client.UpdateServicePort(ctx, appID, serviceName, port)
+	if err != nil {
+		handleAPIError(w, r, err, fmt.Sprintf("/apps/%s/services/%s", appID, serviceName))
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/apps/%s/services/%s?success=Port+updated+successfully", appID, serviceName), http.StatusSeeOther)
+}
+
 // handleDeleteService deletes a service from an app (DELETE method).
 // Displays actionable error messages on failure.
 // **Validates: Requirements 14.2**
@@ -1028,7 +1056,7 @@ func handleUpdateApp(w http.ResponseWriter, r *http.Request) {
 	// Build update request with pointer fields for optional values
 	// **Validates: Requirements 6.2**
 	req := api.UpdateAppRequest{}
-	
+
 	// Parse version for optimistic locking
 	// **Validates: Requirements 6.1, 6.4**
 	if versionStr := r.FormValue("version"); versionStr != "" {
@@ -1036,7 +1064,7 @@ func handleUpdateApp(w http.ResponseWriter, r *http.Request) {
 			req.Version = version
 		}
 	}
-	
+
 	// Only set fields that were provided (pointer fields for optional values)
 	if name := r.FormValue("name"); name != "" {
 		req.Name = &name
@@ -1104,12 +1132,12 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 				req.BuildStrategy = strategy
 			}
 		}
-		
+
 		// Handle auto-detected fields
 		entryPoint := r.FormValue("entry_point")
 		buildCommand := r.FormValue("build_command")
 		version := r.FormValue("version")
-		
+
 		if entryPoint != "" || buildCommand != "" {
 			req.BuildConfig = &api.BuildConfig{
 				EntryPoint:   entryPoint,
@@ -1125,10 +1153,10 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 		framework := r.FormValue("static_framework")
 		buildCommand := r.FormValue("build_command")
 		outputDir := r.FormValue("output_dir")
-		
+
 		// Static sites use auto-node strategy by default
 		req.BuildStrategy = api.BuildStrategyAutoNode
-		
+
 		if buildCommand != "" || outputDir != "" {
 			req.BuildConfig = &api.BuildConfig{
 				BuildCommand: buildCommand,
@@ -1143,12 +1171,12 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 	if category == "database" || sourceType == "database" {
 		dbType := r.FormValue("db_type")
 		dbVersion := r.FormValue("db_version")
-		
+
 		// Default to PostgreSQL if not specified
 		if dbType == "" {
 			dbType = "postgres"
 		}
-		
+
 		// Set default version if not provided
 		if dbVersion == "" {
 			defaultVersions := map[string]string{
@@ -1164,7 +1192,7 @@ func handleCreateService(w http.ResponseWriter, r *http.Request) {
 				dbVersion = "16" // Fallback to PostgreSQL default
 			}
 		}
-		
+
 		req.Database = &api.DatabaseConfig{
 			Type:    dbType,
 			Version: dbVersion,
@@ -1195,13 +1223,13 @@ func handleNodes(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
 	ctx := r.Context()
 	nodeList, _ := client.ListNodes(ctx)
-	
+
 	// Get the API URL for node registration instructions
 	apiURL := os.Getenv("API_URL")
 	if apiURL == "" {
 		apiURL = "http://localhost:8080"
 	}
-	
+
 	nodes.List(nodes.ListData{
 		Nodes:  nodeList,
 		APIURL: apiURL,
@@ -1299,17 +1327,17 @@ func handleLogStream(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "http://localhost:8080" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
 	proxy.FlushInterval = -1 // Disable buffering for SSE
-	
+
 	// Add auth token if present
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	// Rewrite path: /api/logs/stream?app_id=XYZ -> /v1/apps/XYZ/logs/stream
 	appID := r.URL.Query().Get("app_id")
 	serviceName := r.URL.Query().Get("service_name")
@@ -1325,7 +1353,7 @@ func handleLogStream(w http.ResponseWriter, r *http.Request) {
 		// Fallback: just strip /api/ and prefix /v1/
 		r.URL.Path = "/v1" + r.URL.Path[4:]
 	}
-	
+
 	slog.Info("proxying log stream", "path", r.URL.Path, "app_id", appID)
 	proxy.ServeHTTP(w, r)
 }
@@ -1337,16 +1365,16 @@ func handleServerLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	// Add auth token if present
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	// Rewrite path: /api/server/logs/stream -> /v1/server/logs/stream
 	r.URL.Path = "/v1/server/logs/stream"
-	
+
 	proxy.ServeHTTP(w, r)
 }
 func handleServerLogDownload(w http.ResponseWriter, r *http.Request) {
@@ -1356,16 +1384,16 @@ func handleServerLogDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	// Add auth token if present
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	// Rewrite path: /api/server/logs/download -> /v1/server/logs/download
 	r.URL.Path = "/v1/server/logs/download"
-	
+
 	proxy.ServeHTTP(w, r)
 }
 
@@ -1376,16 +1404,16 @@ func handleServerRestart(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	// Add auth token if present
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	// Rewrite path: /api/server/restart -> /v1/server/restart
 	r.URL.Path = "/v1/server/restart"
-	
+
 	proxy.ServeHTTP(w, r)
 }
 
@@ -1396,16 +1424,16 @@ func handleServerStats(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	// Add auth token if present
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	// Rewrite path: /api/server/stats -> /v1/server/stats
 	r.URL.Path = "/v1/server/stats"
-	
+
 	proxy.ServeHTTP(w, r)
 }
 
@@ -1416,16 +1444,16 @@ func handleServerStatsStream(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	// Add auth token if present
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	// Rewrite path: /api/server/stats/stream -> /v1/server/stats/stream
 	r.URL.Path = "/v1/server/stats/stream"
-	
+
 	proxy.ServeHTTP(w, r)
 }
 
@@ -1436,12 +1464,12 @@ func handleUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = "/v1/user/profile"
 	proxy.ServeHTTP(w, r)
 }
@@ -1453,12 +1481,12 @@ func handleUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = "/v1/user/profile"
 	proxy.ServeHTTP(w, r)
 }
@@ -1476,18 +1504,18 @@ func handleDetectProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "http://localhost:8080" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	// Rewrite path: /api/detect -> /v1/detect
 	r.URL.Path = "/v1/detect"
-	
+
 	slog.Info("proxying detection request", "path", r.URL.Path)
 	proxy.ServeHTTP(w, r)
 }
@@ -1502,15 +1530,15 @@ func handleSecretsListProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/secrets", appID)
 	proxy.ServeHTTP(w, r)
 }
@@ -1525,15 +1553,15 @@ func handleSecretsCreateProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/secrets", appID)
 	proxy.ServeHTTP(w, r)
 }
@@ -1548,15 +1576,15 @@ func handleDomainsListProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/domains", appID)
 	proxy.ServeHTTP(w, r)
 }
@@ -1571,15 +1599,15 @@ func handleDomainsCreateProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/domains", appID)
 	proxy.ServeHTTP(w, r)
 }
@@ -1595,15 +1623,15 @@ func handleDomainsDeleteProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/domains/%s", appID, domainID)
 	proxy.ServeHTTP(w, r)
 }
@@ -1619,15 +1647,15 @@ func handleEnvCreateProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/services/%s/env", appID, serviceName)
 	proxy.ServeHTTP(w, r)
 }
@@ -1644,15 +1672,15 @@ func handleEnvDeleteProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/services/%s/env/%s", appID, serviceName, key)
 	proxy.ServeHTTP(w, r)
 }
@@ -1662,7 +1690,7 @@ func handleServerConsoleWS(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://localhost:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	target := "ws://" + u.Host + "/v1/server/console/ws"
 	if u.Scheme == "https" {
@@ -1736,7 +1764,7 @@ func handleServiceConsoleWS(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://localhost:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	target := fmt.Sprintf("ws://%s/v1/apps/%s/services/%s/terminal/ws", u.Host, appID, serviceName)
 	if u.Scheme == "https" {
@@ -2054,7 +2082,7 @@ func handleGitHubManifestStart(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
 	org := r.URL.Query().Get("org")
 	appName := r.URL.Query().Get("app_name")
-	
+
 	// We need to fetch the setup URL specifically for manifest start
 	// Determine our own base URL to pass to the API so it can pre-fill correctly
 	scheme := "http"
@@ -2073,13 +2101,13 @@ func handleGitHubManifestStart(w http.ResponseWriter, r *http.Request) {
 		params.Set("app_name", appName)
 	}
 	path += "?" + params.Encode()
-	
+
 	html, contentType, err := client.GetRaw(r.Context(), path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	w.Write(html)
@@ -2094,7 +2122,7 @@ func handleSettingsGeneral(w http.ResponseWriter, r *http.Request) {
 func handleSettingsProfile(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
 	user, err := client.GetUserProfile(r.Context())
-	
+
 	successMsg := r.URL.Query().Get("success")
 	errorMsg := r.URL.Query().Get("error")
 
@@ -2135,8 +2163,6 @@ func handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/settings/profile?success=Profile updated successfully", http.StatusSeeOther)
 }
-
-
 
 func handleSettingsServer(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
@@ -2378,15 +2404,15 @@ func handleCleanupContainersProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = "/v1/admin/cleanup/containers"
 	proxy.ServeHTTP(w, r)
 }
@@ -2401,15 +2427,15 @@ func handleCleanupImagesProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = "/v1/admin/cleanup/images"
 	proxy.ServeHTTP(w, r)
 }
@@ -2424,16 +2450,39 @@ func handleCleanupNixGCProxy(w http.ResponseWriter, r *http.Request) {
 	if apiURL == "" {
 		apiURL = "http://127.0.0.1:8080"
 	}
-	
+
 	u, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(u)
-	
+
 	token := getAuthToken(r)
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	r.URL.Path = "/v1/admin/cleanup/nix-gc"
+	proxy.ServeHTTP(w, r)
+}
+
+// handleCleanupAtticProxy proxies Attic cache cleanup requests to the backend.
+// **Validates: Requirements 11.6**
+func handleCleanupAtticProxy(w http.ResponseWriter, r *http.Request) {
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	r.URL.Path = "/v1/admin/cleanup/attic"
 	proxy.ServeHTTP(w, r)
 }
 
@@ -2443,10 +2492,10 @@ func handleCleanupNixGCProxy(w http.ResponseWriter, r *http.Request) {
 
 func handleSettingsUsers(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
-	
+
 	successMsg := r.URL.Query().Get("success")
 	errorMsg := r.URL.Query().Get("error")
-	
+
 	// Get current user
 	currentUser, err := client.GetUserProfile(r.Context())
 	if err != nil {
@@ -2454,13 +2503,13 @@ func handleSettingsUsers(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	
+
 	// Check if user is owner
 	if currentUser.Role != "owner" {
 		http.Redirect(w, r, "/?error=Access denied", http.StatusFound)
 		return
 	}
-	
+
 	// Get all users
 	users, err := client.ListUsers(r.Context())
 	if err != nil {
@@ -2468,14 +2517,14 @@ func handleSettingsUsers(w http.ResponseWriter, r *http.Request) {
 		users = []api.UserInfo{}
 		errorMsg = "Failed to load users"
 	}
-	
+
 	// Get all invitations
 	invitations, err := client.ListInvitations(r.Context())
 	if err != nil {
 		slog.Error("failed to list invitations", "error", err)
 		invitations = []api.Invitation{}
 	}
-	
+
 	// Filter to only show pending invitations
 	pendingInvitations := []api.Invitation{}
 	for _, inv := range invitations {
@@ -2483,14 +2532,14 @@ func handleSettingsUsers(w http.ResponseWriter, r *http.Request) {
 			pendingInvitations = append(pendingInvitations, inv)
 		}
 	}
-	
+
 	currentUserInfo := &api.UserInfo{
 		ID:    currentUser.ID,
 		Email: currentUser.Email,
 		Name:  currentUser.Name,
 		Role:  string(currentUser.Role),
 	}
-	
+
 	data := settings_page.UsersData{
 		Users:       users,
 		Invitations: pendingInvitations,
@@ -2506,19 +2555,19 @@ func handleInviteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	email := r.FormValue("email")
 	role := r.FormValue("role")
-	
+
 	if email == "" {
 		http.Redirect(w, r, "/settings/users?error=Email is required", http.StatusSeeOther)
 		return
 	}
-	
+
 	if role == "" {
 		role = "member"
 	}
-	
+
 	client := getAPIClient(r)
 	_, err := client.CreateInvitation(r.Context(), email, role)
 	if err != nil {
@@ -2526,7 +2575,7 @@ func handleInviteUser(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/settings/users?error=Failed to send invitation", http.StatusSeeOther)
 		return
 	}
-	
+
 	http.Redirect(w, r, "/settings/users?success=Invitation sent to "+email, http.StatusSeeOther)
 }
 
@@ -2535,13 +2584,13 @@ func handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	userID := r.FormValue("user_id")
 	if userID == "" {
 		http.Redirect(w, r, "/settings/users?error=User ID is required", http.StatusSeeOther)
 		return
 	}
-	
+
 	client := getAPIClient(r)
 	err := client.DeleteUser(r.Context(), userID)
 	if err != nil {
@@ -2549,7 +2598,7 @@ func handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/settings/users?error=Failed to remove user", http.StatusSeeOther)
 		return
 	}
-	
+
 	http.Redirect(w, r, "/settings/users?success=User removed successfully", http.StatusSeeOther)
 }
 
@@ -2558,13 +2607,13 @@ func handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	invitationID := r.FormValue("invitation_id")
 	if invitationID == "" {
 		http.Redirect(w, r, "/settings/users?error=Invitation ID is required", http.StatusSeeOther)
 		return
 	}
-	
+
 	client := getAPIClient(r)
 	err := client.RevokeInvitation(r.Context(), invitationID)
 	if err != nil {
@@ -2572,7 +2621,7 @@ func handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/settings/users?error=Failed to revoke invitation", http.StatusSeeOther)
 		return
 	}
-	
+
 	http.Redirect(w, r, "/settings/users?success=Invitation revoked", http.StatusSeeOther)
 }
 
@@ -2582,7 +2631,7 @@ func handleRevokeInvitation(w http.ResponseWriter, r *http.Request) {
 
 func handleBuildsList(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
-	
+
 	buildJobs, err := client.ListBuilds(r.Context())
 	if err != nil {
 		slog.Error("failed to list builds", "error", err)
@@ -2644,7 +2693,7 @@ func handleBuildRetry(w http.ResponseWriter, r *http.Request) {
 
 func handleDeploymentsList(w http.ResponseWriter, r *http.Request) {
 	client := getAPIClient(r)
-	
+
 	deployList, err := client.ListDeployments(r.Context())
 	if err != nil {
 		slog.Error("failed to list deployments", "error", err)
@@ -2784,7 +2833,7 @@ func handleInviteAcceptSubmit(w http.ResponseWriter, r *http.Request) {
 	resp, err := client.AcceptInvitation(r.Context(), token, password)
 	if err != nil {
 		slog.Error("failed to accept invitation", "error", err)
-		
+
 		// Get invitation details to show proper error
 		invitation, _ := client.GetInvitationByToken(r.Context(), token)
 		email := ""
@@ -2795,7 +2844,7 @@ func handleInviteAcceptSubmit(w http.ResponseWriter, r *http.Request) {
 			isValid = invitation.Status == "pending"
 			isExpired = invitation.Status == "expired"
 		}
-		
+
 		auth.AcceptInvite(auth.AcceptInviteData{
 			Token:     token,
 			Email:     email,
