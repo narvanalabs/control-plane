@@ -80,19 +80,19 @@ func (r *ExecutorRegistry) GetExecutor(strategy models.BuildStrategy) (StrategyE
 // **Validates: Requirements 2.1, 2.2**
 func (r *ExecutorRegistry) VerifyRequiredExecutors() error {
 	var missing []string
-	
+
 	for _, strategy := range RequiredStrategies {
 		_, err := r.GetExecutor(strategy)
 		if err != nil {
 			missing = append(missing, string(strategy))
 		}
 	}
-	
+
 	if len(missing) > 0 {
-		return fmt.Errorf("%w: missing executors for strategies: %s", 
+		return fmt.Errorf("%w: missing executors for strategies: %s",
 			ErrMissingRequiredExecutors, strings.Join(missing, ", "))
 	}
-	
+
 	return nil
 }
 
@@ -100,7 +100,7 @@ func (r *ExecutorRegistry) VerifyRequiredExecutors() error {
 func (r *ExecutorRegistry) GetRegisteredStrategies() []models.BuildStrategy {
 	var strategies []models.BuildStrategy
 	seen := make(map[models.BuildStrategy]bool)
-	
+
 	for _, executor := range r.executors {
 		for _, strategy := range models.ValidBuildStrategies() {
 			if executor.Supports(strategy) && !seen[strategy] {
@@ -109,7 +109,7 @@ func (r *ExecutorRegistry) GetRegisteredStrategies() []models.BuildStrategy {
 			}
 		}
 	}
-	
+
 	return strategies
 }
 
@@ -121,12 +121,12 @@ func (r *ExecutorRegistry) VerifyStrategyExecutorMapping(strategy models.BuildSt
 	if err != nil {
 		return fmt.Errorf("no executor found for strategy %s: %w", strategy, err)
 	}
-	
+
 	// Verify the executor actually supports the strategy
 	if !executor.Supports(strategy) {
 		return fmt.Errorf("executor returned for strategy %s does not support that strategy", strategy)
 	}
-	
+
 	return nil
 }
 
@@ -135,12 +135,12 @@ func (r *ExecutorRegistry) VerifyStrategyExecutorMapping(strategy models.BuildSt
 // **Validates: Requirements 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 11.1**
 func (r *ExecutorRegistry) VerifyAllStrategyMappings() map[models.BuildStrategy]error {
 	results := make(map[models.BuildStrategy]error)
-	
+
 	for _, strategy := range models.ValidBuildStrategies() {
 		if err := r.VerifyStrategyExecutorMapping(strategy); err != nil {
 			results[strategy] = err
 		}
 	}
-	
+
 	return results
 }

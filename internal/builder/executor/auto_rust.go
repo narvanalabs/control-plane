@@ -50,7 +50,6 @@ func (e *AutoRustStrategyExecutor) Supports(strategy models.BuildStrategy) bool 
 	return strategy == models.BuildStrategyAutoRust
 }
 
-
 // GenerateFlake generates a flake.nix for a Rust application using crane.
 func (e *AutoRustStrategyExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
 	// Prepare template data

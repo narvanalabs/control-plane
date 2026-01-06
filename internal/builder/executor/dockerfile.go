@@ -40,7 +40,6 @@ func (e *DockerfileStrategyExecutor) Supports(strategy models.BuildStrategy) boo
 	return strategy == models.BuildStrategyDockerfile
 }
 
-
 // GenerateFlake generates a flake.nix wrapper for Dockerfile builds.
 // This uses nix2container to build OCI images from the Dockerfile.
 func (e *DockerfileStrategyExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {

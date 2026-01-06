@@ -102,7 +102,7 @@ func (e *AutoDatabaseStrategyExecutor) ExecuteWithLogs(ctx context.Context, job 
 	// Generate the flake if missing
 	if job.GeneratedFlake == "" {
 		logCallback("=== Preparing database build ===")
-		
+
 		// Use config from job if available
 		dbType := "postgres" // Default to PostgreSQL
 		dbVersion := "15"    // Default PostgreSQL version
@@ -123,20 +123,20 @@ func (e *AutoDatabaseStrategyExecutor) ExecuteWithLogs(ctx context.Context, job 
 				"database_version": dbVersion,
 			},
 		}
-		
+
 		// If entry points or other info is needed, we could add it here
-		
+
 		logCallback("=== Generating flake.nix ===")
 		config := models.BuildConfig{}
 		if job.BuildConfig != nil {
 			config = *job.BuildConfig
 		}
-		
+
 		flakeContent, err := e.GenerateFlake(ctx, detection, config)
 		if err != nil {
 			return &BuildResult{Logs: logs}, err
 		}
-		
+
 		job.GeneratedFlake = flakeContent
 		logCallback("Generated flake.nix successfully")
 	}

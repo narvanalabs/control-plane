@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/narvanalabs/control-plane/internal/builder/cache"
+	"github.com/narvanalabs/control-plane/internal/builder/clone"
 	"github.com/narvanalabs/control-plane/internal/builder/detector"
 	"github.com/narvanalabs/control-plane/internal/builder/hash"
 	"github.com/narvanalabs/control-plane/internal/builder/templates"
@@ -15,14 +17,38 @@ import (
 	"github.com/narvanalabs/control-plane/internal/validation"
 )
 
+// PreBuildResult contains the results of the pre-build phase.
+// **Validates: Requirements 1.1, 1.2**
+type PreBuildResult struct {
+	// RepoPath is the path to the cloned repository
+	RepoPath string
+
+	// Detection contains the detection results
+	Detection *models.DetectionResult
+
+	// CommitSHA is the resolved commit SHA
+	CommitSHA string
+
+	// CloneDuration is how long the clone took
+	CloneDuration time.Duration
+
+	// DetectionDuration is how long detection took
+	DetectionDuration time.Duration
+
+	// CacheHit indicates whether the detection result came from cache
+	// **Validates: Requirements 4.3**
+	CacheHit bool
+}
+
 // AutoGoStrategyExecutor executes builds for Go applications by generating a flake.nix.
 type AutoGoStrategyExecutor struct {
-	detector       detector.Detector
-	templateEngine templates.TemplateEngine
-	hashCalculator hash.HashCalculator
-	nixBuilder     NixBuilder
-	ociBuilder     OCIBuilder
-	logger         *slog.Logger
+	detector        detector.Detector
+	templateEngine  templates.TemplateEngine
+	hashCalculator  hash.HashCalculator
+	nixBuilder      NixBuilder
+	ociBuilder      OCIBuilder
+	logger          *slog.Logger
+	detectionCache  cache.DetectionCache // **Validates: Requirements 4.3**
 }
 
 // NewAutoGoStrategyExecutor creates a new AutoGoStrategyExecutor.
@@ -47,11 +73,41 @@ func NewAutoGoStrategyExecutor(
 	}
 }
 
+// NewAutoGoStrategyExecutorWithCache creates a new AutoGoStrategyExecutor with detection caching.
+// **Validates: Requirements 4.3**
+func NewAutoGoStrategyExecutorWithCache(
+	det detector.Detector,
+	tmplEngine templates.TemplateEngine,
+	hashCalc hash.HashCalculator,
+	nixBuilder NixBuilder,
+	ociBuilder OCIBuilder,
+	logger *slog.Logger,
+	detectionCache cache.DetectionCache,
+) *AutoGoStrategyExecutor {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &AutoGoStrategyExecutor{
+		detector:       det,
+		templateEngine: tmplEngine,
+		hashCalculator: hashCalc,
+		nixBuilder:     nixBuilder,
+		ociBuilder:     ociBuilder,
+		logger:         logger,
+		detectionCache: detectionCache,
+	}
+}
+
+// SetDetectionCache sets the detection cache for the executor.
+// **Validates: Requirements 4.3**
+func (e *AutoGoStrategyExecutor) SetDetectionCache(cache cache.DetectionCache) {
+	e.detectionCache = cache
+}
+
 // Supports returns true if this executor handles the given strategy.
 func (e *AutoGoStrategyExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyAutoGo
 }
-
 
 // GenerateFlake generates a flake.nix for a Go application.
 // **Validates: Requirements 16.2** - Sets CGO_ENABLED based on detection result
@@ -126,6 +182,7 @@ func (e *AutoGoStrategyExecutor) Execute(ctx context.Context, job *models.BuildJ
 }
 
 // ExecuteWithLogs runs the build for a Go application with real-time log streaming.
+// **Validates: Requirements 1.1, 1.2, 4.2**
 func (e *AutoGoStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *models.BuildJob, externalCallback LogCallback) (*BuildResult, error) {
 	e.logger.Info("executing auto-go strategy",
 		"job_id", job.ID,
@@ -141,32 +198,78 @@ func (e *AutoGoStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *model
 		}
 	}
 
+	// Track the pre-build result for repo reuse
+	var preBuildResult *PreBuildResult
+
 	// If we don't have a generated flake yet, we need to generate one
 	if job.GeneratedFlake == "" {
-		logCallback("=== Detecting Go application ===")
+		logCallback("=== Pre-build phase: Clone and Detect ===")
 
-		// We need a repo path to detect - this would typically be passed via the job
-		// For now, we'll use the detection result if available
-		detection, err := e.detectFromJob(ctx, job)
+		// **Validates: Requirements 1.1** - Clone repository before generating the flake
+		// **Validates: Requirements 1.2** - Run the full detection pipeline including CGO detection
+		var err error
+		preBuildResult, err = e.PreBuild(ctx, job)
 		if err != nil {
 			return &BuildResult{Logs: logs}, fmt.Errorf("%w: %v", ErrDetectionFailed, err)
 		}
 
-		logCallback(fmt.Sprintf("Detected Go version: %s", detection.Version))
-		if len(detection.EntryPoints) > 0 {
-			logCallback(fmt.Sprintf("Entry points: %v", detection.EntryPoints))
+		// Store detection result in job for persistence
+		// **Validates: Requirements 2.1**
+		job.DetectionResult = preBuildResult.Detection
+		now := time.Now()
+		job.DetectedAt = &now
+
+		// Log cache hit or clone/detection timing
+		// **Validates: Requirements 4.3**
+		if preBuildResult.CacheHit {
+			logCallback("Detection cache hit - using cached result")
+			logCallback(fmt.Sprintf("Commit SHA: %s", preBuildResult.CommitSHA))
+		} else {
+			logCallback(fmt.Sprintf("Repository cloned in %v", preBuildResult.CloneDuration))
+			logCallback(fmt.Sprintf("Commit SHA: %s", preBuildResult.CommitSHA))
+			logCallback(fmt.Sprintf("Detection completed in %v", preBuildResult.DetectionDuration))
+		}
+
+		logCallback(fmt.Sprintf("Detected Go version: %s", preBuildResult.Detection.Version))
+		if len(preBuildResult.Detection.EntryPoints) > 0 {
+			logCallback(fmt.Sprintf("Entry points: %v", preBuildResult.Detection.EntryPoints))
+		}
+		if cgoEnabled, ok := preBuildResult.Detection.SuggestedConfig["cgo_enabled"].(bool); ok && cgoEnabled {
+			logCallback("CGO detected: enabled")
 		}
 
 		// Generate the flake with build context for ldflags substitution
 		// **Validates: Requirements 18.3**
 		logCallback("=== Generating flake.nix ===")
-		config := e.getConfigFromJob(job)
-		
+
+		// Get user config from job and detected config from detection result
+		// **Validates: Requirements 3.1, 3.2** - Merge user config with detected config
+		userConfig := e.getConfigFromJob(job)
+		detectedConfig := BuildConfigFromDetection(preBuildResult.Detection)
+		config := MergeConfigs(&userConfig, detectedConfig, e.logger)
+
+		// Log if user config overrides detection
+		if userConfig.CGOEnabled != nil && detectedConfig != nil && detectedConfig.CGOEnabled != nil {
+			if *userConfig.CGOEnabled != *detectedConfig.CGOEnabled {
+				logCallback(fmt.Sprintf("User CGO setting (%v) overrides detected setting (%v)",
+					*userConfig.CGOEnabled, *detectedConfig.CGOEnabled))
+			}
+		}
+
 		// Create build context for ldflags variable substitution
 		buildCtx := e.createBuildContext(job)
-		
-		flakeContent, err := e.GenerateFlakeWithContext(ctx, detection, config, buildCtx)
+
+		// Use the commit SHA from pre-build if available
+		if preBuildResult.CommitSHA != "" {
+			buildCtx.Commit = preBuildResult.CommitSHA
+		}
+
+		flakeContent, err := e.GenerateFlakeWithContext(ctx, preBuildResult.Detection, *config, buildCtx)
 		if err != nil {
+			// Clean up cloned repo on failure
+			if preBuildResult != nil && preBuildResult.RepoPath != "" {
+				os.RemoveAll(filepath.Dir(preBuildResult.RepoPath))
+			}
 			return &BuildResult{Logs: logs}, err
 		}
 
@@ -188,14 +291,38 @@ func (e *AutoGoStrategyExecutor) ExecuteWithLogs(ctx context.Context, job *model
 	}
 
 	// Execute the build based on build type
+	// **Validates: Requirements 4.2** - Reuse cloned repo path for build container
+	// Pass the pre-cloned repo path to the job so the build container can reuse it
+	if preBuildResult != nil && preBuildResult.RepoPath != "" && !preBuildResult.CacheHit {
+		job.PreClonedRepoPath = preBuildResult.RepoPath
+		logCallback(fmt.Sprintf("Reusing pre-cloned repository at %s", preBuildResult.RepoPath))
+	}
+
+	var buildResult *BuildResult
+	var buildErr error
+
 	switch job.BuildType {
 	case models.BuildTypePureNix:
-		return e.buildPureNix(ctx, job, logCallback, &logs)
+		buildResult, buildErr = e.buildPureNix(ctx, job, logCallback, &logs)
 	case models.BuildTypeOCI:
-		return e.buildOCI(ctx, job, logCallback, &logs)
+		buildResult, buildErr = e.buildOCI(ctx, job, logCallback, &logs)
 	default:
-		return nil, fmt.Errorf("%w: unknown build type %s", ErrBuildFailed, job.BuildType)
+		buildErr = fmt.Errorf("%w: unknown build type %s", ErrBuildFailed, job.BuildType)
 	}
+
+	// Clean up cloned repo after build completes
+	if preBuildResult != nil && preBuildResult.RepoPath != "" {
+		os.RemoveAll(filepath.Dir(preBuildResult.RepoPath))
+	}
+
+	// Clear the pre-cloned repo path after build (it's been cleaned up)
+	job.PreClonedRepoPath = ""
+
+	if buildErr != nil {
+		return &BuildResult{Logs: logs}, buildErr
+	}
+
+	return buildResult, nil
 }
 
 // createBuildContext creates a build context for ldflags variable substitution.
@@ -223,7 +350,136 @@ func (e *AutoGoStrategyExecutor) createBuildContext(job *models.BuildJob) valida
 	return ctx
 }
 
+// PreBuild performs the pre-build phase: clone and detect.
+// It returns the cloned repo path and detection results.
+// **Validates: Requirements 1.1, 1.2, 4.3**
+func (e *AutoGoStrategyExecutor) PreBuild(ctx context.Context, job *models.BuildJob) (*PreBuildResult, error) {
+	result := &PreBuildResult{}
+
+	// First, try to get a cached detection result if we have a commit SHA
+	// **Validates: Requirements 4.3** - Cache detection results by commit SHA
+	if e.detectionCache != nil && job.GitRef != "" {
+		cachedResult, found := e.detectionCache.Get(ctx, job.GitURL, job.GitRef)
+		if found {
+			if e.logger != nil {
+				e.logger.Info("detection cache hit, skipping clone for detection",
+					"job_id", job.ID,
+					"git_url", job.GitURL,
+					"git_ref", job.GitRef,
+				)
+			}
+			result.Detection = cachedResult
+			result.CommitSHA = job.GitRef
+			result.CacheHit = true
+			// Note: RepoPath will be empty for cache hits - the build phase will still clone
+			// This is intentional: we skip clone only for detection, not for the actual build
+			return result, nil
+		}
+	}
+
+	// Create a temporary directory for the cloned repository
+	tempDir, err := os.MkdirTemp("", "prebuild-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	repoPath := filepath.Join(tempDir, "repo")
+
+	// Clone the repository
+	// **Validates: Requirements 1.1** - Clone repository before generating the flake
+	if e.logger != nil {
+		e.logger.Info("cloning repository for pre-build detection",
+			"job_id", job.ID,
+			"git_url", job.GitURL,
+			"git_ref", job.GitRef,
+		)
+	}
+
+	cloneStart := time.Now()
+	cloneResult, err := clone.Repository(ctx, job.GitURL, job.GitRef, repoPath)
+	result.CloneDuration = time.Since(cloneStart)
+
+	if err != nil {
+		// Clean up temp directory on clone failure
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("%w: %v", ErrDetectionFailed, err)
+	}
+
+	result.RepoPath = cloneResult.RepoPath
+	result.CommitSHA = cloneResult.CommitSHA
+
+	if e.logger != nil {
+		e.logger.Info("repository cloned successfully",
+			"job_id", job.ID,
+			"commit_sha", result.CommitSHA,
+			"clone_duration", result.CloneDuration,
+		)
+	}
+
+	// Run detection on the cloned repository
+	// **Validates: Requirements 1.2** - Run the full detection pipeline including CGO detection
+	if e.logger != nil {
+		e.logger.Info("running detection on cloned repository",
+			"job_id", job.ID,
+			"repo_path", result.RepoPath,
+		)
+	}
+
+	detectionStart := time.Now()
+	detection, err := e.detector.DetectGo(ctx, result.RepoPath)
+	result.DetectionDuration = time.Since(detectionStart)
+
+	if err != nil {
+		// Clean up temp directory on detection failure
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("%w: %v", ErrDetectionFailed, err)
+	}
+
+	// If detection returned nil (not a Go project), return an error
+	if detection == nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("%w: repository is not a Go project", ErrDetectionFailed)
+	}
+
+	result.Detection = detection
+
+	// Store detection result in cache for future builds
+	// **Validates: Requirements 4.3** - Cache detection results by commit SHA
+	if e.detectionCache != nil && result.CommitSHA != "" {
+		if err := e.detectionCache.Set(ctx, job.GitURL, result.CommitSHA, detection); err != nil {
+			// Log warning but don't fail the build
+			if e.logger != nil {
+				e.logger.Warn("failed to cache detection result",
+					"job_id", job.ID,
+					"error", err,
+				)
+			}
+		} else if e.logger != nil {
+			e.logger.Info("cached detection result",
+				"job_id", job.ID,
+				"git_url", job.GitURL,
+				"commit_sha", result.CommitSHA,
+			)
+		}
+	}
+
+	if e.logger != nil {
+		e.logger.Info("detection completed successfully",
+			"job_id", job.ID,
+			"strategy", detection.Strategy,
+			"framework", detection.Framework,
+			"version", detection.Version,
+			"cgo_enabled", detection.SuggestedConfig["cgo_enabled"],
+			"entry_points", detection.EntryPoints,
+			"detection_duration", result.DetectionDuration,
+		)
+	}
+
+	return result, nil
+}
+
 // detectFromJob performs Go detection based on job information.
+// Deprecated: Use PreBuild instead for proper clone-then-detect workflow.
 func (e *AutoGoStrategyExecutor) detectFromJob(ctx context.Context, job *models.BuildJob) (*models.DetectionResult, error) {
 	// In a real implementation, we'd clone the repo and detect
 	// For now, return a basic detection result

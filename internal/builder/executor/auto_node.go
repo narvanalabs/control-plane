@@ -50,7 +50,6 @@ func (e *AutoNodeStrategyExecutor) Supports(strategy models.BuildStrategy) bool 
 	return strategy == models.BuildStrategyAutoNode
 }
 
-
 // GenerateFlake generates a flake.nix for a Node.js application.
 func (e *AutoNodeStrategyExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
 	// Determine template name based on framework

@@ -58,7 +58,6 @@ func createFullyPopulatedRegistry() *ExecutorRegistry {
 	return registry
 }
 
-
 // MockAutoGoExecutor is a mock executor for auto-go strategy.
 type MockAutoGoExecutor struct{}
 
@@ -130,7 +129,6 @@ func (e *MockAutoPythonExecutor) Supports(strategy models.BuildStrategy) bool {
 func (e *MockAutoPythonExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
 	return "mock flake", nil
 }
-
 
 // TestExecutorRegistryCompleteness tests Property 4: Executor Registry Completeness.
 func TestExecutorRegistryCompleteness(t *testing.T) {
@@ -219,7 +217,7 @@ func TestExecutorRegistryCompleteness(t *testing.T) {
 		func(strategy models.BuildStrategy) bool {
 			registry := createFullyPopulatedRegistry()
 			registeredStrategies := registry.GetRegisteredStrategies()
-			
+
 			// Check that the strategy is in the list
 			for _, s := range registeredStrategies {
 				if s == strategy {
@@ -233,7 +231,6 @@ func TestExecutorRegistryCompleteness(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // TestExecutorRegistryEdgeCases tests edge cases for the executor registry.
 func TestExecutorRegistryEdgeCases(t *testing.T) {
@@ -279,7 +276,6 @@ func TestExecutorRegistryEdgeCases(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 5: Executor Interface Compliance**
 // For any registered executor, the executor SHALL implement all methods of the StrategyExecutor interface.
 // **Validates: Requirements 2.4**
@@ -312,7 +308,7 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			// If querying for the same strategy, should return true
 			if targetStrategy == queryStrategy {
 				return executor.Supports(queryStrategy)
@@ -332,7 +328,7 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			// GenerateFlake should be callable (may return empty string for flake strategy)
 			ctx := context.Background()
 			detection := &models.DetectionResult{
@@ -341,7 +337,7 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 				Version:   "1.0",
 			}
 			config := models.BuildConfig{}
-			
+
 			// Should not panic - result can be empty string or actual flake
 			_, genErr := executor.GenerateFlake(ctx, detection, config)
 			// For flake strategy, GenerateFlake returns empty string (no generation needed)
@@ -360,7 +356,7 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			// Execute should be callable
 			ctx := context.Background()
 			job := &models.BuildJob{
@@ -369,7 +365,7 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 				BuildType:     models.BuildTypePureNix,
 				BuildStrategy: strategy,
 			}
-			
+
 			// Should not panic - mock executors return success
 			result, execErr := executor.Execute(ctx, job)
 			return execErr == nil && result != nil
@@ -385,14 +381,14 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			ctx := context.Background()
 			detection := &models.DetectionResult{
 				Strategy:  models.BuildStrategyFlake,
 				Framework: models.FrameworkGeneric,
 			}
 			config := models.BuildConfig{}
-			
+
 			flake, genErr := executor.GenerateFlake(ctx, detection, config)
 			// Flake strategy should return empty string (uses existing flake.nix)
 			return genErr == nil && flake == ""
@@ -407,13 +403,13 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 			if strategy == models.BuildStrategyFlake {
 				return true
 			}
-			
+
 			registry := createFullyPopulatedRegistry()
 			executor, err := registry.GetExecutor(strategy)
 			if err != nil {
 				return false
 			}
-			
+
 			ctx := context.Background()
 			detection := &models.DetectionResult{
 				Strategy:  strategy,
@@ -421,7 +417,7 @@ func TestExecutorInterfaceCompliance(t *testing.T) {
 				Version:   "1.0",
 			}
 			config := models.BuildConfig{}
-			
+
 			flake, genErr := executor.GenerateFlake(ctx, detection, config)
 			// Auto-* strategies should generate a flake
 			return genErr == nil && flake != ""
@@ -444,12 +440,12 @@ func TestExecutorInterfaceComplianceWithRealExecutors(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			// Verify it implements StrategyExecutor by checking all methods exist
 			var _ StrategyExecutor = executor
-			
+
 			// Verify Supports works
 			if !executor.Supports(models.BuildStrategyFlake) {
 				return false
@@ -457,7 +453,7 @@ func TestExecutorInterfaceComplianceWithRealExecutors(t *testing.T) {
 			if executor.Supports(models.BuildStrategyAutoGo) {
 				return false
 			}
-			
+
 			return true
 		},
 		gen.Bool(),
@@ -471,10 +467,10 @@ func TestExecutorInterfaceComplianceWithRealExecutors(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			// This compiles only if executor implements StrategyExecutor
 			var _ StrategyExecutor = executor
-			
+
 			return true
 		},
 		genRequiredStrategy(),
@@ -482,7 +478,6 @@ func TestExecutorInterfaceComplianceWithRealExecutors(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 11: Strategy-Specific Executor Selection**
 // For any build job with a specified build_strategy, the Executor_Registry SHALL return
@@ -583,7 +578,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 		func(strategy models.BuildStrategy) bool {
 			registry := createFullyPopulatedRegistryWithAllStrategies()
 			err := registry.VerifyStrategyExecutorMapping(strategy)
-			
+
 			// auto strategy is not directly registered, so it should fail
 			if strategy == models.BuildStrategyAuto {
 				return err != nil
@@ -599,16 +594,16 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			registry := createFullyPopulatedRegistryWithAllStrategies()
 			executor1, err1 := registry.GetExecutor(strategy)
 			executor2, err2 := registry.GetExecutor(strategy)
-			
+
 			// Skip auto strategy
 			if strategy == models.BuildStrategyAuto {
 				return true
 			}
-			
+
 			if err1 != nil || err2 != nil {
 				return false
 			}
-			
+
 			// Same executor should be returned for same strategy
 			return executor1 == executor2
 		},
@@ -623,7 +618,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			// Verify it's the flake executor by checking it supports flake and not others
 			return executor.Supports(models.BuildStrategyFlake) &&
 				!executor.Supports(models.BuildStrategyAutoGo) &&
@@ -640,7 +635,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			return executor.Supports(models.BuildStrategyAutoGo) &&
 				!executor.Supports(models.BuildStrategyFlake) &&
 				!executor.Supports(models.BuildStrategyAutoNode)
@@ -656,7 +651,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			return executor.Supports(models.BuildStrategyAutoNode) &&
 				!executor.Supports(models.BuildStrategyFlake) &&
 				!executor.Supports(models.BuildStrategyAutoGo)
@@ -672,7 +667,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			return executor.Supports(models.BuildStrategyAutoRust) &&
 				!executor.Supports(models.BuildStrategyFlake) &&
 				!executor.Supports(models.BuildStrategyAutoGo)
@@ -688,7 +683,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			return executor.Supports(models.BuildStrategyAutoPython) &&
 				!executor.Supports(models.BuildStrategyFlake) &&
 				!executor.Supports(models.BuildStrategyAutoGo)
@@ -704,7 +699,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			return executor.Supports(models.BuildStrategyDockerfile) &&
 				!executor.Supports(models.BuildStrategyFlake) &&
 				!executor.Supports(models.BuildStrategyNixpacks)
@@ -720,7 +715,7 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			return executor.Supports(models.BuildStrategyNixpacks) &&
 				!executor.Supports(models.BuildStrategyFlake) &&
 				!executor.Supports(models.BuildStrategyDockerfile)
@@ -735,18 +730,18 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 			if strategyX == models.BuildStrategyAuto || strategyY == models.BuildStrategyAuto {
 				return true
 			}
-			
+
 			registry := createFullyPopulatedRegistryWithAllStrategies()
 			executor, err := registry.GetExecutor(strategyX)
 			if err != nil {
 				return false
 			}
-			
+
 			// If X == Y, executor should support it
 			if strategyX == strategyY {
 				return executor.Supports(strategyY)
 			}
-			
+
 			// If X != Y, executor should NOT support Y
 			return !executor.Supports(strategyY)
 		},
@@ -756,7 +751,6 @@ func TestStrategySpecificExecutorSelection(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 12: Flake Strategy No Generation**
 // For any build job with `build_strategy: flake`, the executor SHALL NOT generate a new flake.nix
@@ -809,12 +803,12 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			ctx := context.Background()
 			flake, err := executor.GenerateFlake(ctx, detection, config)
-			
+
 			// Flake strategy should never generate a flake
 			return err == nil && flake == ""
 		},
@@ -828,9 +822,9 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -838,10 +832,10 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 				BuildStrategy:  models.BuildStrategyFlake,
 				GeneratedFlake: existingFlake,
 			}
-			
+
 			ctx := context.Background()
 			_, err := executor.Execute(ctx, job)
-			
+
 			// Execute should succeed and GeneratedFlake should be unchanged
 			return err == nil && job.GeneratedFlake == existingFlake
 		},
@@ -856,9 +850,9 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -866,10 +860,10 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 				BuildStrategy:  models.BuildStrategyFlake,
 				GeneratedFlake: "", // Empty - should stay empty
 			}
-			
+
 			ctx := context.Background()
 			_, err := executor.Execute(ctx, job)
-			
+
 			// GeneratedFlake should remain empty
 			return err == nil && job.GeneratedFlake == ""
 		},
@@ -883,16 +877,16 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			ctx := context.Background()
-			
+
 			// Call GenerateFlake multiple times
 			flake1, err1 := executor.GenerateFlake(ctx, detection, config)
 			flake2, err2 := executor.GenerateFlake(ctx, detection, config)
 			flake3, err3 := executor.GenerateFlake(ctx, detection, config)
-			
+
 			// All calls should return the same result (empty string)
 			return err1 == nil && err2 == nil && err3 == nil &&
 				flake1 == "" && flake2 == "" && flake3 == ""
@@ -907,9 +901,9 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -917,10 +911,10 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 				BuildStrategy:  models.BuildStrategyFlake,
 				GeneratedFlake: "",
 			}
-			
+
 			ctx := context.Background()
 			_, err := executor.Execute(ctx, job)
-			
+
 			// GeneratedFlake should remain empty even for OCI builds
 			return err == nil && job.GeneratedFlake == ""
 		},
@@ -934,9 +928,9 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			detection := &models.DetectionResult{
 				Strategy:   models.BuildStrategyFlake,
 				Framework:  framework,
@@ -944,10 +938,10 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 				Confidence: confidence,
 			}
 			config := models.BuildConfig{}
-			
+
 			ctx := context.Background()
 			flake, err := executor.GenerateFlake(ctx, detection, config)
-			
+
 			// Should always return empty regardless of detection result
 			return err == nil && flake == ""
 		},
@@ -958,7 +952,6 @@ func TestFlakeStrategyNoGeneration(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 13: Auto-* Strategy Flake Generation**
 // For any build job with an auto-* strategy and no existing GeneratedFlake, the executor
@@ -1018,7 +1011,7 @@ func createRegistryWithFlakeGeneratingExecutors() *ExecutorRegistry {
 
 	// Register flake executor (doesn't generate)
 	registry.Register(NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger))
-	
+
 	// Register auto-* executors that generate flakes
 	registry.Register(NewMockAutoExecutorWithFlakeGeneration(models.BuildStrategyAutoGo))
 	registry.Register(NewMockAutoExecutorWithFlakeGeneration(models.BuildStrategyAutoNode))
@@ -1042,7 +1035,7 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			ctx := context.Background()
 			detection := &models.DetectionResult{
 				Strategy:  strategy,
@@ -1050,9 +1043,9 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				Version:   "1.0",
 			}
 			config := models.BuildConfig{}
-			
+
 			flake, genErr := executor.GenerateFlake(ctx, detection, config)
-			
+
 			// Auto-* strategies should generate a non-empty flake
 			return genErr == nil && flake != ""
 		},
@@ -1067,7 +1060,7 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1075,10 +1068,10 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: "", // Empty - should be populated
 			}
-			
+
 			ctx := context.Background()
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// After execution, GeneratedFlake should be populated
 			return execErr == nil && job.GeneratedFlake != ""
 		},
@@ -1095,7 +1088,7 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			ctx := context.Background()
 			detection := &models.DetectionResult{
 				Strategy:  strategy,
@@ -1103,12 +1096,12 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				Version:   "1.0",
 			}
 			config := models.BuildConfig{}
-			
+
 			flake, genErr := executor.GenerateFlake(ctx, detection, config)
 			if genErr != nil {
 				return false
 			}
-			
+
 			// The generated flake should contain the strategy name
 			return len(flake) > 0
 		},
@@ -1125,21 +1118,21 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				models.BuildStrategyAutoRust,
 				models.BuildStrategyAutoPython,
 			}
-			
+
 			ctx := context.Background()
 			for _, strategy := range autoStrategies {
 				executor, err := registry.GetExecutor(strategy)
 				if err != nil {
 					return false
 				}
-				
+
 				detection := &models.DetectionResult{
 					Strategy:  strategy,
 					Framework: models.FrameworkGeneric,
 					Version:   "1.0",
 				}
 				config := models.BuildConfig{}
-				
+
 				flake, genErr := executor.GenerateFlake(ctx, detection, config)
 				if genErr != nil || flake == "" {
 					return false
@@ -1158,7 +1151,7 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1166,9 +1159,9 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: "",
 			}
-			
+
 			ctx := context.Background()
-			
+
 			// Get expected flake content
 			detection := &models.DetectionResult{
 				Strategy:  strategy,
@@ -1176,10 +1169,10 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				Version:   "1.0",
 			}
 			expectedFlake, _ := executor.GenerateFlake(ctx, detection, models.BuildConfig{})
-			
+
 			// Execute
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// GeneratedFlake should match what GenerateFlake returns
 			return execErr == nil && job.GeneratedFlake == expectedFlake
 		},
@@ -1196,7 +1189,7 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			ctx := context.Background()
 			detection := &models.DetectionResult{
 				Strategy:  strategy,
@@ -1204,11 +1197,11 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				Version:   version,
 			}
 			config := models.BuildConfig{}
-			
+
 			// Generate flake twice with same inputs
 			flake1, err1 := executor.GenerateFlake(ctx, detection, config)
 			flake2, err2 := executor.GenerateFlake(ctx, detection, config)
-			
+
 			// Should produce identical results
 			return err1 == nil && err2 == nil && flake1 == flake2
 		},
@@ -1224,7 +1217,7 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1232,10 +1225,10 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: "",
 			}
-			
+
 			ctx := context.Background()
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// Should still generate flake even for OCI builds
 			return execErr == nil && job.GeneratedFlake != ""
 		},
@@ -1247,7 +1240,6 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: build-lifecycle-correctness, Property 14: Generated Flake Reuse**
 // For any build job with an existing GeneratedFlake, the executor SHALL use the existing
 // flake without regenerating.
@@ -1255,9 +1247,9 @@ func TestAutoStrategyFlakeGeneration(t *testing.T) {
 
 // MockAutoExecutorWithFlakeTracking tracks whether flake generation was called.
 type MockAutoExecutorWithFlakeTracking struct {
-	strategy            models.BuildStrategy
-	generateFlakeCalls  int
-	generatedFlake      string
+	strategy           models.BuildStrategy
+	generateFlakeCalls int
+	generatedFlake     string
 }
 
 func NewMockAutoExecutorWithFlakeTracking(strategy models.BuildStrategy) *MockAutoExecutorWithFlakeTracking {
@@ -1304,7 +1296,7 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 	properties.Property("Execute preserves existing GeneratedFlake", prop.ForAll(
 		func(strategy models.BuildStrategy, jobID, deploymentID, existingFlake string) bool {
 			executor := NewMockAutoExecutorWithFlakeTracking(strategy)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1312,10 +1304,10 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: existingFlake, // Pre-existing flake
 			}
-			
+
 			ctx := context.Background()
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// GeneratedFlake should remain unchanged
 			return execErr == nil && job.GeneratedFlake == existingFlake
 		},
@@ -1329,7 +1321,7 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 	properties.Property("Execute with existing flake does not regenerate", prop.ForAll(
 		func(strategy models.BuildStrategy, jobID, deploymentID, existingFlake string) bool {
 			executor := NewMockAutoExecutorWithFlakeTracking(strategy)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1337,10 +1329,10 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: existingFlake, // Pre-existing flake
 			}
-			
+
 			ctx := context.Background()
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// GenerateFlake should not have been called (tracked via Execute)
 			return execErr == nil && executor.GetGenerateFlakeCalls() == 0
 		},
@@ -1354,7 +1346,7 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 	properties.Property("Execute without existing flake generates one", prop.ForAll(
 		func(strategy models.BuildStrategy, jobID, deploymentID string) bool {
 			executor := NewMockAutoExecutorWithFlakeTracking(strategy)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1362,13 +1354,13 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: "", // No existing flake
 			}
-			
+
 			ctx := context.Background()
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// GenerateFlake should have been called and flake populated
-			return execErr == nil && 
-				executor.GetGenerateFlakeCalls() == 1 && 
+			return execErr == nil &&
+				executor.GetGenerateFlakeCalls() == 1 &&
 				job.GeneratedFlake != ""
 		},
 		genAutoStrategy(),
@@ -1386,9 +1378,9 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 			if numExecutions > 10 {
 				numExecutions = 10
 			}
-			
+
 			executor := NewMockAutoExecutorWithFlakeTracking(strategy)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1396,9 +1388,9 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: existingFlake,
 			}
-			
+
 			ctx := context.Background()
-			
+
 			// Execute multiple times
 			for i := 0; i < numExecutions; i++ {
 				_, execErr := executor.Execute(ctx, job)
@@ -1406,7 +1398,7 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 					return false
 				}
 			}
-			
+
 			// Flake should still be the original
 			return job.GeneratedFlake == existingFlake && executor.GetGenerateFlakeCalls() == 0
 		},
@@ -1426,12 +1418,12 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 				models.BuildStrategyAutoRust,
 				models.BuildStrategyAutoPython,
 			}
-			
+
 			ctx := context.Background()
-			
+
 			for _, strategy := range autoStrategies {
 				executor := NewMockAutoExecutorWithFlakeTracking(strategy)
-				
+
 				job := &models.BuildJob{
 					ID:             "test-job",
 					DeploymentID:   "test-deployment",
@@ -1439,7 +1431,7 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 					BuildStrategy:  strategy,
 					GeneratedFlake: existingFlake,
 				}
-				
+
 				_, execErr := executor.Execute(ctx, job)
 				if execErr != nil || job.GeneratedFlake != existingFlake {
 					return false
@@ -1454,7 +1446,7 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 	properties.Property("flake reuse works with OCI build type", prop.ForAll(
 		func(strategy models.BuildStrategy, jobID, deploymentID, existingFlake string) bool {
 			executor := NewMockAutoExecutorWithFlakeTracking(strategy)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1462,10 +1454,10 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 				BuildStrategy:  strategy,
 				GeneratedFlake: existingFlake,
 			}
-			
+
 			ctx := context.Background()
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// Should preserve existing flake even for OCI builds
 			return execErr == nil && job.GeneratedFlake == existingFlake
 		},
@@ -1481,9 +1473,9 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 			logger := slog.Default()
 			nixBuilder := &MockNixBuilder{}
 			ociBuilder := &MockOCIBuilder{}
-			
+
 			executor := NewFlakeStrategyExecutor(nixBuilder, ociBuilder, logger)
-			
+
 			job := &models.BuildJob{
 				ID:             jobID,
 				DeploymentID:   deploymentID,
@@ -1491,10 +1483,10 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 				BuildStrategy:  models.BuildStrategyFlake,
 				GeneratedFlake: existingFlake,
 			}
-			
+
 			ctx := context.Background()
 			_, execErr := executor.Execute(ctx, job)
-			
+
 			// Flake strategy should preserve existing GeneratedFlake
 			return execErr == nil && job.GeneratedFlake == existingFlake
 		},
@@ -1505,7 +1497,6 @@ func TestGeneratedFlakeReuse(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: build-lifecycle-correctness, Property 17: Builder Selection by Build Type**
 // *For any* build job with `build_type: pure-nix`, the executor SHALL invoke the NixBuilder.

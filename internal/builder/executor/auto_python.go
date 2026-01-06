@@ -46,7 +46,6 @@ func (e *AutoPythonStrategyExecutor) Supports(strategy models.BuildStrategy) boo
 	return strategy == models.BuildStrategyAutoPython
 }
 
-
 // GenerateFlake generates a flake.nix for a Python application.
 func (e *AutoPythonStrategyExecutor) GenerateFlake(ctx context.Context, detection *models.DetectionResult, config models.BuildConfig) (string, error) {
 	// Prepare template data

@@ -54,7 +54,6 @@ func NewFlakeStrategyExecutor(nixBuilder NixBuilder, ociBuilder OCIBuilder, logg
 	}
 }
 
-
 // Supports returns true if this executor handles the given strategy.
 func (e *FlakeStrategyExecutor) Supports(strategy models.BuildStrategy) bool {
 	return strategy == models.BuildStrategyFlake

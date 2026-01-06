@@ -44,7 +44,6 @@ func (e *NixpacksStrategyExecutor) GenerateFlake(ctx context.Context, detection 
 	return "", nil
 }
 
-
 // Execute runs the build using Nixpacks.
 // Nixpacks strategy always produces OCI images.
 func (e *NixpacksStrategyExecutor) Execute(ctx context.Context, job *models.BuildJob) (*BuildResult, error) {

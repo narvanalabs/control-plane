@@ -120,7 +120,7 @@ func TestCGOConfigurationOverride(t *testing.T) {
 
 			// Create detection result with detected CGO
 			detection := &models.DetectionResult{
-				Strategy:        models.BuildStrategyAutoGo,
+				Strategy: models.BuildStrategyAutoGo,
 				SuggestedConfig: map[string]interface{}{
 					"cgo_enabled": tc.DetectedCGO,
 				},
@@ -144,7 +144,7 @@ func TestCGOConfigurationOverride(t *testing.T) {
 			}
 
 			detection := &models.DetectionResult{
-				Strategy:        models.BuildStrategyAutoGo,
+				Strategy: models.BuildStrategyAutoGo,
 				SuggestedConfig: map[string]interface{}{
 					"cgo_enabled": detectedCGO,
 				},
@@ -165,7 +165,7 @@ func TestCGOConfigurationOverride(t *testing.T) {
 			}
 
 			detection := &models.DetectionResult{
-				Strategy:        models.BuildStrategyAutoGo,
+				Strategy: models.BuildStrategyAutoGo,
 				SuggestedConfig: map[string]interface{}{
 					"cgo_enabled": detectedCGO,
 				},
@@ -185,7 +185,7 @@ func TestCGOConfigurationOverride(t *testing.T) {
 			}
 
 			detection := &models.DetectionResult{
-				Strategy:        models.BuildStrategyAutoGo,
+				Strategy: models.BuildStrategyAutoGo,
 				SuggestedConfig: map[string]interface{}{
 					"cgo_enabled": tc.DetectedCGO,
 				},
@@ -205,7 +205,7 @@ func TestCGOConfigurationOverride(t *testing.T) {
 			}
 
 			detection := &models.DetectionResult{
-				Strategy:        models.BuildStrategyAutoGo,
+				Strategy: models.BuildStrategyAutoGo,
 				SuggestedConfig: map[string]interface{}{
 					"cgo_enabled": tc.DetectedCGO,
 				},
@@ -258,7 +258,7 @@ func TestCGOOverrideEdgeCases(t *testing.T) {
 		}
 
 		detection := &models.DetectionResult{
-			Strategy:        models.BuildStrategyAutoGo,
+			Strategy: models.BuildStrategyAutoGo,
 			SuggestedConfig: map[string]interface{}{
 				"go_version": "1.21",
 			},
@@ -289,7 +289,7 @@ func TestCGOOverrideEdgeCases(t *testing.T) {
 		}
 
 		detection := &models.DetectionResult{
-			Strategy:        models.BuildStrategyAutoGo,
+			Strategy: models.BuildStrategyAutoGo,
 			SuggestedConfig: map[string]interface{}{
 				"cgo_enabled": true,
 			},
@@ -315,8 +315,8 @@ func TestGenerateFlakeCGOOverride(t *testing.T) {
 		}
 
 		detection := &models.DetectionResult{
-			Strategy:        models.BuildStrategyAutoGo,
-			Version:         "1.21",
+			Strategy: models.BuildStrategyAutoGo,
+			Version:  "1.21",
 			SuggestedConfig: map[string]interface{}{
 				"cgo_enabled": false, // Detection says no CGO
 			},
@@ -342,8 +342,8 @@ func TestGenerateFlakeCGOOverride(t *testing.T) {
 		}
 
 		detection := &models.DetectionResult{
-			Strategy:        models.BuildStrategyAutoGo,
-			Version:         "1.21",
+			Strategy: models.BuildStrategyAutoGo,
+			Version:  "1.21",
 			SuggestedConfig: map[string]interface{}{
 				"cgo_enabled": true, // Detection says CGO required
 			},
@@ -358,4 +358,3 @@ func TestGenerateFlakeCGOOverride(t *testing.T) {
 
 // Ensure context is used (for linter)
 var _ = context.Background
-
