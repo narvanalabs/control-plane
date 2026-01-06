@@ -23,9 +23,9 @@ type Config struct {
 	RegistryURL   string
 
 	// Server configuration
-	APIPort    int
-	GRPCPort   int
-	APIHost    string
+	APIPort  int
+	GRPCPort int
+	APIHost  string
 
 	// Scheduler configuration
 	Scheduler SchedulerConfig
