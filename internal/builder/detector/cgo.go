@@ -14,33 +14,48 @@ import (
 
 // CGOPackages lists common packages that require CGO.
 // These are well-known packages that use C bindings.
-// **Validates: Requirements 16.1**
+// **Validates: Requirements 16.1, 1.3**
 var CGOPackages = []string{
-	// SQLite drivers
+	// SQLite drivers (CGO-based)
 	"github.com/mattn/go-sqlite3",
-	"modernc.org/sqlite", // Pure Go, but often confused with CGO version
-
-	// Database drivers that may use CGO
-	"github.com/lib/pq", // Some configurations require CGO
 
 	// Crypto and security
 	"github.com/miekg/pkcs11",
 	"github.com/spacemonkeygo/openssl",
 
-	// Image processing
-	"github.com/disintegration/imaging",
-	"github.com/nfnt/resize",
-
-	// System interaction
+	// System interaction (some features require CGO)
 	"github.com/shirou/gopsutil",
 
 	// GUI libraries
 	"github.com/therecipe/qt",
 	"fyne.io/fyne",
 
-	// Other common CGO packages
-	"github.com/boltdb/bolt",
-	"github.com/syndtr/goleveldb/leveldb",
+	// RocksDB bindings
+	"github.com/tecbot/gorocksdb",
+	"github.com/linxGnu/grocksdb",
+
+	// LevelDB CGO bindings (not the pure Go version)
+	"github.com/jmhodges/levigo",
+
+	// Image processing with C bindings
+	"github.com/gographics/imagick",
+	"gopkg.in/gographics/imagick.v2",
+	"gopkg.in/gographics/imagick.v3",
+
+	// Audio/Video processing
+	"github.com/giorgisio/goav",
+	"github.com/3d0c/gmf",
+
+	// Compression with C bindings
+	"github.com/DataDog/zstd",
+	"github.com/valyala/gozstd",
+
+	// Network/System
+	"github.com/google/gopacket",
+
+	// Machine learning
+	"gorgonia.org/tensor",
+	"github.com/tensorflow/tensorflow/tensorflow/go",
 }
 
 // CGOResult contains the result of CGO detection.

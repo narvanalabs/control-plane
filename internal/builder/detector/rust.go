@@ -11,8 +11,8 @@ import (
 
 // Rust TOML parsing regexes.
 var (
-	rustEditionRegex    = regexp.MustCompile(`(?m)^edition\s*=\s*["'](\d{4})["']`)
-	rustBinaryNameRegex = regexp.MustCompile(`(?m)^\[\[bin\]\][\s\S]*?name\s*=\s*["']([^"']+)["']`)
+	rustEditionRegex     = regexp.MustCompile(`(?m)^edition\s*=\s*["'](\d{4})["']`)
+	rustBinaryNameRegex  = regexp.MustCompile(`(?m)^\[\[bin\]\][\s\S]*?name\s*=\s*["']([^"']+)["']`)
 	rustPackageNameRegex = regexp.MustCompile(`(?m)^\[package\][\s\S]*?name\s*=\s*["']([^"']+)["']`)
 )
 

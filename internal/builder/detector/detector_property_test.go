@@ -519,19 +519,19 @@ type CGOTestCase struct {
 // genCGOPackage generates a known CGO-requiring package or empty string.
 func genCGOPackage() gopter.Gen {
 	return gen.OneConstOf(
-		"",                              // No CGO package
-		"github.com/mattn/go-sqlite3",   // SQLite driver
-		"github.com/shirou/gopsutil",    // System info
-		"github.com/boltdb/bolt",        // BoltDB
+		"",                            // No CGO package
+		"github.com/mattn/go-sqlite3", // SQLite driver
+		"github.com/shirou/gopsutil",  // System info
+		"github.com/tecbot/gorocksdb", // RocksDB bindings
 	)
 }
 
 // genCGOTestCase generates test cases for CGO detection.
 func genCGOTestCase() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Bool(),                                                    // HasCImport
-		genCGOPackage(),                                               // CGOPackage
-		gen.Bool(),                                                    // HasCGODirective
+		gen.Bool(),      // HasCImport
+		genCGOPackage(), // CGOPackage
+		gen.Bool(),      // HasCGODirective
 		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
 	).Map(func(vals []interface{}) CGOTestCase {
@@ -550,9 +550,9 @@ func genCGORequiringTestCase() gopter.Gen {
 	return gen.Weighted([]gen.WeightedGen{
 		// Case 1: Has import "C"
 		{Weight: 3, Gen: gopter.CombineGens(
-			gen.Const(true),                                               // HasCImport
-			genCGOPackage(),                                               // CGOPackage (any)
-			gen.Bool(),                                                    // HasCGODirective (any)
+			gen.Const(true), // HasCImport
+			genCGOPackage(), // CGOPackage (any)
+			gen.Bool(),      // HasCGODirective (any)
 			gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 			gen.OneConstOf("1.21", "1.22"),                                // GoVersion
 		).Map(func(vals []interface{}) CGOTestCase {
@@ -566,9 +566,9 @@ func genCGORequiringTestCase() gopter.Gen {
 		})},
 		// Case 2: Has known CGO package
 		{Weight: 3, Gen: gopter.CombineGens(
-			gen.Bool(),                                                    // HasCImport (any)
-			gen.OneConstOf("github.com/mattn/go-sqlite3", "github.com/shirou/gopsutil", "github.com/boltdb/bolt"), // CGOPackage (must be non-empty)
-			gen.Bool(),                                                    // HasCGODirective (any)
+			gen.Bool(), // HasCImport (any)
+			gen.OneConstOf("github.com/mattn/go-sqlite3", "github.com/shirou/gopsutil", "github.com/tecbot/gorocksdb"), // CGOPackage (must be non-empty)
+			gen.Bool(), // HasCGODirective (any)
 			gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 			gen.OneConstOf("1.21", "1.22"),                                // GoVersion
 		).Map(func(vals []interface{}) CGOTestCase {
@@ -582,9 +582,9 @@ func genCGORequiringTestCase() gopter.Gen {
 		})},
 		// Case 3: Has CGO directive
 		{Weight: 2, Gen: gopter.CombineGens(
-			gen.Bool(),                                                    // HasCImport (any)
-			genCGOPackage(),                                               // CGOPackage (any)
-			gen.Const(true),                                               // HasCGODirective
+			gen.Bool(),      // HasCImport (any)
+			genCGOPackage(), // CGOPackage (any)
+			gen.Const(true), // HasCGODirective
 			gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 			gen.OneConstOf("1.21", "1.22"),                                // GoVersion
 		).Map(func(vals []interface{}) CGOTestCase {
@@ -602,9 +602,9 @@ func genCGORequiringTestCase() gopter.Gen {
 // genNonCGOTestCase generates test cases that do not require CGO.
 func genNonCGOTestCase() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Const(false),                                              // HasCImport = false
-		gen.Const(""),                                                 // CGOPackage = empty
-		gen.Const(false),                                              // HasCGODirective = false
+		gen.Const(false), // HasCImport = false
+		gen.Const(""),    // CGOPackage = empty
+		gen.Const(false), // HasCGODirective = false
 		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 		gen.OneConstOf("1.21", "1.22"),                                // GoVersion
 	).Map(func(vals []interface{}) CGOTestCase {
@@ -773,7 +773,7 @@ func TestIsCGOPackageAccuracy(t *testing.T) {
 			"github.com/mattn/go-sqlite3/v2",
 			"github.com/shirou/gopsutil",
 			"github.com/shirou/gopsutil/v3",
-			"github.com/boltdb/bolt",
+			"github.com/tecbot/gorocksdb",
 		),
 	))
 
@@ -825,9 +825,9 @@ func genWorkspaceModules() gopter.Gen {
 // genGoWorkspaceTestCase generates test cases for Go workspace detection.
 func genGoWorkspaceTestCase() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Bool(),                                                    // HasGoWork
-		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
-		genWorkspaceModules(),                                         // Modules
+		gen.Bool(),                             // HasGoWork
+		gen.OneConstOf("1.21", "1.22", "1.23"), // GoVersion
+		genWorkspaceModules(),                  // Modules
 		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 	).Map(func(vals []interface{}) GoWorkspaceTestCase {
 		return GoWorkspaceTestCase{
@@ -842,9 +842,9 @@ func genGoWorkspaceTestCase() gopter.Gen {
 // genWorkspaceWithGoWork generates test cases that have a go.work file.
 func genWorkspaceWithGoWork() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Const(true),                                               // HasGoWork = true
-		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
-		genWorkspaceModules(),                                         // Modules
+		gen.Const(true),                        // HasGoWork = true
+		gen.OneConstOf("1.21", "1.22", "1.23"), // GoVersion
+		genWorkspaceModules(),                  // Modules
 		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 	).Map(func(vals []interface{}) GoWorkspaceTestCase {
 		return GoWorkspaceTestCase{
@@ -859,9 +859,9 @@ func genWorkspaceWithGoWork() gopter.Gen {
 // genWorkspaceWithoutGoWork generates test cases that do not have a go.work file.
 func genWorkspaceWithoutGoWork() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Const(false),                                              // HasGoWork = false
-		gen.OneConstOf("1.21", "1.22", "1.23"),                        // GoVersion
-		genWorkspaceModules(),                                         // Modules (not used)
+		gen.Const(false),                       // HasGoWork = false
+		gen.OneConstOf("1.21", "1.22", "1.23"), // GoVersion
+		genWorkspaceModules(),                  // Modules (not used)
 		gen.OneConstOf("github.com/example/app", "example.com/myapp"), // ModuleName
 	).Map(func(vals []interface{}) GoWorkspaceTestCase {
 		return GoWorkspaceTestCase{
