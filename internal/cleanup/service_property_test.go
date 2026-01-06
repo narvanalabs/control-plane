@@ -39,8 +39,8 @@ func TestCleanupRetentionEnforcement(t *testing.T) {
 			// The container should be preserved if and only if it's within retention
 			return shouldPreserve == !wouldRemove
 		},
-		gen.IntRange(1, 168),  // retention: 1-168 hours (1 week max)
-		gen.IntRange(0, 336),  // container age: 0-336 hours (2 weeks max)
+		gen.IntRange(1, 168), // retention: 1-168 hours (1 week max)
+		gen.IntRange(0, 336), // container age: 0-336 hours (2 weeks max)
 	))
 
 	// Property: Images within retention period are preserved
@@ -61,8 +61,8 @@ func TestCleanupRetentionEnforcement(t *testing.T) {
 
 			return shouldPreserve == !wouldRemove
 		},
-		gen.IntRange(1, 30),  // retention: 1-30 days
-		gen.IntRange(0, 60),  // image age: 0-60 days
+		gen.IntRange(1, 30), // retention: 1-30 days
+		gen.IntRange(0, 60), // image age: 0-60 days
 	))
 
 	// Property: Deployments within retention period are preserved
@@ -83,8 +83,8 @@ func TestCleanupRetentionEnforcement(t *testing.T) {
 
 			return shouldPreserve == !wouldArchive
 		},
-		gen.IntRange(1, 90),   // retention: 1-90 days
-		gen.IntRange(0, 180),  // deployment age: 0-180 days
+		gen.IntRange(1, 90),  // retention: 1-90 days
+		gen.IntRange(0, 180), // deployment age: 0-180 days
 	))
 
 	properties.TestingRun(t)
@@ -138,9 +138,9 @@ func TestMinimumDeploymentsKept(t *testing.T) {
 
 			return deploymentsToKeep >= expectedMinKept
 		},
-		gen.IntRange(0, 20),  // total deployments
-		gen.IntRange(1, 10),  // min kept
-		gen.IntRange(1, 30),  // retention days
+		gen.IntRange(0, 20), // total deployments
+		gen.IntRange(1, 10), // min kept
+		gen.IntRange(1, 30), // retention days
 	))
 
 	properties.TestingRun(t)
@@ -195,7 +195,7 @@ func TestActiveImagesPreserved(t *testing.T) {
 		},
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 && len(s) < 64 }),
 		gen.Bool(),
-		gen.IntRange(0, 365),  // image age in days
+		gen.IntRange(0, 365), // image age in days
 	))
 
 	properties.TestingRun(t)
@@ -227,12 +227,12 @@ func TestSettingsValidation(t *testing.T) {
 			err := settings.Validate()
 			return err == nil
 		},
-		gen.IntRange(1, 168),   // container retention hours
-		gen.IntRange(1, 720),   // image retention hours
-		gen.IntRange(1, 168),   // nix gc interval hours
-		gen.IntRange(1, 2160),  // deployment retention hours
-		gen.IntRange(1, 100),   // min deployments kept
-		gen.IntRange(1, 2160),  // attic retention hours
+		gen.IntRange(1, 168),  // container retention hours
+		gen.IntRange(1, 720),  // image retention hours
+		gen.IntRange(1, 168),  // nix gc interval hours
+		gen.IntRange(1, 2160), // deployment retention hours
+		gen.IntRange(1, 100),  // min deployments kept
+		gen.IntRange(1, 2160), // attic retention hours
 	))
 
 	properties.Property("non-positive retention periods are invalid", prop.ForAll(
@@ -258,12 +258,12 @@ func TestSettingsValidation(t *testing.T) {
 			}
 			return err == nil
 		},
-		gen.IntRange(-10, 10),  // container retention hours (can be negative)
-		gen.IntRange(-10, 10),  // image retention hours
-		gen.IntRange(-10, 10),  // nix gc interval hours
-		gen.IntRange(-10, 10),  // deployment retention hours
-		gen.IntRange(-10, 10),  // min deployments kept
-		gen.IntRange(-10, 10),  // attic retention hours
+		gen.IntRange(-10, 10), // container retention hours (can be negative)
+		gen.IntRange(-10, 10), // image retention hours
+		gen.IntRange(-10, 10), // nix gc interval hours
+		gen.IntRange(-10, 10), // deployment retention hours
+		gen.IntRange(-10, 10), // min deployments kept
+		gen.IntRange(-10, 10), // attic retention hours
 	))
 
 	properties.TestingRun(t)

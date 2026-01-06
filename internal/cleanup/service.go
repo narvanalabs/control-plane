@@ -25,12 +25,12 @@ const (
 
 // Default values for cleanup settings.
 const (
-	DefaultContainerRetention  = 24 * time.Hour       // 1 day
-	DefaultImageRetention      = 7 * 24 * time.Hour   // 7 days
-	DefaultNixGCInterval       = 24 * time.Hour       // 1 day
-	DefaultDeploymentRetention = 30 * 24 * time.Hour  // 30 days
+	DefaultContainerRetention  = 24 * time.Hour      // 1 day
+	DefaultImageRetention      = 7 * 24 * time.Hour  // 7 days
+	DefaultNixGCInterval       = 24 * time.Hour      // 1 day
+	DefaultDeploymentRetention = 30 * 24 * time.Hour // 30 days
 	DefaultMinDeploymentsKept  = 5
-	DefaultAtticRetention      = 30 * 24 * time.Hour  // 30 days
+	DefaultAtticRetention      = 30 * 24 * time.Hour // 30 days
 )
 
 // Settings holds cleanup configuration loaded from the settings store.
@@ -147,7 +147,6 @@ func parseInt(value string, defaultVal int) int {
 	return i
 }
 
-
 // CleanupResult holds the result of a cleanup operation.
 type CleanupResult struct {
 	ItemsRemoved int           `json:"items_removed"`
@@ -214,7 +213,6 @@ func (s *Service) CleanupContainers(ctx context.Context) (*CleanupResult, error)
 
 	return result, nil
 }
-
 
 // CleanupImages removes unused images older than the configured retention period.
 // Images referenced by active deployments are preserved.
@@ -349,7 +347,6 @@ func (s *Service) isImageActive(img podman.ImageInfo, activeImages map[string]bo
 	return false
 }
 
-
 // NixGCResult holds the result of a Nix garbage collection operation.
 type NixGCResult struct {
 	SpaceFreed   int64         `json:"space_freed_bytes"`
@@ -471,12 +468,11 @@ func (s *Service) runNixGC(ctx context.Context) (int64, int, error) {
 	// In a real implementation, this would be executed on the node via the agent
 	// For now, we return placeholder values
 	s.logger.Info("would run: nix-collect-garbage -d")
-	
+
 	// Return 0 values since we're not actually running the command
 	// The actual implementation would parse the output of nix-collect-garbage
 	return 0, 0, nil
 }
-
 
 // ArchiveResult holds the result of a deployment archival operation.
 type ArchiveResult struct {
@@ -585,7 +581,7 @@ func (s *Service) getDeploymentsToArchive(ctx context.Context, cutoff time.Time)
 		for serviceName, deps := range serviceDeployments {
 			// Sort by created_at descending (newest first)
 			// The deployments are already sorted by created_at DESC from the store
-			
+
 			// Keep at least MinDeploymentsKept
 			keepCount := s.settings.MinDeploymentsKept
 			if keepCount > len(deps) {
@@ -646,7 +642,6 @@ func (s *Service) archiveDeployment(ctx context.Context, deploymentID string, re
 
 	return nil
 }
-
 
 // SaveSettings validates and saves cleanup settings to the store.
 // Returns an error if validation fails.
