@@ -29,9 +29,15 @@ message DeployRequest {
   map<string, string> secrets = 5;
 }
 
+// ResourceSpec defines CPU and memory resource allocation.
+message ResourceSpec {
+  string cpu = 1;    // CPU allocation, e.g., "0.5", "1", "2"
+  string memory = 2; // Memory allocation, e.g., "256Mi", "1Gi"
+}
+
 // RuntimeConfig holds runtime configuration for a deployment.
 message RuntimeConfig {
-  string resource_tier = 1;
+  ResourceSpec resources = 1;
   map<string, string> env_vars = 2;
   repeated PortMapping ports = 3;
   HealthCheckConfig health_check = 4;
