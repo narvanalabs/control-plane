@@ -51,21 +51,20 @@ func genOptionalTime() gopter.Gen {
 	}, reflect.TypeOf((*time.Time)(nil)))
 }
 
-
 // genBuildJob generates a random BuildJob.
 func genBuildJob() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                                                  // ID
-		gen.Identifier(),                                                  // DeploymentID
-		gen.Identifier(),                                                  // AppID
+		gen.Identifier(), // ID
+		gen.Identifier(), // DeploymentID
+		gen.Identifier(), // AppID
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // GitURL
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // GitRef
-		gen.AlphaString(),                                                 // FlakeOutput
-		genBuildType(),                                                    // BuildType
-		genBuildStatus(),                                                  // Status
-		genTime(),                                                         // CreatedAt
-		genOptionalTime(),                                                 // StartedAt
-		genOptionalTime(),                                                 // FinishedAt
+		gen.AlphaString(), // FlakeOutput
+		genBuildType(),    // BuildType
+		genBuildStatus(),  // Status
+		genTime(),         // CreatedAt
+		genOptionalTime(), // StartedAt
+		genOptionalTime(), // FinishedAt
 	).Map(func(vals []interface{}) models.BuildJob {
 		return models.BuildJob{
 			ID:           vals[0].(string),
