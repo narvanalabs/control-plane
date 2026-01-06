@@ -11,17 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/websocket"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/builder/detector"
 	"github.com/narvanalabs/control-plane/internal/builder/templates/databases"
 	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/podman"
 	"github.com/narvanalabs/control-plane/internal/secrets"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/internal/validation"
-	"github.com/narvanalabs/control-plane/internal/podman"
-	"github.com/creack/pty"
-	"github.com/gorilla/websocket"
 )
 
 // ServiceHandler handles service-related HTTP requests.
@@ -60,13 +60,13 @@ func NewServiceHandlerWithDetector(st store.Store, pd *podman.Client, det detect
 
 // CreateServiceRequest represents the request body for creating a service.
 type CreateServiceRequest struct {
-	Name        string            `json:"name"`
-	SourceType  models.SourceType `json:"source_type,omitempty"`
-	GitRepo     string            `json:"git_repo,omitempty"`
-	GitRef      string            `json:"git_ref,omitempty"`      // Default: "main"
-	FlakeOutput string            `json:"flake_output,omitempty"` // Default: "packages.x86_64-linux.default"
-	FlakeURI    string            `json:"flake_uri,omitempty"`
-	Image       string            `json:"image,omitempty"`
+	Name        string                 `json:"name"`
+	SourceType  models.SourceType      `json:"source_type,omitempty"`
+	GitRepo     string                 `json:"git_repo,omitempty"`
+	GitRef      string                 `json:"git_ref,omitempty"`      // Default: "main"
+	FlakeOutput string                 `json:"flake_output,omitempty"` // Default: "packages.x86_64-linux.default"
+	FlakeURI    string                 `json:"flake_uri,omitempty"`
+	Image       string                 `json:"image,omitempty"`
 	Database    *models.DatabaseConfig `json:"database,omitempty"`
 
 	// Language selection for auto-detection
@@ -79,23 +79,22 @@ type CreateServiceRequest struct {
 	BuildConfig   *models.BuildConfig  `json:"build_config,omitempty"`
 
 	// Runtime
-	ResourceTier models.ResourceTier       `json:"resource_tier,omitempty"` // Deprecated: Use Resources instead
-	Resources    *models.ResourceSpec      `json:"resources,omitempty"`     // Direct CPU/memory specification
-	Replicas     int                       `json:"replicas,omitempty"`      // Default: 1
-	Ports        []models.PortMapping      `json:"ports,omitempty"`
-	HealthCheck  *models.HealthCheckConfig `json:"health_check,omitempty"`
-	DependsOn    []string                  `json:"depends_on,omitempty"`
-	EnvVars      map[string]string         `json:"env_vars,omitempty"`
+	Resources   *models.ResourceSpec      `json:"resources,omitempty"` // CPU/memory specification
+	Replicas    int                       `json:"replicas,omitempty"`  // Default: 1
+	Ports       []models.PortMapping      `json:"ports,omitempty"`
+	HealthCheck *models.HealthCheckConfig `json:"health_check,omitempty"`
+	DependsOn   []string                  `json:"depends_on,omitempty"`
+	EnvVars     map[string]string         `json:"env_vars,omitempty"`
 }
 
 // UpdateServiceRequest represents the request body for updating a service.
 type UpdateServiceRequest struct {
-	SourceType  *models.SourceType `json:"source_type,omitempty"`
-	GitRepo     *string            `json:"git_repo,omitempty"`
-	GitRef      *string            `json:"git_ref,omitempty"`
-	FlakeOutput *string            `json:"flake_output,omitempty"`
-	FlakeURI    *string            `json:"flake_uri,omitempty"`
-	Image       *string            `json:"image,omitempty"`
+	SourceType  *models.SourceType     `json:"source_type,omitempty"`
+	GitRepo     *string                `json:"git_repo,omitempty"`
+	GitRef      *string                `json:"git_ref,omitempty"`
+	FlakeOutput *string                `json:"flake_output,omitempty"`
+	FlakeURI    *string                `json:"flake_uri,omitempty"`
+	Image       *string                `json:"image,omitempty"`
 	Database    *models.DatabaseConfig `json:"database,omitempty"`
 
 	// Build strategy updates
@@ -103,13 +102,12 @@ type UpdateServiceRequest struct {
 	BuildConfig   *models.BuildConfig   `json:"build_config,omitempty"`
 
 	// Runtime updates
-	ResourceTier *models.ResourceTier      `json:"resource_tier,omitempty"` // Deprecated: Use Resources instead
-	Resources    *models.ResourceSpec      `json:"resources,omitempty"`     // Direct CPU/memory specification
-	Replicas     *int                      `json:"replicas,omitempty"`
-	Ports        []models.PortMapping      `json:"ports,omitempty"`
-	HealthCheck  *models.HealthCheckConfig `json:"health_check,omitempty"`
-	DependsOn    []string                  `json:"depends_on,omitempty"`
-	EnvVars      map[string]string         `json:"env_vars,omitempty"`
+	Resources   *models.ResourceSpec      `json:"resources,omitempty"` // CPU/memory specification
+	Replicas    *int                      `json:"replicas,omitempty"`
+	Ports       []models.PortMapping      `json:"ports,omitempty"`
+	HealthCheck *models.HealthCheckConfig `json:"health_check,omitempty"`
+	DependsOn   []string                  `json:"depends_on,omitempty"`
+	EnvVars     map[string]string         `json:"env_vars,omitempty"`
 }
 
 // ServiceResponse represents a service in API responses with inherited env vars.
@@ -242,13 +240,6 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Apply default resources if not specified (Requirements: 12.3, 30.2, 30.3)
 	if service.Resources == nil {
 		service.Resources = h.getDefaultResources(r.Context())
-	}
-
-	// Apply defaults for resource tier (deprecated) and replicas
-	if req.ResourceTier != "" {
-		service.ResourceTier = req.ResourceTier
-	} else {
-		service.ResourceTier = models.ResourceTierSmall
 	}
 
 	if req.Replicas > 0 {
@@ -565,11 +556,7 @@ func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if req.BuildConfig != nil {
 		service.BuildConfig = req.BuildConfig
 	}
-	// ResourceTier is deprecated, but still accept it for backwards compatibility
-	if req.ResourceTier != nil {
-		service.ResourceTier = *req.ResourceTier
-	}
-	// Direct resource specification takes precedence (Requirements: 12.1, 12.5)
+	// Direct resource specification (Requirements: 12.1, 12.5)
 	if req.Resources != nil {
 		service.Resources = req.Resources
 	}
@@ -819,7 +806,7 @@ func (h *ServiceHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 	serviceName := chi.URLParam(r, "serviceName")
 
 	h.logger.Info("service terminal websocket request received", "app_id", appID, "service", serviceName)
-	
+
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
@@ -854,16 +841,16 @@ func (h *ServiceHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 	// Container name format: narvana-<deployment-id>
 	// This matches the node-agent's naming convention
 	containerName := fmt.Sprintf("narvana-%s", runningDeployment.ID)
-	
+
 	// Spawn shell with PTY
 	h.logger.Info("starting podman exec pty", "container", containerName, "deployment_id", runningDeployment.ID)
 	c := h.podman.Exec(containerName, []string{"/bin/sh"})
-	c.Env = append(os.Environ(), 
-		"TERM=xterm-256color", 
+	c.Env = append(os.Environ(),
+		"TERM=xterm-256color",
 		"LANG=en_US.UTF-8",
 		"LC_ALL=en_US.UTF-8",
 	)
-	
+
 	f, err := pty.Start(c)
 	if err != nil {
 		h.logger.Error("failed to start pty", "error", err, "container", containerName)
@@ -877,7 +864,7 @@ func (h *ServiceHandler) TerminalWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	h.logger.Info("service pty started successfully", "container", containerName)
 	defer f.Close()
 
@@ -1045,7 +1032,6 @@ func (h *ServiceHandler) DetectForService(w http.ResponseWriter, r *http.Request
 
 	WriteJSON(w, http.StatusOK, response)
 }
-
 
 // StopService handles POST /v1/apps/{appID}/services/{serviceName}/stop - stops a running service.
 // **Validates: Requirements 7.7**
@@ -1642,4 +1628,170 @@ func parseIntSetting(s string) (int, error) {
 // timePtr returns a pointer to the given time.
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// AddEnvVarRequest represents the request body for adding an environment variable.
+type AddEnvVarRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// AddEnvVar handles POST /v1/apps/{appID}/services/{serviceName}/env - adds an environment variable.
+func (h *ServiceHandler) AddEnvVar(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	var req AddEnvVarRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteBadRequest(w, "Invalid request body")
+		return
+	}
+
+	if req.Key == "" {
+		WriteBadRequest(w, "Key is required")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteNotFound(w, "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	serviceIndex := -1
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			serviceIndex = i
+			break
+		}
+	}
+
+	if serviceIndex == -1 {
+		WriteNotFound(w, "Service not found")
+		return
+	}
+
+	// Initialize env vars map if nil
+	if app.Services[serviceIndex].EnvVars == nil {
+		app.Services[serviceIndex].EnvVars = make(map[string]string)
+	}
+
+	// Add the env var
+	app.Services[serviceIndex].EnvVars[req.Key] = req.Value
+	app.UpdatedAt = time.Now()
+
+	if err := h.store.Apps().Update(r.Context(), app); err != nil {
+		h.logger.Error("failed to add env var", "error", err)
+		WriteInternalError(w, "Failed to add environment variable")
+		return
+	}
+
+	h.logger.Info("env var added", "app_id", appID, "service_name", serviceName, "key", req.Key)
+	WriteJSON(w, http.StatusCreated, map[string]string{"status": "created", "key": req.Key})
+}
+
+// DeleteEnvVar handles DELETE /v1/apps/{appID}/services/{serviceName}/env/{key} - deletes an environment variable.
+func (h *ServiceHandler) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+	key := chi.URLParam(r, "key")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+	if key == "" {
+		WriteBadRequest(w, "Key is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteNotFound(w, "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	serviceIndex := -1
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			serviceIndex = i
+			break
+		}
+	}
+
+	if serviceIndex == -1 {
+		WriteNotFound(w, "Service not found")
+		return
+	}
+
+	// Check if env var exists
+	if app.Services[serviceIndex].EnvVars == nil {
+		WriteNotFound(w, "Environment variable not found")
+		return
+	}
+
+	if _, exists := app.Services[serviceIndex].EnvVars[key]; !exists {
+		WriteNotFound(w, "Environment variable not found")
+		return
+	}
+
+	// Delete the env var
+	delete(app.Services[serviceIndex].EnvVars, key)
+	app.UpdatedAt = time.Now()
+
+	if err := h.store.Apps().Update(r.Context(), app); err != nil {
+		h.logger.Error("failed to delete env var", "error", err)
+		WriteInternalError(w, "Failed to delete environment variable")
+		return
+	}
+
+	h.logger.Info("env var deleted", "app_id", appID, "service_name", serviceName, "key", key)
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -178,19 +178,18 @@ func TestDirectResourceSpecification(t *testing.T) {
 		gen.IntRange(0, 1),
 	))
 
-	// Property 11.5: Resource tier is ignored when direct resources are specified
-	properties.Property("resource tier is ignored when direct resources specified", prop.ForAll(
+	// Property 11.5: Resource spec takes precedence
+	properties.Property("resource spec is used for resource allocation", prop.ForAll(
 		func(cpu string, memory string) bool {
-			// Create a service config with both ResourceTier and Resources
+			// Create a service config with Resources
 			service := models.ServiceConfig{
-				Name:         "test-service",
-				ResourceTier: models.ResourceTierLarge, // This should be ignored
+				Name: "test-service",
 				Resources: &models.ResourceSpec{
 					CPU:    cpu,
 					Memory: memory,
 				},
 			}
-			// The Resources field should take precedence
+			// The Resources field should be used
 			return service.Resources.CPU == cpu && service.Resources.Memory == memory
 		},
 		genValidCPU(),
@@ -199,7 +198,6 @@ func TestDirectResourceSpecification(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: backend-source-of-truth, Property 18: Service Count Limit Enforcement**
 // For any app, creating a service when the current count equals the configured maximum
@@ -266,7 +264,6 @@ func TestServiceCountLimitEnforcement(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: backend-source-of-truth, Property 17: Service Rename Reference Update**
 // For any service rename operation, all DependsOn references in other services and
@@ -478,7 +475,6 @@ func TestServiceRenameReferenceUpdate(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: backend-source-of-truth, Property 15: Service Deletion Resource Cleanup**
 // For any service deletion, all associated resources (secrets, domains, pending builds,
 // deployment containers) SHALL be cleaned up or scheduled for cleanup.
@@ -650,7 +646,6 @@ func TestServiceDeletionResourceCleanup(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: backend-source-of-truth, Property 21: Default Resource Application**
 // For any service creation without explicit resource specification, the system SHALL
