@@ -86,7 +86,6 @@ func (s *InvitationStore) Get(ctx context.Context, id string) (*models.Invitatio
 	return &inv, nil
 }
 
-
 // GetByToken retrieves an invitation by its token.
 func (s *InvitationStore) GetByToken(ctx context.Context, token string) (*models.Invitation, error) {
 	query := `

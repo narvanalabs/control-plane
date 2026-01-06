@@ -96,16 +96,17 @@ func runMigrations(db *sql.DB) error {
 	return err
 }
 
-
-// genResourceTier generates a random ResourceTier.
-func genResourceTier() gopter.Gen {
-	return gen.OneConstOf(
-		models.ResourceTierNano,
-		models.ResourceTierSmall,
-		models.ResourceTierMedium,
-		models.ResourceTierLarge,
-		models.ResourceTierXLarge,
-	)
+// genResourceSpec generates a random ResourceSpec.
+func genResourceSpec() gopter.Gen {
+	return gopter.CombineGens(
+		gen.OneConstOf("0.25", "0.5", "1", "2", "4"),
+		gen.OneConstOf("256Mi", "512Mi", "1Gi", "2Gi", "4Gi"),
+	).Map(func(vals []interface{}) *models.ResourceSpec {
+		return &models.ResourceSpec{
+			CPU:    vals[0].(string),
+			Memory: vals[1].(string),
+		}
+	})
 }
 
 // genPortMapping generates a random PortMapping.
@@ -167,20 +168,20 @@ func genServiceConfig() gopter.Gen {
 	return gopter.CombineGens(
 		genNonEmptyAlphaString(),
 		gen.AlphaString(),
-		genResourceTier(),
+		genResourceSpec(),
 		gen.IntRange(1, 10),
 		gen.SliceOfN(2, genPortMapping()),
 		genOptionalHealthCheckConfig(),
 		gen.SliceOfN(2, gen.AlphaString()),
 	).Map(func(vals []interface{}) models.ServiceConfig {
 		return models.ServiceConfig{
-			Name:         vals[0].(string),
-			FlakeOutput:  vals[1].(string),
-			ResourceTier: vals[2].(models.ResourceTier),
-			Replicas:     vals[3].(int),
-			Ports:        vals[4].([]models.PortMapping),
-			HealthCheck:  vals[5].(*models.HealthCheckConfig),
-			DependsOn:    vals[6].([]string),
+			Name:        vals[0].(string),
+			FlakeOutput: vals[1].(string),
+			Resources:   vals[2].(*models.ResourceSpec),
+			Replicas:    vals[3].(int),
+			Ports:       vals[4].([]models.PortMapping),
+			HealthCheck: vals[5].(*models.HealthCheckConfig),
+			DependsOn:   vals[6].([]string),
 		}
 	})
 }
@@ -202,7 +203,6 @@ func genAppInput() gopter.Gen {
 		}
 	})
 }
-
 
 // **Feature: control-plane, Property 1: Application creation round-trip**
 // For any valid application metadata, creating an application and then retrieving
@@ -527,7 +527,6 @@ func TestAppListFiltersDeleted(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: backend-source-of-truth, Property 4: Optimistic Locking Conflict Detection**
 // *For any* app with version N, an update request with version M where M != N
 // SHALL be rejected with a conflict error.
@@ -626,7 +625,6 @@ func TestAppOptimisticLockingConflictDetection(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: backend-source-of-truth, Property 3: App Organization Filtering**
 // *For any* organization with apps, listing apps SHALL return only apps
@@ -781,7 +779,6 @@ func TestAppOrganizationFiltering(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: backend-source-of-truth, Property 6: App Update Field Preservation**
 // *For any* app update request, fields not specified in the request SHALL retain
 // their previous values.
@@ -897,7 +894,6 @@ func TestAppUpdateFieldPreservation(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: backend-source-of-truth, Property 7: App Name Uniqueness Within Organization**
 // *For any* organization, attempting to create or rename an app to a name that already
 // exists within that organization SHALL be rejected with a conflict error.
@@ -1007,7 +1003,6 @@ func TestAppNameUniquenessWithinOrganization(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: backend-source-of-truth, Property 5: Transaction Rollback on Failure**
 // *For any* service operation that fails mid-transaction, all changes including
 // generated credentials SHALL be rolled back, leaving the database in its pre-operation state.
@@ -1038,7 +1033,7 @@ func TestTransactionRollbackOnFailure(t *testing.T) {
 			artifact TEXT,
 			status VARCHAR(20) NOT NULL DEFAULT 'pending',
 			node_id UUID,
-			resource_tier VARCHAR(20),
+			resources JSONB,
 			config JSONB,
 			depends_on JSONB,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1222,7 +1217,7 @@ func TestTransactionRollbackOnAppDeletion(t *testing.T) {
 			artifact TEXT,
 			status VARCHAR(20) NOT NULL DEFAULT 'pending',
 			node_id UUID,
-			resource_tier VARCHAR(20),
+			resources JSONB,
 			config JSONB,
 			depends_on JSONB,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1392,7 +1387,7 @@ func TestTransactionRollbackOnServiceRename(t *testing.T) {
 			artifact TEXT,
 			status VARCHAR(20) NOT NULL DEFAULT 'pending',
 			node_id UUID,
-			resource_tier VARCHAR(20),
+			resources JSONB,
 			config JSONB,
 			depends_on JSONB,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1611,6 +1606,298 @@ func TestTransactionRollbackOnServiceRename(t *testing.T) {
 			return true
 		},
 		genNonEmptyAlphaString(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// **Feature: environment-variables, Property 1: Environment Variable CRUD Round-Trip**
+// For any valid environment variable key-value pair, creating it via the API and then
+// retrieving it should return the same key-value pair.
+// **Validates: Requirements 1.2, 1.3, 4.2, 4.4**
+func TestServiceEnvVarsCRUDRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	defer cleanupTestDB(t, db)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	appStore := &AppStore{db: db, logger: logger}
+
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Generator for valid environment variable keys (must match ^[A-Za-z_][A-Za-z0-9_]*$)
+	genEnvKey := func() gopter.Gen {
+		return gopter.CombineGens(
+			gen.OneConstOf("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+				"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "_"),
+			gen.SliceOfN(5, gen.OneConstOf(
+				"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+				"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+				"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "_")),
+		).Map(func(vals []interface{}) string {
+			first := vals[0].(string)
+			rest := vals[1].([]string)
+			result := first
+			for _, s := range rest {
+				result += s
+			}
+			return result
+		})
+	}
+
+	// Generator for environment variable values
+	genEnvValue := func() gopter.Gen {
+		return gen.AlphaString()
+	}
+
+	// Generator for a map of environment variables
+	genEnvVarsMap := func() gopter.Gen {
+		return gen.IntRange(1, 5).FlatMap(func(v interface{}) gopter.Gen {
+			count := v.(int)
+			return gen.SliceOfN(count, gopter.CombineGens(genEnvKey(), genEnvValue())).Map(func(pairs [][]interface{}) map[string]string {
+				result := make(map[string]string)
+				for _, pair := range pairs {
+					key := pair[0].(string)
+					value := pair[1].(string)
+					result[key] = value
+				}
+				return result
+			})
+		}, reflect.TypeOf(map[string]string{}))
+	}
+
+	// Generator for ServiceConfig with EnvVars
+	genServiceConfigWithEnvVars := func() gopter.Gen {
+		return gopter.CombineGens(
+			genNonEmptyAlphaString(),
+			genEnvVarsMap(),
+		).Map(func(vals []interface{}) models.ServiceConfig {
+			return models.ServiceConfig{
+				Name:       vals[0].(string),
+				SourceType: models.SourceTypeFlake,
+				FlakeURI:   "github:owner/repo",
+				EnvVars:    vals[1].(map[string]string),
+				Replicas:   1,
+			}
+		})
+	}
+
+	// Generator for App with services containing EnvVars
+	genAppWithEnvVars := func() gopter.Gen {
+		return gopter.CombineGens(
+			genNonEmptyAlphaString(), // OwnerID
+			genNonEmptyAlphaString(), // Name
+			genServiceConfigWithEnvVars(),
+		).Map(func(vals []interface{}) models.App {
+			return models.App{
+				ID:       uuid.New().String(),
+				OwnerID:  vals[0].(string),
+				Name:     vals[1].(string),
+				Services: []models.ServiceConfig{vals[2].(models.ServiceConfig)},
+			}
+		})
+	}
+
+	// Property 1: CREATE - EnvVars are preserved when creating an app
+	properties.Property("EnvVars are preserved on app creation", prop.ForAll(
+		func(input models.App) bool {
+			ctx := context.Background()
+
+			// Create the app
+			err := appStore.Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Retrieve the app
+			retrieved, err := appStore.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get error: %v", err)
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify services exist
+			if len(retrieved.Services) != len(input.Services) {
+				t.Logf("Services count mismatch: got %d, want %d", len(retrieved.Services), len(input.Services))
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify EnvVars match for each service
+			for i, svc := range retrieved.Services {
+				inputSvc := input.Services[i]
+				if len(svc.EnvVars) != len(inputSvc.EnvVars) {
+					t.Logf("EnvVars count mismatch for service %s: got %d, want %d",
+						svc.Name, len(svc.EnvVars), len(inputSvc.EnvVars))
+					appStore.Delete(ctx, input.ID)
+					return false
+				}
+
+				for key, expectedValue := range inputSvc.EnvVars {
+					actualValue, exists := svc.EnvVars[key]
+					if !exists {
+						t.Logf("EnvVar key %s not found in retrieved service", key)
+						appStore.Delete(ctx, input.ID)
+						return false
+					}
+					if actualValue != expectedValue {
+						t.Logf("EnvVar value mismatch for key %s: got %s, want %s",
+							key, actualValue, expectedValue)
+						appStore.Delete(ctx, input.ID)
+						return false
+					}
+				}
+			}
+
+			// Cleanup
+			appStore.Delete(ctx, input.ID)
+			return true
+		},
+		genAppWithEnvVars(),
+	))
+
+	// Property 2: UPDATE - EnvVars can be added and updated
+	properties.Property("EnvVars can be added and updated", prop.ForAll(
+		func(input models.App, newKey, newValue string) bool {
+			ctx := context.Background()
+
+			// Create the app
+			err := appStore.Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Retrieve the app
+			retrieved, err := appStore.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get error: %v", err)
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Add a new env var to the first service
+			if len(retrieved.Services) > 0 {
+				if retrieved.Services[0].EnvVars == nil {
+					retrieved.Services[0].EnvVars = make(map[string]string)
+				}
+				retrieved.Services[0].EnvVars[newKey] = newValue
+
+				// Update the app
+				err = appStore.Update(ctx, retrieved)
+				if err != nil {
+					t.Logf("Update error: %v", err)
+					appStore.Delete(ctx, input.ID)
+					return false
+				}
+
+				// Retrieve again and verify
+				updated, err := appStore.Get(ctx, input.ID)
+				if err != nil {
+					t.Logf("Get after update error: %v", err)
+					appStore.Delete(ctx, input.ID)
+					return false
+				}
+
+				// Verify the new env var exists
+				actualValue, exists := updated.Services[0].EnvVars[newKey]
+				if !exists {
+					t.Logf("New EnvVar key %s not found after update", newKey)
+					appStore.Delete(ctx, input.ID)
+					return false
+				}
+				if actualValue != newValue {
+					t.Logf("New EnvVar value mismatch: got %s, want %s", actualValue, newValue)
+					appStore.Delete(ctx, input.ID)
+					return false
+				}
+			}
+
+			// Cleanup
+			appStore.Delete(ctx, input.ID)
+			return true
+		},
+		genAppWithEnvVars(),
+		genEnvKey(),
+		genEnvValue(),
+	))
+
+	// Property 3: DELETE - EnvVars can be removed
+	properties.Property("EnvVars can be removed", prop.ForAll(
+		func(input models.App) bool {
+			ctx := context.Background()
+
+			// Ensure we have at least one env var to delete
+			if len(input.Services) == 0 || len(input.Services[0].EnvVars) == 0 {
+				return true // Skip if no env vars
+			}
+
+			// Create the app
+			err := appStore.Create(ctx, &input)
+			if err != nil {
+				t.Logf("Create error: %v", err)
+				return false
+			}
+
+			// Retrieve the app
+			retrieved, err := appStore.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get error: %v", err)
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Get a key to delete
+			var keyToDelete string
+			for k := range retrieved.Services[0].EnvVars {
+				keyToDelete = k
+				break
+			}
+
+			originalCount := len(retrieved.Services[0].EnvVars)
+
+			// Delete the env var
+			delete(retrieved.Services[0].EnvVars, keyToDelete)
+
+			// Update the app
+			err = appStore.Update(ctx, retrieved)
+			if err != nil {
+				t.Logf("Update error: %v", err)
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Retrieve again and verify
+			updated, err := appStore.Get(ctx, input.ID)
+			if err != nil {
+				t.Logf("Get after update error: %v", err)
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify the env var was deleted
+			_, exists := updated.Services[0].EnvVars[keyToDelete]
+			if exists {
+				t.Logf("EnvVar key %s should have been deleted", keyToDelete)
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Verify count decreased
+			if len(updated.Services[0].EnvVars) != originalCount-1 {
+				t.Logf("EnvVars count should be %d, got %d", originalCount-1, len(updated.Services[0].EnvVars))
+				appStore.Delete(ctx, input.ID)
+				return false
+			}
+
+			// Cleanup
+			appStore.Delete(ctx, input.ID)
+			return true
+		},
+		genAppWithEnvVars(),
 	))
 
 	properties.TestingRun(t)

@@ -94,7 +94,6 @@ func (s *SecretStore) List(ctx context.Context, appID string) ([]string, error) 
 	return keys, nil
 }
 
-
 // Delete removes a secret.
 func (s *SecretStore) Delete(ctx context.Context, appID, key string) error {
 	query := `DELETE FROM secrets WHERE app_id = $1 AND key = $2`

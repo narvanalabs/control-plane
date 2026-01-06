@@ -170,6 +170,7 @@ func (s *GitHubStore) DeleteInstallation(ctx context.Context, id int64) error {
 	_, err := s.conn().ExecContext(ctx, query, id)
 	return err
 }
+
 // ResetConfig clears the GitHub App configuration and all installations.
 func (s *GitHubStore) ResetConfig(ctx context.Context) error {
 	// 1. Delete all installations

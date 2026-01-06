@@ -65,7 +65,6 @@ func (s *OrgStore) Create(ctx context.Context, org *models.Organization) error {
 	return nil
 }
 
-
 // Get retrieves an organization by ID.
 func (s *OrgStore) Get(ctx context.Context, id string) (*models.Organization, error) {
 	query := `
@@ -204,7 +203,6 @@ func (s *OrgStore) Update(ctx context.Context, org *models.Organization) error {
 
 	return nil
 }
-
 
 // Delete deletes an organization (only if not the last one).
 func (s *OrgStore) Delete(ctx context.Context, id string) error {

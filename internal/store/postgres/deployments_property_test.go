@@ -85,9 +85,7 @@ func runDeploymentMigrations(db *sql.DB) error {
 				'starting', 'running', 'stopping', 'stopped', 'failed'
 			)),
 			node_id UUID,
-			resource_tier VARCHAR(20) NOT NULL CHECK (resource_tier IN (
-				'nano', 'small', 'medium', 'large', 'xlarge'
-			)),
+			resources JSONB,
 			config JSONB,
 			depends_on JSONB NOT NULL DEFAULT '[]',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -102,7 +100,6 @@ func runDeploymentMigrations(db *sql.DB) error {
 	_, err := db.Exec(schema)
 	return err
 }
-
 
 // genDeploymentStatus generates a random DeploymentStatus.
 func genDeploymentStatus() gopter.Gen {
@@ -124,21 +121,34 @@ func genBuildType() gopter.Gen {
 	return gen.OneConstOf(models.BuildTypeOCI, models.BuildTypePureNix)
 }
 
+// genDeploymentResourceSpec generates a random ResourceSpec for deployment tests.
+func genDeploymentResourceSpec() gopter.Gen {
+	return gopter.CombineGens(
+		gen.OneConstOf("0.25", "0.5", "1", "2", "4"),
+		gen.OneConstOf("256Mi", "512Mi", "1Gi", "2Gi", "4Gi"),
+	).Map(func(vals []interface{}) *models.ResourceSpec {
+		return &models.ResourceSpec{
+			CPU:    vals[0].(string),
+			Memory: vals[1].(string),
+		}
+	})
+}
+
 // genRuntimeConfig generates a random RuntimeConfig.
 func genRuntimeConfig() gopter.Gen {
 	return gen.Bool().FlatMap(func(v interface{}) gopter.Gen {
 		if v.(bool) {
 			return gopter.CombineGens(
-				genResourceTier(),
+				genDeploymentResourceSpec(),
 				gen.MapOf(gen.AlphaString(), gen.AlphaString()),
 				gen.SliceOfN(2, genPortMapping()),
 				genOptionalHealthCheckConfig(),
 			).Map(func(vals []interface{}) *models.RuntimeConfig {
 				return &models.RuntimeConfig{
-					ResourceTier: vals[0].(models.ResourceTier),
-					EnvVars:      vals[1].(map[string]string),
-					Ports:        vals[2].([]models.PortMapping),
-					HealthCheck:  vals[3].(*models.HealthCheckConfig),
+					Resources:   vals[0].(*models.ResourceSpec),
+					EnvVars:     vals[1].(map[string]string),
+					Ports:       vals[2].([]models.PortMapping),
+					HealthCheck: vals[3].(*models.HealthCheckConfig),
 				}
 			})
 		}
@@ -156,21 +166,21 @@ func genDeploymentInput(appID string) gopter.Gen {
 		genBuildType(),
 		gen.AlphaString(),
 		genDeploymentStatus(),
-		genResourceTier(),
+		genDeploymentResourceSpec(),
 		genRuntimeConfig(),
 	).Map(func(vals []interface{}) models.Deployment {
 		return models.Deployment{
-			ID:           uuid.New().String(),
-			AppID:        appID,
-			ServiceName:  vals[0].(string),
-			Version:      vals[1].(int),
-			GitRef:       vals[2].(string),
-			GitCommit:    vals[3].(string),
-			BuildType:    vals[4].(models.BuildType),
-			Artifact:     vals[5].(string),
-			Status:       vals[6].(models.DeploymentStatus),
-			ResourceTier: vals[7].(models.ResourceTier),
-			Config:       vals[8].(*models.RuntimeConfig),
+			ID:          uuid.New().String(),
+			AppID:       appID,
+			ServiceName: vals[0].(string),
+			Version:     vals[1].(int),
+			GitRef:      vals[2].(string),
+			GitCommit:   vals[3].(string),
+			BuildType:   vals[4].(models.BuildType),
+			Artifact:    vals[5].(string),
+			Status:      vals[6].(models.DeploymentStatus),
+			Resources:   vals[7].(*models.ResourceSpec),
+			Config:      vals[8].(*models.RuntimeConfig),
 		}
 	})
 }
@@ -215,15 +225,15 @@ func TestDeploymentListOrdering(t *testing.T) {
 			var createdIDs []string
 			for i := 0; i < numDeployments; i++ {
 				deployment := &models.Deployment{
-					ID:           uuid.New().String(),
-					AppID:        app.ID,
-					ServiceName:  "service",
-					Version:      i + 1,
-					GitRef:       "main",
-					BuildType:    models.BuildTypeOCI,
-					Status:       models.DeploymentStatusPending,
-					ResourceTier: models.ResourceTierSmall,
-					CreatedAt:    time.Now().Add(time.Duration(i) * time.Millisecond),
+					ID:          uuid.New().String(),
+					AppID:       app.ID,
+					ServiceName: "service",
+					Version:     i + 1,
+					GitRef:      "main",
+					BuildType:   models.BuildTypeOCI,
+					Status:      models.DeploymentStatusPending,
+					Resources:   models.DefaultResourceSpec(),
+					CreatedAt:   time.Now().Add(time.Duration(i) * time.Millisecond),
 				}
 				if err := deploymentStore.Create(ctx, deployment); err != nil {
 					t.Logf("Failed to create deployment: %v", err)
@@ -360,14 +370,14 @@ func TestDeploymentVersionMonotonicity(t *testing.T) {
 
 				// Create deployment with this version
 				deployment := &models.Deployment{
-					ID:           uuid.New().String(),
-					AppID:        app.ID,
-					ServiceName:  serviceName,
-					Version:      version,
-					GitRef:       "main",
-					BuildType:    models.BuildTypeOCI,
-					Status:       models.DeploymentStatusPending,
-					ResourceTier: models.ResourceTierSmall,
+					ID:          uuid.New().String(),
+					AppID:       app.ID,
+					ServiceName: serviceName,
+					Version:     version,
+					GitRef:      "main",
+					BuildType:   models.BuildTypeOCI,
+					Status:      models.DeploymentStatusPending,
+					Resources:   models.DefaultResourceSpec(),
 				}
 				if err := deploymentStore.Create(ctx, deployment); err != nil {
 					t.Logf("Failed to create deployment: %v", err)
@@ -420,14 +430,14 @@ func TestDeploymentVersionMonotonicity(t *testing.T) {
 
 				// Create deployment
 				deployment := &models.Deployment{
-					ID:           uuid.New().String(),
-					AppID:        app.ID,
-					ServiceName:  serviceName,
-					Version:      version,
-					GitRef:       "main",
-					BuildType:    models.BuildTypeOCI,
-					Status:       models.DeploymentStatusPending,
-					ResourceTier: models.ResourceTierSmall,
+					ID:          uuid.New().String(),
+					AppID:       app.ID,
+					ServiceName: serviceName,
+					Version:     version,
+					GitRef:      "main",
+					BuildType:   models.BuildTypeOCI,
+					Status:      models.DeploymentStatusPending,
+					Resources:   models.DefaultResourceSpec(),
 				}
 				if err := deploymentStore.Create(ctx, deployment); err != nil {
 					t.Logf("Failed to create deployment: %v", err)

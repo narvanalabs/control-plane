@@ -68,6 +68,14 @@ func runNodeMigrations(db *sql.DB) error {
 			memory_available BIGINT NOT NULL DEFAULT 0,
 			disk_total BIGINT NOT NULL DEFAULT 0,
 			disk_available BIGINT NOT NULL DEFAULT 0,
+			nix_store_total BIGINT DEFAULT 0,
+			nix_store_used BIGINT DEFAULT 0,
+			nix_store_available BIGINT DEFAULT 0,
+			nix_store_usage_percent DOUBLE PRECISION DEFAULT 0,
+			container_storage_total BIGINT DEFAULT 0,
+			container_storage_used BIGINT DEFAULT 0,
+			container_storage_available BIGINT DEFAULT 0,
+			container_storage_usage_percent DOUBLE PRECISION DEFAULT 0,
 			cached_paths TEXT[] DEFAULT '{}',
 			last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -100,7 +108,6 @@ func genNodeResources() gopter.Gen {
 		}
 	})
 }
-
 
 // **Feature: control-plane, Property 15: Heartbeat updates node state**
 // For any heartbeat received, the node's last-seen timestamp should be updated

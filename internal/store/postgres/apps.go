@@ -79,7 +79,6 @@ func (s *AppStore) Create(ctx context.Context, app *models.App) error {
 	return nil
 }
 
-
 // Get retrieves an application by ID.
 func (s *AppStore) Get(ctx context.Context, id string) (*models.App, error) {
 	query := `
@@ -280,7 +279,6 @@ func (s *AppStore) ListByOrg(ctx context.Context, orgID string) ([]*models.App, 
 
 	return apps, nil
 }
-
 
 // Update updates an existing application with optimistic locking.
 // Returns ErrConcurrentModification if the version doesn't match.

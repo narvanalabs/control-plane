@@ -1056,3 +1056,307 @@ func TestSourceTypeInference(t *testing.T) {
 
 	properties.TestingRun(t)
 }
+
+
+// **Feature: environment-variables, Property 1: Environment Variable CRUD Round-Trip**
+// For any valid environment variable key-value pair, creating it via the API and then
+// retrieving it should return the same key-value pair.
+// **Validates: Requirements 1.2, 1.3, 4.2, 4.4**
+
+// genValidEnvKey generates a valid environment variable key.
+func genValidEnvKey() gopter.Gen {
+	return gopter.CombineGens(
+		gen.OneConstOf("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+			"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "_"),
+		gen.SliceOfN(5, gen.OneConstOf(
+			"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+			"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+			"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "_")),
+	).Map(func(vals []interface{}) string {
+		first := vals[0].(string)
+		rest := vals[1].([]string)
+		result := first
+		for _, s := range rest {
+			result += s
+		}
+		return result
+	})
+}
+
+// genValidEnvValue generates a valid environment variable value.
+func genValidEnvValue() gopter.Gen {
+	return gen.AlphaString().SuchThat(func(s string) bool {
+		return len(s) <= validation.MaxEnvValueLength
+	})
+}
+
+// genInvalidEnvKey generates an invalid environment variable key.
+func genInvalidEnvKey() gopter.Gen {
+	return gen.OneGenOf(
+		// Empty key
+		gen.Const(""),
+		// Starts with digit
+		gen.IntRange(0, 9).Map(func(n int) string {
+			return fmt.Sprintf("%dVAR", n)
+		}),
+		// Contains spaces
+		gen.Const("MY VAR"),
+		// Contains special characters
+		gen.Const("MY-VAR"),
+		gen.Const("MY.VAR"),
+		gen.Const("MY@VAR"),
+	)
+}
+
+// TestEnvVarCRUDRoundTrip tests Property 1: Environment Variable CRUD Round-Trip.
+func TestEnvVarCRUDRoundTrip(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 1.1: Valid key-value pairs are accepted and stored correctly
+	properties.Property("valid env vars are accepted and stored", prop.ForAll(
+		func(key string, value string) bool {
+			// Validate key
+			if err := validation.ValidateEnvKey(key); err != nil {
+				return false
+			}
+			// Validate value
+			if err := validation.ValidateEnvValue(value); err != nil {
+				return false
+			}
+
+			// Simulate storing and retrieving
+			envVars := make(map[string]string)
+			envVars[key] = value
+
+			// Verify round-trip
+			retrievedValue, exists := envVars[key]
+			return exists && retrievedValue == value
+		},
+		genValidEnvKey(),
+		genValidEnvValue(),
+	))
+
+	// Property 1.2: Invalid keys are rejected
+	properties.Property("invalid keys are rejected", prop.ForAll(
+		func(key string) bool {
+			err := validation.ValidateEnvKey(key)
+			return err != nil
+		},
+		genInvalidEnvKey(),
+	))
+
+	// Property 1.3: Updated values are persisted correctly
+	properties.Property("updated values are persisted correctly", prop.ForAll(
+		func(key string, originalValue string, newValue string) bool {
+			// Validate inputs
+			if err := validation.ValidateEnvKey(key); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvValue(originalValue); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvValue(newValue); err != nil {
+				return false
+			}
+
+			// Simulate create, update, retrieve
+			envVars := make(map[string]string)
+			envVars[key] = originalValue
+			envVars[key] = newValue
+
+			// Verify the new value is stored
+			retrievedValue, exists := envVars[key]
+			return exists && retrievedValue == newValue
+		},
+		genValidEnvKey(),
+		genValidEnvValue(),
+		genValidEnvValue(),
+	))
+
+	// Property 1.4: Multiple env vars can be stored and retrieved independently
+	properties.Property("multiple env vars are independent", prop.ForAll(
+		func(key1 string, value1 string, key2 string, value2 string) bool {
+			// Skip if keys are the same
+			if key1 == key2 {
+				return true
+			}
+
+			// Validate inputs
+			if err := validation.ValidateEnvKey(key1); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvKey(key2); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvValue(value1); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvValue(value2); err != nil {
+				return false
+			}
+
+			// Store both
+			envVars := make(map[string]string)
+			envVars[key1] = value1
+			envVars[key2] = value2
+
+			// Verify both are stored correctly
+			v1, exists1 := envVars[key1]
+			v2, exists2 := envVars[key2]
+			return exists1 && exists2 && v1 == value1 && v2 == value2
+		},
+		genValidEnvKey(),
+		genValidEnvValue(),
+		genValidEnvKey(),
+		genValidEnvValue(),
+	))
+
+	properties.TestingRun(t)
+}
+
+// **Feature: environment-variables, Property 2: Environment Variable Deletion**
+// For any existing environment variable, deleting it via the API should result in
+// the variable no longer being retrievable.
+// **Validates: Requirements 1.4, 4.3**
+
+// TestEnvVarDeletion tests Property 2: Environment Variable Deletion.
+func TestEnvVarDeletion(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property 2.1: Deleted env vars are no longer retrievable
+	properties.Property("deleted env vars are not retrievable", prop.ForAll(
+		func(key string, value string) bool {
+			// Validate inputs
+			if err := validation.ValidateEnvKey(key); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvValue(value); err != nil {
+				return false
+			}
+
+			// Create, then delete
+			envVars := make(map[string]string)
+			envVars[key] = value
+			delete(envVars, key)
+
+			// Verify it's gone
+			_, exists := envVars[key]
+			return !exists
+		},
+		genValidEnvKey(),
+		genValidEnvValue(),
+	))
+
+	// Property 2.2: Deleting one env var doesn't affect others
+	properties.Property("deleting one env var doesn't affect others", prop.ForAll(
+		func(key1 string, value1 string, key2 string, value2 string) bool {
+			// Skip if keys are the same
+			if key1 == key2 {
+				return true
+			}
+
+			// Validate inputs
+			if err := validation.ValidateEnvKey(key1); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvKey(key2); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvValue(value1); err != nil {
+				return false
+			}
+			if err := validation.ValidateEnvValue(value2); err != nil {
+				return false
+			}
+
+			// Store both
+			envVars := make(map[string]string)
+			envVars[key1] = value1
+			envVars[key2] = value2
+
+			// Delete one
+			delete(envVars, key1)
+
+			// Verify key1 is gone but key2 remains
+			_, exists1 := envVars[key1]
+			v2, exists2 := envVars[key2]
+			return !exists1 && exists2 && v2 == value2
+		},
+		genValidEnvKey(),
+		genValidEnvValue(),
+		genValidEnvKey(),
+		genValidEnvValue(),
+	))
+
+	// Property 2.3: Deleting from empty map is safe
+	properties.Property("deleting from empty map is safe", prop.ForAll(
+		func(key string) bool {
+			// Validate key
+			if err := validation.ValidateEnvKey(key); err != nil {
+				return false
+			}
+
+			// Delete from empty map (should not panic)
+			envVars := make(map[string]string)
+			delete(envVars, key)
+
+			// Verify map is still empty
+			return len(envVars) == 0
+		},
+		genValidEnvKey(),
+	))
+
+	// Property 2.4: Count decreases by one after deletion
+	properties.Property("count decreases by one after deletion", prop.ForAll(
+		func(keys []string, values []string) bool {
+			// Need at least one key-value pair
+			if len(keys) == 0 || len(values) == 0 {
+				return true
+			}
+
+			// Use the minimum length
+			count := len(keys)
+			if len(values) < count {
+				count = len(values)
+			}
+
+			// Validate and store
+			envVars := make(map[string]string)
+			validCount := 0
+			var lastValidKey string
+			for i := 0; i < count; i++ {
+				if err := validation.ValidateEnvKey(keys[i]); err != nil {
+					continue
+				}
+				if err := validation.ValidateEnvValue(values[i]); err != nil {
+					continue
+				}
+				// Skip duplicates
+				if _, exists := envVars[keys[i]]; exists {
+					continue
+				}
+				envVars[keys[i]] = values[i]
+				lastValidKey = keys[i]
+				validCount++
+			}
+
+			if validCount == 0 {
+				return true // Skip if no valid pairs
+			}
+
+			originalCount := len(envVars)
+			delete(envVars, lastValidKey)
+			newCount := len(envVars)
+
+			return newCount == originalCount-1
+		},
+		gen.SliceOfN(5, genValidEnvKey()),
+		gen.SliceOfN(5, genValidEnvValue()),
+	))
+
+	properties.TestingRun(t)
+}

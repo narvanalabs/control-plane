@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,8 +33,8 @@ func (s *BuildStore) Create(ctx context.Context, build *models.BuildJob) error {
 		INSERT INTO builds (id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
-			generated_flake, flake_lock, vendor_hash)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+			generated_flake, flake_lock, vendor_hash, detection_result, detected_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING id, created_at`
 
 	now := time.Now().UTC()
@@ -65,6 +66,16 @@ func (s *BuildStore) Create(ctx context.Context, build *models.BuildJob) error {
 		vendorHash = sql.NullString{String: build.VendorHash, Valid: true}
 	}
 
+	// Handle nullable detection_result (JSONB)
+	var detectionResult []byte
+	if build.DetectionResult != nil {
+		var err error
+		detectionResult, err = json.Marshal(build.DetectionResult)
+		if err != nil {
+			return fmt.Errorf("marshaling detection result: %w", err)
+		}
+	}
+
 	err := s.conn().QueryRowContext(ctx, query,
 		build.ID,
 		build.DeploymentID,
@@ -84,6 +95,8 @@ func (s *BuildStore) Create(ctx context.Context, build *models.BuildJob) error {
 		generatedFlake,
 		flakeLock,
 		vendorHash,
+		detectionResult,
+		build.DetectedAt,
 	).Scan(&build.ID, &build.CreatedAt)
 
 	if err != nil {
@@ -99,13 +112,14 @@ func (s *BuildStore) Get(ctx context.Context, id string) (*models.BuildJob, erro
 		SELECT id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
-			generated_flake, flake_lock, vendor_hash
+			generated_flake, flake_lock, vendor_hash, detection_result, detected_at
 		FROM builds
 		WHERE id = $1`
 
 	build := &models.BuildJob{}
-	var startedAt, finishedAt sql.NullTime
+	var startedAt, finishedAt, detectedAt sql.NullTime
 	var buildStrategy, generatedFlake, flakeLock, vendorHash sql.NullString
+	var detectionResultJSON []byte
 
 	err := s.conn().QueryRowContext(ctx, query, id).Scan(
 		&build.ID,
@@ -126,6 +140,8 @@ func (s *BuildStore) Get(ctx context.Context, id string) (*models.BuildJob, erro
 		&generatedFlake,
 		&flakeLock,
 		&vendorHash,
+		&detectionResultJSON,
+		&detectedAt,
 	)
 
 	if err != nil {
@@ -153,10 +169,18 @@ func (s *BuildStore) Get(ctx context.Context, id string) (*models.BuildJob, erro
 	if vendorHash.Valid {
 		build.VendorHash = vendorHash.String
 	}
+	if detectionResultJSON != nil {
+		build.DetectionResult = &models.DetectionResult{}
+		if err := json.Unmarshal(detectionResultJSON, build.DetectionResult); err != nil {
+			return nil, fmt.Errorf("unmarshaling detection result: %w", err)
+		}
+	}
+	if detectedAt.Valid {
+		build.DetectedAt = &detectedAt.Time
+	}
 
 	return build, nil
 }
-
 
 // GetByDeployment retrieves a build job by deployment ID.
 func (s *BuildStore) GetByDeployment(ctx context.Context, deploymentID string) (*models.BuildJob, error) {
@@ -164,15 +188,16 @@ func (s *BuildStore) GetByDeployment(ctx context.Context, deploymentID string) (
 		SELECT id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
-			generated_flake, flake_lock, vendor_hash
+			generated_flake, flake_lock, vendor_hash, detection_result, detected_at
 		FROM builds
 		WHERE deployment_id = $1
 		ORDER BY created_at DESC
 		LIMIT 1`
 
 	build := &models.BuildJob{}
-	var startedAt, finishedAt sql.NullTime
+	var startedAt, finishedAt, detectedAt sql.NullTime
 	var buildStrategy, generatedFlake, flakeLock, vendorHash sql.NullString
+	var detectionResultJSON []byte
 
 	err := s.conn().QueryRowContext(ctx, query, deploymentID).Scan(
 		&build.ID,
@@ -193,6 +218,8 @@ func (s *BuildStore) GetByDeployment(ctx context.Context, deploymentID string) (
 		&generatedFlake,
 		&flakeLock,
 		&vendorHash,
+		&detectionResultJSON,
+		&detectedAt,
 	)
 
 	if err != nil {
@@ -220,6 +247,15 @@ func (s *BuildStore) GetByDeployment(ctx context.Context, deploymentID string) (
 	if vendorHash.Valid {
 		build.VendorHash = vendorHash.String
 	}
+	if detectionResultJSON != nil {
+		build.DetectionResult = &models.DetectionResult{}
+		if err := json.Unmarshal(detectionResultJSON, build.DetectionResult); err != nil {
+			return nil, fmt.Errorf("unmarshaling detection result: %w", err)
+		}
+	}
+	if detectedAt.Valid {
+		build.DetectedAt = &detectedAt.Time
+	}
 
 	return build, nil
 }
@@ -230,7 +266,8 @@ func (s *BuildStore) Update(ctx context.Context, build *models.BuildJob) error {
 		UPDATE builds
 		SET status = $2, started_at = $3, finished_at = $4,
 			build_strategy = $5, retry_count = $6, retry_as_oci = $7,
-			generated_flake = $8, flake_lock = $9, vendor_hash = $10
+			generated_flake = $8, flake_lock = $9, vendor_hash = $10,
+			detection_result = $11, detected_at = $12
 		WHERE id = $1`
 
 	// Handle nullable build_strategy
@@ -257,6 +294,16 @@ func (s *BuildStore) Update(ctx context.Context, build *models.BuildJob) error {
 		vendorHash = sql.NullString{String: build.VendorHash, Valid: true}
 	}
 
+	// Handle nullable detection_result (JSONB)
+	var detectionResult []byte
+	if build.DetectionResult != nil {
+		var err error
+		detectionResult, err = json.Marshal(build.DetectionResult)
+		if err != nil {
+			return fmt.Errorf("marshaling detection result: %w", err)
+		}
+	}
+
 	result, err := s.conn().ExecContext(ctx, query,
 		build.ID,
 		build.Status,
@@ -268,6 +315,8 @@ func (s *BuildStore) Update(ctx context.Context, build *models.BuildJob) error {
 		generatedFlake,
 		flakeLock,
 		vendorHash,
+		detectionResult,
+		build.DetectedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("updating build: %w", err)
@@ -291,7 +340,7 @@ func (s *BuildStore) List(ctx context.Context, appID string) ([]*models.BuildJob
 		SELECT id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
-			generated_flake, flake_lock, vendor_hash
+			generated_flake, flake_lock, vendor_hash, detection_result, detected_at
 		FROM builds
 		WHERE app_id = $1
 		ORDER BY created_at DESC`
@@ -311,7 +360,7 @@ func (s *BuildStore) ListByUser(ctx context.Context, userID string) ([]*models.B
 		SELECT b.id, b.deployment_id, b.app_id, b.git_url, b.git_ref, 
 			b.flake_output, b.build_type, b.status, b.created_at, b.started_at, b.finished_at,
 			b.build_strategy, b.timeout_seconds, b.retry_count, b.retry_as_oci,
-			b.generated_flake, b.flake_lock, b.vendor_hash
+			b.generated_flake, b.flake_lock, b.vendor_hash, b.detection_result, b.detected_at
 		FROM builds b
 		JOIN apps a ON b.app_id = a.id
 		WHERE a.owner_id = $1
@@ -332,8 +381,9 @@ func (s *BuildStore) scanBuilds(rows *sql.Rows) ([]*models.BuildJob, error) {
 
 	for rows.Next() {
 		build := &models.BuildJob{}
-		var startedAt, finishedAt sql.NullTime
+		var startedAt, finishedAt, detectedAt sql.NullTime
 		var buildStrategy, generatedFlake, flakeLock, vendorHash sql.NullString
+		var detectionResultJSON []byte
 
 		err := rows.Scan(
 			&build.ID,
@@ -354,6 +404,8 @@ func (s *BuildStore) scanBuilds(rows *sql.Rows) ([]*models.BuildJob, error) {
 			&generatedFlake,
 			&flakeLock,
 			&vendorHash,
+			&detectionResultJSON,
+			&detectedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scanning build row: %w", err)
@@ -377,6 +429,15 @@ func (s *BuildStore) scanBuilds(rows *sql.Rows) ([]*models.BuildJob, error) {
 		if vendorHash.Valid {
 			build.VendorHash = vendorHash.String
 		}
+		if detectionResultJSON != nil {
+			build.DetectionResult = &models.DetectionResult{}
+			if err := json.Unmarshal(detectionResultJSON, build.DetectionResult); err != nil {
+				return nil, fmt.Errorf("unmarshaling detection result: %w", err)
+			}
+		}
+		if detectedAt.Valid {
+			build.DetectedAt = &detectedAt.Time
+		}
 
 		builds = append(builds, build)
 	}
@@ -394,7 +455,7 @@ func (s *BuildStore) ListPending(ctx context.Context) ([]*models.BuildJob, error
 		SELECT id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
-			generated_flake, flake_lock, vendor_hash
+			generated_flake, flake_lock, vendor_hash, detection_result, detected_at
 		FROM builds
 		WHERE status = 'queued'
 		ORDER BY created_at ASC`
@@ -416,7 +477,7 @@ func (s *BuildStore) ListRunning(ctx context.Context) ([]*models.BuildJob, error
 		SELECT id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
-			generated_flake, flake_lock, vendor_hash
+			generated_flake, flake_lock, vendor_hash, detection_result, detected_at
 		FROM builds
 		WHERE status = 'running'
 		ORDER BY created_at ASC`
@@ -438,7 +499,7 @@ func (s *BuildStore) ListQueued(ctx context.Context) ([]*models.BuildJob, error)
 		SELECT id, deployment_id, app_id, git_url, git_ref, 
 			flake_output, build_type, status, created_at, started_at, finished_at,
 			build_strategy, timeout_seconds, retry_count, retry_as_oci,
-			generated_flake, flake_lock, vendor_hash
+			generated_flake, flake_lock, vendor_hash, detection_result, detected_at
 		FROM builds
 		WHERE status = 'queued'
 		ORDER BY created_at ASC`

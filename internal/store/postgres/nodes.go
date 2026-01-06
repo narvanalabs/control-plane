@@ -126,7 +126,6 @@ func (s *NodeStore) Register(ctx context.Context, node *models.Node) error {
 	return nil
 }
 
-
 // Get retrieves a node by ID.
 func (s *NodeStore) Get(ctx context.Context, id string) (*models.Node, error) {
 	query := `
@@ -361,7 +360,6 @@ func (s *NodeStore) UpdateHealth(ctx context.Context, id string, healthy bool) e
 
 	return nil
 }
-
 
 // ListHealthy retrieves all healthy nodes.
 func (s *NodeStore) ListHealthy(ctx context.Context) ([]*models.Node, error) {

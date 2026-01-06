@@ -39,9 +39,14 @@ func (s *DeploymentStore) Create(ctx context.Context, deployment *models.Deploym
 		return fmt.Errorf("marshaling depends_on: %w", err)
 	}
 
+	resourcesJSON, err := json.Marshal(deployment.Resources)
+	if err != nil {
+		return fmt.Errorf("marshaling resources: %w", err)
+	}
+
 	query := `
 		INSERT INTO deployments (id, app_id, service_name, version, git_ref, git_commit, 
-			build_type, artifact, status, node_id, resource_tier, config, depends_on,
+			build_type, artifact, status, node_id, resources, config, depends_on,
 			created_at, updated_at, started_at, finished_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id, created_at, updated_at`
@@ -70,7 +75,7 @@ func (s *DeploymentStore) Create(ctx context.Context, deployment *models.Deploym
 		deployment.Artifact,
 		deployment.Status,
 		nodeID,
-		deployment.ResourceTier,
+		resourcesJSON,
 		configJSON,
 		dependsOnJSON,
 		deployment.CreatedAt,
@@ -86,12 +91,11 @@ func (s *DeploymentStore) Create(ctx context.Context, deployment *models.Deploym
 	return nil
 }
 
-
 // Get retrieves a deployment by ID.
 func (s *DeploymentStore) Get(ctx context.Context, id string) (*models.Deployment, error) {
 	query := `
 		SELECT id, app_id, service_name, version, git_ref, git_commit, 
-			build_type, artifact, status, node_id, resource_tier, config, depends_on,
+			build_type, artifact, status, node_id, resources, config, depends_on,
 			created_at, updated_at, started_at, finished_at
 		FROM deployments
 		WHERE id = $1`
@@ -99,6 +103,7 @@ func (s *DeploymentStore) Get(ctx context.Context, id string) (*models.Deploymen
 	deployment := &models.Deployment{}
 	var configJSON []byte
 	var dependsOnJSON []byte
+	var resourcesJSON []byte
 	var nodeID sql.NullString
 	var startedAt, finishedAt sql.NullTime
 
@@ -113,7 +118,7 @@ func (s *DeploymentStore) Get(ctx context.Context, id string) (*models.Deploymen
 		&deployment.Artifact,
 		&deployment.Status,
 		&nodeID,
-		&deployment.ResourceTier,
+		&resourcesJSON,
 		&configJSON,
 		&dependsOnJSON,
 		&deployment.CreatedAt,
@@ -151,6 +156,12 @@ func (s *DeploymentStore) Get(ctx context.Context, id string) (*models.Deploymen
 		}
 	}
 
+	if len(resourcesJSON) > 0 {
+		if err := json.Unmarshal(resourcesJSON, &deployment.Resources); err != nil {
+			return nil, fmt.Errorf("unmarshaling resources: %w", err)
+		}
+	}
+
 	return deployment, nil
 }
 
@@ -158,7 +169,7 @@ func (s *DeploymentStore) Get(ctx context.Context, id string) (*models.Deploymen
 func (s *DeploymentStore) List(ctx context.Context, appID string) ([]*models.Deployment, error) {
 	query := `
 		SELECT id, app_id, service_name, version, git_ref, git_commit, 
-			build_type, artifact, status, node_id, resource_tier, config, depends_on,
+			build_type, artifact, status, node_id, resources, config, depends_on,
 			created_at, updated_at, started_at, finished_at
 		FROM deployments
 		WHERE app_id = $1
@@ -177,7 +188,7 @@ func (s *DeploymentStore) List(ctx context.Context, appID string) ([]*models.Dep
 func (s *DeploymentStore) ListByNode(ctx context.Context, nodeID string) ([]*models.Deployment, error) {
 	query := `
 		SELECT id, app_id, service_name, version, git_ref, git_commit, 
-			build_type, artifact, status, node_id, resource_tier, config, depends_on,
+			build_type, artifact, status, node_id, resources, config, depends_on,
 			created_at, updated_at, started_at, finished_at
 		FROM deployments
 		WHERE node_id = $1
@@ -196,7 +207,7 @@ func (s *DeploymentStore) ListByNode(ctx context.Context, nodeID string) ([]*mod
 func (s *DeploymentStore) ListByStatus(ctx context.Context, status models.DeploymentStatus) ([]*models.Deployment, error) {
 	query := `
 		SELECT id, app_id, service_name, version, git_ref, git_commit, 
-			build_type, artifact, status, node_id, resource_tier, config, depends_on,
+			build_type, artifact, status, node_id, resources, config, depends_on,
 			created_at, updated_at, started_at, finished_at
 		FROM deployments
 		WHERE status = $1
@@ -211,7 +222,6 @@ func (s *DeploymentStore) ListByStatus(ctx context.Context, status models.Deploy
 	return s.scanDeployments(rows)
 }
 
-
 // Update updates an existing deployment.
 func (s *DeploymentStore) Update(ctx context.Context, deployment *models.Deployment) error {
 	configJSON, err := json.Marshal(deployment.Config)
@@ -224,11 +234,16 @@ func (s *DeploymentStore) Update(ctx context.Context, deployment *models.Deploym
 		return fmt.Errorf("marshaling depends_on: %w", err)
 	}
 
+	resourcesJSON, err := json.Marshal(deployment.Resources)
+	if err != nil {
+		return fmt.Errorf("marshaling resources: %w", err)
+	}
+
 	query := `
 		UPDATE deployments
 		SET service_name = $2, version = $3, git_ref = $4, git_commit = $5,
 			build_type = $6, artifact = $7, status = $8, node_id = $9,
-			resource_tier = $10, config = $11, depends_on = $12, updated_at = $13,
+			resources = $10, config = $11, depends_on = $12, updated_at = $13,
 			started_at = $14, finished_at = $15
 		WHERE id = $1`
 
@@ -249,7 +264,7 @@ func (s *DeploymentStore) Update(ctx context.Context, deployment *models.Deploym
 		deployment.Artifact,
 		deployment.Status,
 		nodeID,
-		deployment.ResourceTier,
+		resourcesJSON,
 		configJSON,
 		dependsOnJSON,
 		deployment.UpdatedAt,
@@ -276,7 +291,7 @@ func (s *DeploymentStore) Update(ctx context.Context, deployment *models.Deploym
 func (s *DeploymentStore) GetLatestSuccessful(ctx context.Context, appID string) (*models.Deployment, error) {
 	query := `
 		SELECT id, app_id, service_name, version, git_ref, git_commit, 
-			build_type, artifact, status, node_id, resource_tier, config, depends_on,
+			build_type, artifact, status, node_id, resources, config, depends_on,
 			created_at, updated_at, started_at, finished_at
 		FROM deployments
 		WHERE app_id = $1 AND status = 'running'
@@ -286,6 +301,7 @@ func (s *DeploymentStore) GetLatestSuccessful(ctx context.Context, appID string)
 	deployment := &models.Deployment{}
 	var configJSON []byte
 	var dependsOnJSON []byte
+	var resourcesJSON []byte
 	var nodeID sql.NullString
 	var startedAt, finishedAt sql.NullTime
 
@@ -300,7 +316,7 @@ func (s *DeploymentStore) GetLatestSuccessful(ctx context.Context, appID string)
 		&deployment.Artifact,
 		&deployment.Status,
 		&nodeID,
-		&deployment.ResourceTier,
+		&resourcesJSON,
 		&configJSON,
 		&dependsOnJSON,
 		&deployment.CreatedAt,
@@ -338,6 +354,12 @@ func (s *DeploymentStore) GetLatestSuccessful(ctx context.Context, appID string)
 		}
 	}
 
+	if len(resourcesJSON) > 0 {
+		if err := json.Unmarshal(resourcesJSON, &deployment.Resources); err != nil {
+			return nil, fmt.Errorf("unmarshaling resources: %w", err)
+		}
+	}
+
 	return deployment, nil
 }
 
@@ -345,7 +367,7 @@ func (s *DeploymentStore) GetLatestSuccessful(ctx context.Context, appID string)
 func (s *DeploymentStore) ListByUser(ctx context.Context, userID string) ([]*models.Deployment, error) {
 	query := `
 		SELECT d.id, d.app_id, d.service_name, d.version, d.git_ref, d.git_commit, 
-			d.build_type, d.artifact, d.status, d.node_id, d.resource_tier, d.config, d.depends_on,
+			d.build_type, d.artifact, d.status, d.node_id, d.resources, d.config, d.depends_on,
 			d.created_at, d.updated_at, d.started_at, d.finished_at
 		FROM deployments d
 		JOIN apps a ON d.app_id = a.id
@@ -406,6 +428,7 @@ func (s *DeploymentStore) scanDeployments(rows *sql.Rows) ([]*models.Deployment,
 		deployment := &models.Deployment{}
 		var configJSON []byte
 		var dependsOnJSON []byte
+		var resourcesJSON []byte
 		var nodeID sql.NullString
 		var startedAt, finishedAt sql.NullTime
 
@@ -420,7 +443,7 @@ func (s *DeploymentStore) scanDeployments(rows *sql.Rows) ([]*models.Deployment,
 			&deployment.Artifact,
 			&deployment.Status,
 			&nodeID,
-			&deployment.ResourceTier,
+			&resourcesJSON,
 			&configJSON,
 			&dependsOnJSON,
 			&deployment.CreatedAt,
@@ -451,6 +474,12 @@ func (s *DeploymentStore) scanDeployments(rows *sql.Rows) ([]*models.Deployment,
 		if len(dependsOnJSON) > 0 {
 			if err := json.Unmarshal(dependsOnJSON, &deployment.DependsOn); err != nil {
 				return nil, fmt.Errorf("unmarshaling depends_on: %w", err)
+			}
+		}
+
+		if len(resourcesJSON) > 0 {
+			if err := json.Unmarshal(resourcesJSON, &deployment.Resources); err != nil {
+				return nil, fmt.Errorf("unmarshaling resources: %w", err)
 			}
 		}
 
