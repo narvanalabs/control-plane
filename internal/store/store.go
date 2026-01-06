@@ -173,7 +173,6 @@ type AppStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
-
 // DeploymentStore defines operations for deployment management.
 type DeploymentStore interface {
 	// Create creates a new deployment.
