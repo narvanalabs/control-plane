@@ -93,11 +93,11 @@ func TestDashboardStatisticsPassthrough(t *testing.T) {
 
 			return true
 		},
-		gen.IntRange(0, 1000),  // activeDeployments
-		gen.IntRange(0, 1000),  // totalApps
-		gen.IntRange(0, 5000),  // totalServices
-		gen.IntRange(0, 100),   // healthyNodes
-		gen.IntRange(0, 100),   // unhealthyNodes
+		gen.IntRange(0, 1000), // activeDeployments
+		gen.IntRange(0, 1000), // totalApps
+		gen.IntRange(0, 5000), // totalServices
+		gen.IntRange(0, 100),  // healthyNodes
+		gen.IntRange(0, 100),  // unhealthyNodes
 	))
 
 	properties.TestingRun(t)
@@ -167,16 +167,15 @@ func TestDashboardStatsResponseRoundTrip(t *testing.T) {
 
 			return true
 		},
-		gen.IntRange(0, 1000),  // activeDeployments
-		gen.IntRange(0, 1000),  // totalApps
-		gen.IntRange(0, 5000),  // totalServices
-		gen.IntRange(0, 100),   // healthyNodes
-		gen.IntRange(0, 100),   // unhealthyNodes
+		gen.IntRange(0, 1000), // activeDeployments
+		gen.IntRange(0, 1000), // totalApps
+		gen.IntRange(0, 5000), // totalServices
+		gen.IntRange(0, 100),  // healthyNodes
+		gen.IntRange(0, 100),  // unhealthyNodes
 	))
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: ui-api-alignment, Property 3: App Update Version Handling**
 // *For any* app update request, the request SHALL include the current app version,
@@ -413,7 +412,6 @@ func TestUpdateAppRequestVersionSerialization(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: ui-api-alignment, Property 5: Git Source Type Unification**
 // *For any* service creation with a git repository, the source_type SHALL be set to "git"

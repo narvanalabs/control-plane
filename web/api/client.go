@@ -76,11 +76,11 @@ type App struct {
 
 // Service represents a service within an app.
 type Service struct {
-	Name       string `json:"name"`
-	SourceType string `json:"source_type"`
-	GitRepo    string `json:"git_repo,omitempty"`
-	GitRef     string `json:"git_ref,omitempty"`
-	FlakeURI   string `json:"flake_uri,omitempty"`
+	Name       string          `json:"name"`
+	SourceType string          `json:"source_type"`
+	GitRepo    string          `json:"git_repo,omitempty"`
+	GitRef     string          `json:"git_ref,omitempty"`
+	FlakeURI   string          `json:"flake_uri,omitempty"`
 	Database   *DatabaseConfig `json:"database,omitempty"`
 
 	// Build & Runtime
@@ -88,7 +88,7 @@ type Service struct {
 	BuildConfig   *BuildConfig      `json:"build_config,omitempty"`
 	Resources     *ResourceSpec     `json:"resources,omitempty"` // Direct CPU/memory specification
 	Replicas      int               `json:"replicas"`
-	Port          int               `json:"port,omitempty"`          // Container port the app listens on
+	Port          int               `json:"port,omitempty"` // Container port the app listens on
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	DependsOn     []string          `json:"depends_on,omitempty"`
 }
@@ -386,9 +386,9 @@ type RegisterRequest struct {
 
 // GitHubConfigStatus represents the configuration state of the GitHub integration.
 type GitHubConfigStatus struct {
-	Configured bool   `json:"configured"`
-	ConfigType string `json:"config_type,omitempty"` // "app" or "oauth"
-	AppID      *int64 `json:"app_id,omitempty"`
+	Configured bool    `json:"configured"`
+	ConfigType string  `json:"config_type,omitempty"` // "app" or "oauth"
+	AppID      *int64  `json:"app_id,omitempty"`
 	Slug       *string `json:"slug,omitempty"`
 }
 
@@ -578,6 +578,18 @@ func (c *Client) CreateService(ctx context.Context, appID string, svc CreateServ
 func (c *Client) UpdateService(ctx context.Context, appID, serviceName string, svc CreateServiceRequest) (*Service, error) {
 	var service Service
 	err := c.patch(ctx, "/v1/apps/"+appID+"/services/"+serviceName, svc, &service)
+	return &service, err
+}
+
+// UpdateServicePort updates a service's port configuration.
+func (c *Client) UpdateServicePort(ctx context.Context, appID, serviceName string, port int) (*Service, error) {
+	req := map[string]interface{}{
+		"ports": []map[string]interface{}{
+			{"container_port": port, "protocol": "tcp"},
+		},
+	}
+	var service Service
+	err := c.patch(ctx, "/v1/apps/"+appID+"/services/"+serviceName, req, &service)
 	return &service, err
 }
 
