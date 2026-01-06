@@ -38,14 +38,14 @@ type ControlMessage struct {
 
 // Session represents an active terminal session.
 type Session struct {
-	ID           string
-	DeploymentID string
+	ID            string
+	DeploymentID  string
 	ContainerName string
-	PTY          *os.File
-	Conn         *websocket.Conn
-	mu           sync.Mutex
-	closed       bool
-	closeCh      chan struct{}
+	PTY           *os.File
+	Conn          *websocket.Conn
+	mu            sync.Mutex
+	closed        bool
+	closeCh       chan struct{}
 }
 
 // Close closes the terminal session and cleans up resources.
@@ -87,11 +87,11 @@ func (s *Session) IsClosed() bool {
 // Service provides terminal access to deployed containers.
 // **Validates: Requirements 23.1, 23.2**
 type Service struct {
-	store       store.Store
-	podman      *podman.Client
-	logger      *slog.Logger
-	sessions    map[string]*Session
-	sessionsMu  sync.RWMutex
+	store        store.Store
+	podman       *podman.Client
+	logger       *slog.Logger
+	sessions     map[string]*Session
+	sessionsMu   sync.RWMutex
 	defaultShell string
 }
 
@@ -130,7 +130,6 @@ func NewService(st store.Store, pd *podman.Client, cfg *Config, logger *slog.Log
 		defaultShell: cfg.DefaultShell,
 	}
 }
-
 
 // Connect establishes a terminal session to a container.
 // **Validates: Requirements 23.1, 23.2**
