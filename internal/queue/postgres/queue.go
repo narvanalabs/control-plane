@@ -54,7 +54,6 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, job *models.BuildJob) error
 	return nil
 }
 
-
 // Dequeue retrieves and locks the next available build job from the queue.
 // Uses SELECT FOR UPDATE SKIP LOCKED for concurrent worker safety.
 func (q *PostgresQueue) Dequeue(ctx context.Context) (*models.BuildJob, error) {
