@@ -252,7 +252,7 @@ func TestAuthValidationUserExistence(t *testing.T) {
 // TestRequireAuthMiddlewareIntegration tests the actual middleware behavior.
 func TestRequireAuthMiddlewareIntegration(t *testing.T) {
 	// This test verifies the middleware redirects correctly on auth failure
-	
+
 	// Create a handler that should only be reached if auth passes
 	protectedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
