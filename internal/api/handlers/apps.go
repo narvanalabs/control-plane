@@ -48,7 +48,6 @@ func (r *CreateAppRequest) Validate() error {
 	return nil
 }
 
-
 // Create handles POST /v1/apps - creates a new application.
 // Requirements: 5.1, 5.3 - Sets org_id from context, assigns default org if not specified.
 func (h *AppHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +84,7 @@ func (h *AppHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	
+
 	app := &models.App{
 		ID:          uuid.New().String(),
 		OrgID:       orgID, // Set org_id from context (Requirements: 5.1)
@@ -119,10 +118,10 @@ func (h *AppHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	// Get org_id from context and filter by organization (Requirements: 5.2)
 	orgID := middleware.GetOrgID(r.Context())
-	
+
 	var apps []*models.App
 	var err error
-	
+
 	if orgID != "" {
 		// Use ListByOrg for organization-scoped filtering (Requirements: 5.2)
 		apps, err = h.store.Apps().ListByOrg(r.Context(), orgID)
@@ -130,7 +129,7 @@ func (h *AppHandler) List(w http.ResponseWriter, r *http.Request) {
 		// Fallback to owner-based listing if no org context
 		apps, err = h.store.Apps().List(r.Context(), userID)
 	}
-	
+
 	if err != nil {
 		h.logger.Error("failed to list apps", "error", err, "owner_id", userID, "org_id", orgID)
 		WriteInternalError(w, "Failed to list applications")
@@ -281,7 +280,7 @@ func (h *AppHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// Apply partial updates - preserve unspecified fields (Requirements: 8.3)
 	if req.Name != nil {
 		newName := strings.TrimSpace(*req.Name)
-		
+
 		// Validate name uniqueness within org if name is changing (Requirements: 8.2)
 		if newName != app.Name {
 			// Check if another app with this name exists in the same org

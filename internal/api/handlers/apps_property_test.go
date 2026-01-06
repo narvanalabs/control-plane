@@ -236,8 +236,6 @@ func genUserID() gopter.Gen {
 	return gen.RegexMatch("[a-zA-Z][a-zA-Z0-9]{5,15}")
 }
 
-
-
 func TestApplicationListCompleteness(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
 	parameters.MinSuccessfulTests = 100
