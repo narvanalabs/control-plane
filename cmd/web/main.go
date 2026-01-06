@@ -151,9 +151,10 @@ func main() {
 		// **Validates: Requirements 5.4, 5.5**
 		r.Post("/api/detect", handleDetectProxy)
 
-		// Secrets API proxy (for AJAX calls from service detail page)
+		// Secrets API proxy (for AJAX calls from service detail page and app settings)
 		r.Get("/api/v1/apps/{appID}/secrets", handleSecretsListProxy)
 		r.Post("/api/v1/apps/{appID}/secrets", handleSecretsCreateProxy)
+		r.Delete("/api/v1/apps/{appID}/secrets/{key}", handleSecretsDeleteProxy)
 
 		// Domains API proxy (for AJAX calls from service detail page)
 		r.Get("/api/v1/apps/{appID}/domains", handleDomainsListProxy)
@@ -1570,6 +1571,31 @@ func handleSecretsCreateProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/secrets", appID)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleSecretsDeleteProxy proxies secrets delete requests to the API server.
+// **Validates: Requirements 4.3**
+func handleSecretsDeleteProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	key := chi.URLParam(r, "key")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/secrets/%s", appID, key)
 	proxy.ServeHTTP(w, r)
 }
 
