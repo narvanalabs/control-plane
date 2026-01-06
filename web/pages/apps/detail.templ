@@ -648,6 +648,15 @@ templ WebServiceDialog(data DetailData) {
 						
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
+								@label.Label(label.Props{For: "web_svc_git_ref", Class: "text-xs"}) { Branch }
+								@input.Input(input.Props{
+									ID:          "web_svc_git_ref",
+									Name:        "git_ref",
+									Placeholder: "main",
+									Class:       "h-8 text-sm",
+								})
+							</div>
+							<div class="space-y-1">
 								@label.Label(label.Props{For: "web_svc_entry_point", Class: "text-xs"}) { Entry Point }
 								@input.Input(input.Props{
 									ID:          "web_svc_entry_point",
@@ -656,6 +665,8 @@ templ WebServiceDialog(data DetailData) {
 									Class:       "h-8 text-sm",
 								})
 							</div>
+						</div>
+						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
 								@label.Label(label.Props{For: "web_svc_version", Class: "text-xs"}) { Version }
 								@input.Input(input.Props{
@@ -665,15 +676,15 @@ templ WebServiceDialog(data DetailData) {
 									Class:       "h-8 text-sm",
 								})
 							</div>
-						</div>
-						<div class="space-y-1">
-							@label.Label(label.Props{For: "web_svc_build_command", Class: "text-xs"}) { Build Command }
-							@input.Input(input.Props{
-								ID:          "web_svc_build_command",
-								Name:        "build_command",
-								Placeholder: "go build -o app .",
-								Class:       "h-8 text-sm",
-							})
+							<div class="space-y-1">
+								@label.Label(label.Props{For: "web_svc_build_command", Class: "text-xs"}) { Build Command }
+								@input.Input(input.Props{
+									ID:          "web_svc_build_command",
+									Name:        "build_command",
+									Placeholder: "go build -o app .",
+									Class:       "h-8 text-sm",
+								})
+							</div>
 						</div>
 					</div>
 
@@ -1236,9 +1247,20 @@ templ AppDetailScript() {
 						const result = await response.json();
 						
 						// Populate detected fields
+						if (result.default_branch) {
+							const gitRefInput = document.getElementById('web_svc_git_ref');
+							if (gitRefInput) gitRefInput.value = result.default_branch;
+						}
 						if (result.entry_point) {
 							const entryPointInput = document.getElementById('web_svc_entry_point');
 							if (entryPointInput) entryPointInput.value = result.entry_point;
+						}
+						// Also check entry_points array
+						if (result.entry_points && result.entry_points.length > 0) {
+							const entryPointInput = document.getElementById('web_svc_entry_point');
+							if (entryPointInput && !entryPointInput.value) {
+								entryPointInput.value = result.entry_points[0];
+							}
 						}
 						if (result.version) {
 							const versionInput = document.getElementById('web_svc_version');
