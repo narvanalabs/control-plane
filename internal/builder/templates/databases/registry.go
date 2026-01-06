@@ -43,7 +43,7 @@ func (t DatabaseType) IsValid() bool {
 // ConfigOption defines a configuration option for a database template.
 type ConfigOption struct {
 	Name        string `json:"name"`
-	Type        string `json:"type"`    // string, int, bool
+	Type        string `json:"type"` // string, int, bool
 	Default     string `json:"default"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
@@ -61,17 +61,16 @@ type DatabaseTemplate struct {
 	DefaultPort       int            `json:"default_port"`
 }
 
-
 // Registry contains all database templates indexed by type.
 var Registry = map[DatabaseType]DatabaseTemplate{
 	DatabaseTypePostgres: {
-		Type:           DatabaseTypePostgres,
-		DisplayName:    "PostgreSQL",
-		Description:    "Advanced open-source relational database",
-		DefaultVersion: "16",
+		Type:              DatabaseTypePostgres,
+		DisplayName:       "PostgreSQL",
+		Description:       "Advanced open-source relational database",
+		DefaultVersion:    "16",
 		AvailableVersions: []string{"14", "15", "16", "17"},
-		TemplateName:   "postgres.nix",
-		DefaultPort:    5432,
+		TemplateName:      "postgres.nix",
+		DefaultPort:       5432,
 		ConfigOptions: []ConfigOption{
 			{Name: "storage_size", Type: "string", Default: "10Gi", Description: "Storage size for database data"},
 			{Name: "max_connections", Type: "int", Default: "100", Description: "Maximum number of connections"},
@@ -80,13 +79,13 @@ var Registry = map[DatabaseType]DatabaseTemplate{
 		},
 	},
 	DatabaseTypeMySQL: {
-		Type:           DatabaseTypeMySQL,
-		DisplayName:    "MySQL",
-		Description:    "Popular open-source relational database",
-		DefaultVersion: "8.0",
+		Type:              DatabaseTypeMySQL,
+		DisplayName:       "MySQL",
+		Description:       "Popular open-source relational database",
+		DefaultVersion:    "8.0",
 		AvailableVersions: []string{"5.7", "8.0", "8.4"},
-		TemplateName:   "mysql.nix",
-		DefaultPort:    3306,
+		TemplateName:      "mysql.nix",
+		DefaultPort:       3306,
 		ConfigOptions: []ConfigOption{
 			{Name: "storage_size", Type: "string", Default: "10Gi", Description: "Storage size for database data"},
 			{Name: "innodb_buffer_pool_size", Type: "string", Default: "128M", Description: "InnoDB buffer pool size"},
@@ -95,13 +94,13 @@ var Registry = map[DatabaseType]DatabaseTemplate{
 		},
 	},
 	DatabaseTypeMariaDB: {
-		Type:           DatabaseTypeMariaDB,
-		DisplayName:    "MariaDB",
-		Description:    "Community-developed fork of MySQL",
-		DefaultVersion: "11",
+		Type:              DatabaseTypeMariaDB,
+		DisplayName:       "MariaDB",
+		Description:       "Community-developed fork of MySQL",
+		DefaultVersion:    "11",
 		AvailableVersions: []string{"10.6", "10.11", "11"},
-		TemplateName:   "mariadb.nix",
-		DefaultPort:    3306,
+		TemplateName:      "mariadb.nix",
+		DefaultPort:       3306,
 		ConfigOptions: []ConfigOption{
 			{Name: "storage_size", Type: "string", Default: "10Gi", Description: "Storage size for database data"},
 			{Name: "innodb_buffer_pool_size", Type: "string", Default: "128M", Description: "InnoDB buffer pool size"},
@@ -110,13 +109,13 @@ var Registry = map[DatabaseType]DatabaseTemplate{
 		},
 	},
 	DatabaseTypeMongoDB: {
-		Type:           DatabaseTypeMongoDB,
-		DisplayName:    "MongoDB",
-		Description:    "Document-oriented NoSQL database",
-		DefaultVersion: "7.0",
+		Type:              DatabaseTypeMongoDB,
+		DisplayName:       "MongoDB",
+		Description:       "Document-oriented NoSQL database",
+		DefaultVersion:    "7.0",
 		AvailableVersions: []string{"6.0", "7.0"},
-		TemplateName:   "mongodb.nix",
-		DefaultPort:    27017,
+		TemplateName:      "mongodb.nix",
+		DefaultPort:       27017,
 		ConfigOptions: []ConfigOption{
 			{Name: "storage_size", Type: "string", Default: "10Gi", Description: "Storage size for database data"},
 			{Name: "wired_tiger_cache_size", Type: "string", Default: "256M", Description: "WiredTiger cache size"},
@@ -124,13 +123,13 @@ var Registry = map[DatabaseType]DatabaseTemplate{
 		},
 	},
 	DatabaseTypeRedis: {
-		Type:           DatabaseTypeRedis,
-		DisplayName:    "Redis",
-		Description:    "In-memory data structure store",
-		DefaultVersion: "7",
+		Type:              DatabaseTypeRedis,
+		DisplayName:       "Redis",
+		Description:       "In-memory data structure store",
+		DefaultVersion:    "7",
 		AvailableVersions: []string{"6", "7"},
-		TemplateName:   "redis.nix",
-		DefaultPort:    6379,
+		TemplateName:      "redis.nix",
+		DefaultPort:       6379,
 		ConfigOptions: []ConfigOption{
 			{Name: "maxmemory", Type: "string", Default: "256mb", Description: "Maximum memory limit"},
 			{Name: "maxmemory_policy", Type: "string", Default: "allkeys-lru", Description: "Eviction policy when maxmemory is reached"},
@@ -139,7 +138,6 @@ var Registry = map[DatabaseType]DatabaseTemplate{
 		},
 	},
 }
-
 
 // GetTemplate returns the database template for a given type.
 func GetTemplate(dbType DatabaseType) (*DatabaseTemplate, error) {
@@ -255,7 +253,6 @@ func (d *DatabaseTemplateData) WithConfig(config map[string]string) *DatabaseTem
 	return d
 }
 
-
 // DatabaseCredentials contains generated credentials for a database service.
 type DatabaseCredentials struct {
 	Username     string `json:"username"`
@@ -349,13 +346,13 @@ func (c *DatabaseCredentials) GetSecretKeys(dbType DatabaseType, serviceName str
 func generateSecurePassword(length int) (string, error) {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
-	
+
 	// Use crypto/rand for secure random generation
 	_, err := cryptoRand.Read(b)
 	if err != nil {
 		return "", err
 	}
-	
+
 	for i := range b {
 		b[i] = charset[int(b[i])%len(charset)]
 	}
@@ -387,7 +384,7 @@ func sanitizeDatabaseName(name string) string {
 func sanitizeEnvVarName(name string) string {
 	result := make([]byte, 0, len(name))
 	for _, c := range name {
-		if (c >= 'a' && c <= 'z') {
+		if c >= 'a' && c <= 'z' {
 			result = append(result, byte(c-'a'+'A')) // Convert to uppercase
 		} else if (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
 			result = append(result, byte(c))
