@@ -161,7 +161,9 @@ func main() {
 		r.Delete("/api/v1/apps/{appID}/domains/{domainID}", handleDomainsDeleteProxy)
 
 		// Environment variables API proxy (for AJAX calls from service detail page)
+		r.Get("/api/v1/apps/{appID}/services/{serviceName}/env", handleEnvListProxy)
 		r.Post("/api/v1/apps/{appID}/services/{serviceName}/env", handleEnvCreateProxy)
+		r.Put("/api/v1/apps/{appID}/services/{serviceName}/env/{key}", handleEnvUpdateProxy)
 		r.Delete("/api/v1/apps/{appID}/services/{serviceName}/env/{key}", handleEnvDeleteProxy)
 
 		// Server management pages
@@ -919,6 +921,10 @@ func handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 	// Derive service state from latest deployment
 	serviceState := deriveServiceStateFromDeployments(deployments)
 
+	// Fetch app-level secrets for display in environment tab
+	// **Validates: Requirements 3.1**
+	appSecrets, _ := client.ListSecrets(ctx, appID)
+
 	data := apps.ServiceDetailData{
 		App:          *app,
 		Service:      *service,
@@ -929,6 +935,7 @@ func handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 		SuccessMsg:   r.URL.Query().Get("success"),
 		ErrorMsg:     r.URL.Query().Get("error"),
 		ServiceState: serviceState,
+		AppSecrets:   appSecrets,
 	}
 
 	apps.ServiceDetail(data).Render(ctx, w)
@@ -1657,6 +1664,57 @@ func handleEnvCreateProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.URL.Path = fmt.Sprintf("/v1/apps/%s/services/%s/env", appID, serviceName)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleEnvListProxy proxies environment variable list requests to the API server.
+// **Validates: Requirements 5.4**
+func handleEnvListProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/services/%s/env", appID, serviceName)
+	proxy.ServeHTTP(w, r)
+}
+
+// handleEnvUpdateProxy proxies environment variable update requests to the API server.
+// **Validates: Requirements 1.3**
+func handleEnvUpdateProxy(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	serviceName := chi.URLParam(r, "serviceName")
+	key := chi.URLParam(r, "key")
+	apiURL := os.Getenv("INTERNAL_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+
+	u, _ := url.Parse(apiURL)
+	proxy := httputil.NewSingleHostReverseProxy(u)
+
+	token := getAuthToken(r)
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	r.URL.Path = fmt.Sprintf("/v1/apps/%s/services/%s/env/%s", appID, serviceName, key)
 	proxy.ServeHTTP(w, r)
 }
 
