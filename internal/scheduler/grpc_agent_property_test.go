@@ -33,21 +33,20 @@ func genDeploymentForGRPC() gopter.Gen {
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
 		gen.OneConstOf(models.BuildTypeOCI, models.BuildTypePureNix),
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }),
-		gen.OneConstOf(
-			models.ResourceTierNano,
-			models.ResourceTierSmall,
-			models.ResourceTierMedium,
-			models.ResourceTierLarge,
-		),
+		gen.OneConstOf("0.25", "0.5", "1", "2"),
+		gen.OneConstOf("256Mi", "512Mi", "1Gi", "2Gi"),
 	).Map(func(vals []interface{}) *models.Deployment {
 		return &models.Deployment{
-			ID:           vals[0].(string),
-			AppID:        vals[1].(string),
-			ServiceName:  vals[2].(string),
-			BuildType:    vals[3].(models.BuildType),
-			Artifact:     vals[4].(string),
-			ResourceTier: vals[5].(models.ResourceTier),
-			Status:       models.DeploymentStatusBuilt,
+			ID:          vals[0].(string),
+			AppID:       vals[1].(string),
+			ServiceName: vals[2].(string),
+			BuildType:   vals[3].(models.BuildType),
+			Artifact:    vals[4].(string),
+			Resources: &models.ResourceSpec{
+				CPU:    vals[5].(string),
+				Memory: vals[6].(string),
+			},
+			Status: models.DeploymentStatusBuilt,
 		}
 	})
 }
@@ -93,7 +92,7 @@ func TestGRPCAgentClientDeployCommandCompleteness(t *testing.T) {
 			if deploy.Config == nil {
 				return false
 			}
-			if deploy.Config.ResourceTier != string(deployment.ResourceTier) {
+			if deploy.Config.Resources == nil {
 				return false
 			}
 
@@ -187,12 +186,12 @@ func TestGRPCAgentClientBuildTypeMapping(t *testing.T) {
 
 	for _, tc := range testCases {
 		deployment := &models.Deployment{
-			ID:           "test-id",
-			AppID:        "test-app",
-			ServiceName:  "test-service",
-			Artifact:     "test-artifact",
-			BuildType:    tc.modelType,
-			ResourceTier: models.ResourceTierSmall,
+			ID:          "test-id",
+			AppID:       "test-app",
+			ServiceName: "test-service",
+			Artifact:    "test-artifact",
+			BuildType:   tc.modelType,
+			Resources:   models.DefaultResourceSpec(),
 		}
 
 		cmd := BuildDeployCommand(deployment)

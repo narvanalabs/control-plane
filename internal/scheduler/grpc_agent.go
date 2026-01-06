@@ -155,8 +155,15 @@ func (c *GRPCAgentClient) buildDeployCommand(deployment *models.Deployment) *pb.
 
 	// Build deployment config
 	config := &pb.CPDeploymentConfig{
-		ResourceTier: string(deployment.ResourceTier),
-		DependsOn:    deployment.DependsOn,
+		DependsOn: deployment.DependsOn,
+	}
+
+	// Add resources if available
+	if deployment.Resources != nil {
+		config.Resources = &pb.CPResourceSpec{
+			Cpu:    deployment.Resources.CPU,
+			Memory: deployment.Resources.Memory,
+		}
 	}
 
 	// Add runtime config if available
