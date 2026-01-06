@@ -1758,6 +1758,7 @@ func (h *ServiceHandler) AddEnvVar(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteEnvVar handles DELETE /v1/apps/{appID}/services/{serviceName}/env/{key} - deletes an environment variable.
+// **Validates: Requirements 1.4**
 func (h *ServiceHandler) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
 	appID := middleware.GetResolvedAppID(r.Context())
 	if appID == "" {
@@ -1788,7 +1789,7 @@ func (h *ServiceHandler) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
 	// Get the app
 	app, err := h.store.Apps().Get(r.Context(), appID)
 	if err != nil {
-		WriteNotFound(w, "Application not found")
+		WriteError(w, http.StatusNotFound, "APP_NOT_FOUND", "Application not found")
 		return
 	}
 
@@ -1808,18 +1809,18 @@ func (h *ServiceHandler) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if serviceIndex == -1 {
-		WriteNotFound(w, "Service not found")
+		WriteError(w, http.StatusNotFound, "SERVICE_NOT_FOUND", "Service not found")
 		return
 	}
 
 	// Check if env var exists
 	if app.Services[serviceIndex].EnvVars == nil {
-		WriteNotFound(w, "Environment variable not found")
+		WriteError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Environment variable not found")
 		return
 	}
 
 	if _, exists := app.Services[serviceIndex].EnvVars[key]; !exists {
-		WriteNotFound(w, "Environment variable not found")
+		WriteError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Environment variable not found")
 		return
 	}
 
@@ -1835,4 +1836,181 @@ func (h *ServiceHandler) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("env var deleted", "app_id", appID, "service_name", serviceName, "key", key)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// UpdateEnvVarRequest represents the request body for updating an environment variable.
+type UpdateEnvVarRequest struct {
+	Value string `json:"value"`
+}
+
+// UpdateEnvVar handles PUT /v1/apps/{appID}/services/{serviceName}/env/{key} - updates an environment variable.
+// **Validates: Requirements 1.3, 5.1, 5.3**
+func (h *ServiceHandler) UpdateEnvVar(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+	key := chi.URLParam(r, "key")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+	if key == "" {
+		WriteBadRequest(w, "Key is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	var req UpdateEnvVarRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteBadRequest(w, "Invalid request body")
+		return
+	}
+
+	// Validate value (Requirements: 5.1, 5.3)
+	if err := validation.ValidateEnvValue(req.Value); err != nil {
+		if validationErr, ok := err.(*models.ValidationError); ok {
+			WriteErrorWithDetails(w, http.StatusBadRequest, "INVALID_VALUE", validationErr.Message, map[string]string{
+				"field":      "value",
+				"constraint": "max_length",
+				"expected":   "32KB",
+			})
+			return
+		}
+		WriteBadRequest(w, err.Error())
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteError(w, http.StatusNotFound, "APP_NOT_FOUND", "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	serviceIndex := -1
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			serviceIndex = i
+			break
+		}
+	}
+
+	if serviceIndex == -1 {
+		WriteError(w, http.StatusNotFound, "SERVICE_NOT_FOUND", "Service not found")
+		return
+	}
+
+	// Check if env var exists
+	if app.Services[serviceIndex].EnvVars == nil {
+		WriteError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Environment variable not found")
+		return
+	}
+
+	if _, exists := app.Services[serviceIndex].EnvVars[key]; !exists {
+		WriteError(w, http.StatusNotFound, "KEY_NOT_FOUND", "Environment variable not found")
+		return
+	}
+
+	// Update the env var
+	app.Services[serviceIndex].EnvVars[key] = req.Value
+	app.UpdatedAt = time.Now()
+
+	if err := h.store.Apps().Update(r.Context(), app); err != nil {
+		h.logger.Error("failed to update env var", "error", err)
+		WriteInternalError(w, "Failed to update environment variable")
+		return
+	}
+
+	h.logger.Info("env var updated", "app_id", appID, "service_name", serviceName, "key", key)
+	WriteJSON(w, http.StatusOK, EnvVarResponse{
+		Key:       key,
+		Value:     req.Value,
+		CreatedAt: app.UpdatedAt,
+	})
+}
+
+// ListEnvVars handles GET /v1/apps/{appID}/services/{serviceName}/env - lists all environment variables.
+// **Validates: Requirements 5.4**
+func (h *ServiceHandler) ListEnvVars(w http.ResponseWriter, r *http.Request) {
+	appID := middleware.GetResolvedAppID(r.Context())
+	if appID == "" {
+		appID = chi.URLParam(r, "appID")
+	}
+	serviceName := chi.URLParam(r, "serviceName")
+
+	if appID == "" {
+		WriteBadRequest(w, "Application ID is required")
+		return
+	}
+	if serviceName == "" {
+		WriteBadRequest(w, "Service name is required")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		WriteUnauthorized(w, "Authentication required")
+		return
+	}
+
+	// Get the app
+	app, err := h.store.Apps().Get(r.Context(), appID)
+	if err != nil {
+		WriteError(w, http.StatusNotFound, "APP_NOT_FOUND", "Application not found")
+		return
+	}
+
+	// Verify ownership
+	if app.OwnerID != userID {
+		WriteForbidden(w, "Access denied")
+		return
+	}
+
+	// Find the service
+	var service *models.ServiceConfig
+	for i := range app.Services {
+		if app.Services[i].Name == serviceName {
+			service = &app.Services[i]
+			break
+		}
+	}
+
+	if service == nil {
+		WriteError(w, http.StatusNotFound, "SERVICE_NOT_FOUND", "Service not found")
+		return
+	}
+
+	// Build response
+	variables := make([]EnvVarResponse, 0)
+	if service.EnvVars != nil {
+		for k, v := range service.EnvVars {
+			variables = append(variables, EnvVarResponse{
+				Key:   k,
+				Value: v,
+			})
+		}
+	}
+
+	WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"variables": variables,
+	})
 }

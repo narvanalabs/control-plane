@@ -70,7 +70,6 @@ func TestDatabaseServiceBuildType(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: platform-enhancements, Property 6: Database Template Selection**
 // For any database type, the correct Database_Flake template SHALL be selected
 // with the appropriate default version:
