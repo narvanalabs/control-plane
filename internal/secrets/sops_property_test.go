@@ -264,7 +264,6 @@ func min(a, b int) int {
 	return b
 }
 
-
 // TestKeyRotation verifies that key rotation works correctly.
 // It encrypts secrets with one key, rotates to a new key, and verifies
 // the secrets can be decrypted with the new key.

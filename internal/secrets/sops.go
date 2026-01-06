@@ -31,9 +31,9 @@ var (
 // It follows the sops-nix pattern where secrets are encrypted with age public keys
 // and can only be decrypted by nodes with the corresponding private keys.
 type SOPSService struct {
-	publicKey    *age.X25519Recipient // For encryption (API server)
-	privateKey   *age.X25519Identity  // For decryption (node agents only)
-	logger       *slog.Logger
+	publicKey  *age.X25519Recipient // For encryption (API server)
+	privateKey *age.X25519Identity  // For decryption (node agents only)
+	logger     *slog.Logger
 }
 
 // Config holds the configuration for the SOPS service.
@@ -166,7 +166,6 @@ func (s *SOPSService) GetPublicKey() string {
 	}
 	return s.publicKey.String()
 }
-
 
 // ReEncrypt decrypts ciphertext with the current private key and re-encrypts
 // with a new public key. This is used during key rotation.
