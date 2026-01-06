@@ -192,12 +192,12 @@ func TestCrossUserAccessDenied(t *testing.T) {
 			// Create a request with the attacker's user ID in context
 			req := httptest.NewRequest("GET", "/v1/apps/"+appID, nil)
 			ctx := context.WithValue(req.Context(), UserIDKey, attackerID)
-			
+
 			// Add the appID to chi URL params
 			rctx := chi.NewRouteContext()
 			rctx.URLParams.Add("appID", appID)
 			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
-			
+
 			req = req.WithContext(ctx)
 
 			// Create a response recorder
@@ -254,12 +254,12 @@ func TestOwnerAccessAllowed(t *testing.T) {
 			// Create a request with the owner's user ID in context
 			req := httptest.NewRequest("GET", "/v1/apps/"+appID, nil)
 			ctx := context.WithValue(req.Context(), UserIDKey, ownerID)
-			
+
 			// Add the appID to chi URL params
 			rctx := chi.NewRouteContext()
 			rctx.URLParams.Add("appID", appID)
 			ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
-			
+
 			req = req.WithContext(ctx)
 
 			// Create a response recorder

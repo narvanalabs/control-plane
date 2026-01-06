@@ -56,7 +56,6 @@ func NewAuthMiddleware(authService *auth.Service, apiKeyHeader string, logger *s
 	}
 }
 
-
 // Authenticate is a middleware that validates JWT tokens or API keys.
 // It supports authentication via:
 // - X-API-Key header
@@ -81,12 +80,12 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 			// Try JWT token from Authorization header
 			authHeader := r.Header.Get("Authorization")
 			token := auth.ExtractBearerToken(authHeader)
-			
+
 			// Fall back to query param token (for SSE/EventSource)
 			if token == "" {
 				token = r.URL.Query().Get("token")
 			}
-			
+
 			if token == "" {
 				writeUnauthorized(w, "Missing authentication")
 				return

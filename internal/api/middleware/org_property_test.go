@@ -124,21 +124,21 @@ func newOrgTestStore() *orgTestStore {
 	}
 }
 
-func (m *orgTestStore) Apps() store.AppStore       { return m.appStore }
-func (m *orgTestStore) Orgs() store.OrgStore       { return m.orgStore }
-func (m *orgTestStore) Deployments() store.DeploymentStore { return nil }
-func (m *orgTestStore) Nodes() store.NodeStore     { return nil }
-func (m *orgTestStore) Builds() store.BuildStore   { return nil }
-func (m *orgTestStore) Secrets() store.SecretStore { return nil }
-func (m *orgTestStore) Logs() store.LogStore       { return nil }
-func (m *orgTestStore) Users() store.UserStore     { return nil }
-func (m *orgTestStore) GitHub() store.GitHubStore  { return nil }
-func (m *orgTestStore) GitHubAccounts() store.GitHubAccountStore { return nil }
-func (m *orgTestStore) Settings() store.SettingsStore { return nil }
-func (m *orgTestStore) Domains() store.DomainStore { return nil }
-func (m *orgTestStore) Invitations() store.InvitationStore { return nil }
+func (m *orgTestStore) Apps() store.AppStore                                         { return m.appStore }
+func (m *orgTestStore) Orgs() store.OrgStore                                         { return m.orgStore }
+func (m *orgTestStore) Deployments() store.DeploymentStore                           { return nil }
+func (m *orgTestStore) Nodes() store.NodeStore                                       { return nil }
+func (m *orgTestStore) Builds() store.BuildStore                                     { return nil }
+func (m *orgTestStore) Secrets() store.SecretStore                                   { return nil }
+func (m *orgTestStore) Logs() store.LogStore                                         { return nil }
+func (m *orgTestStore) Users() store.UserStore                                       { return nil }
+func (m *orgTestStore) GitHub() store.GitHubStore                                    { return nil }
+func (m *orgTestStore) GitHubAccounts() store.GitHubAccountStore                     { return nil }
+func (m *orgTestStore) Settings() store.SettingsStore                                { return nil }
+func (m *orgTestStore) Domains() store.DomainStore                                   { return nil }
+func (m *orgTestStore) Invitations() store.InvitationStore                           { return nil }
 func (m *orgTestStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
-func (m *orgTestStore) Close() error { return nil }
+func (m *orgTestStore) Close() error                                                 { return nil }
 
 // genOrgSlug generates valid organization slugs
 func genOrgSlug() gopter.Gen {

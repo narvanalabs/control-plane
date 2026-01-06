@@ -33,8 +33,10 @@ func OrgContext(st store.Store, logger *slog.Logger) func(http.Handler) http.Han
 			}
 
 			// Get org from header or cookie
+			// Support both X-Org-ID (by ID) and X-Org-Slug (by slug)
+			orgID := r.Header.Get("X-Org-ID")
 			orgSlug := r.Header.Get("X-Org-Slug")
-			if orgSlug == "" {
+			if orgSlug == "" && orgID == "" {
 				if cookie, err := r.Cookie("current_org"); err == nil {
 					orgSlug = cookie.Value
 				}
@@ -43,7 +45,30 @@ func OrgContext(st store.Store, logger *slog.Logger) func(http.Handler) http.Han
 			var org *models.Organization
 			var err error
 
-			if orgSlug != "" {
+			if orgID != "" {
+				// Look up by ID
+				org, err = st.Orgs().Get(r.Context(), orgID)
+				if err != nil {
+					logger.Debug("organization not found", "id", orgID, "error", err)
+					writeNotFound(w, "Organization not found")
+					return
+				}
+
+				isMember, err := st.Orgs().IsMember(r.Context(), org.ID, userID)
+				if err != nil {
+					logger.Error("failed to check org membership", "error", err, "org_id", org.ID, "user_id", userID)
+					writeInternalError(w, "Failed to verify organization membership")
+					return
+				}
+				if !isMember {
+					logger.Debug("user not member of organization",
+						"user_id", userID,
+						"org_id", org.ID,
+					)
+					writeForbidden(w, "Not a member of this organization")
+					return
+				}
+			} else if orgSlug != "" {
 				// Validate user is member of this org
 				org, err = st.Orgs().GetBySlug(r.Context(), orgSlug)
 				if err != nil {
@@ -105,5 +130,3 @@ func GetOrgID(ctx context.Context) string {
 	}
 	return ""
 }
-
-
