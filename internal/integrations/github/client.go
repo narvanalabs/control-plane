@@ -40,27 +40,27 @@ type ManifestConversion struct {
 // ConvertManifest exchanges a manifest code for App credentials.
 func (c *Client) ConvertManifest(ctx context.Context, code string) (*ManifestConversion, error) {
 	targetURL := fmt.Sprintf("https://api.github.com/app-manifests/%s/conversions", code)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
-	
+
 	var conversion ManifestConversion
 	if err := json.NewDecoder(resp.Body).Decode(&conversion); err != nil {
 		return nil, err
 	}
-	
+
 	return &conversion, nil
 }
 
@@ -145,10 +145,11 @@ func (c *Client) ListRepositories(ctx context.Context, token string) ([]map[stri
 
 	return result.Repositories, nil
 }
+
 // ExchangeCode exchanges an OAuth code for an access token.
 func (c *Client) ExchangeCode(ctx context.Context, clientID, clientSecret, code string) (map[string]interface{}, error) {
 	targetURL := "https://github.com/login/oauth/access_token"
-	
+
 	vals := url.Values{}
 	vals.Set("client_id", clientID)
 	vals.Set("client_secret", clientSecret)
@@ -158,7 +159,7 @@ func (c *Client) ExchangeCode(ctx context.Context, clientID, clientSecret, code 
 	if err != nil {
 		return nil, err
 	}
-	
+
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
