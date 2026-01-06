@@ -108,7 +108,6 @@ func main() {
 	properties.TestingRun(t)
 }
 
-
 // TestEntryPointValidationEmptyInputs tests edge cases for validation.
 func TestEntryPointValidationEmptyInputs(t *testing.T) {
 	selector := NewSelector()
@@ -318,7 +317,6 @@ func main() {
 		}
 	})
 }
-
 
 // **Feature: flexible-build-strategies, Property 9: Build Config Override**
 // For any detection result and user-provided build_config, the user-provided values
@@ -716,7 +714,6 @@ func intToStr(i int) string {
 	return result
 }
 
-
 // **Feature: ui-api-alignment, Property 13: Entry Point Detection Completeness**
 // For any Go repository with main packages in standard locations (root, cmd/*, apps/*, services/*),
 // the detector SHALL find all of them.
@@ -1012,7 +1009,6 @@ func TestEntryPointDetectionCompleteness(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: ui-api-alignment, Property 14: Multi-Binary Detection**
 // For any repository containing multiple main packages, the builder SHALL detect all of them
 // and allow selection of which to build.
@@ -1029,10 +1025,10 @@ type MultiBinaryConfig struct {
 // genMultiBinaryConfig generates configurations for multi-binary repositories.
 func genMultiBinaryConfig() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Bool(),                                                    // RootMain
-		gen.SliceOfN(3, genValidEntryPointName()),                     // CmdBinaries (0-3)
-		gen.SliceOfN(2, genValidEntryPointName()),                     // AppsBinaries (0-2)
-		gen.SliceOfN(2, genValidEntryPointName()),                     // SvcBinaries (0-2)
+		gen.Bool(), // RootMain
+		gen.SliceOfN(3, genValidEntryPointName()), // CmdBinaries (0-3)
+		gen.SliceOfN(2, genValidEntryPointName()), // AppsBinaries (0-2)
+		gen.SliceOfN(2, genValidEntryPointName()), // SvcBinaries (0-2)
 	).Map(func(vals []interface{}) MultiBinaryConfig {
 		// Deduplicate names within each category
 		cmdBinaries := deduplicateStrings(vals[1].([]string))

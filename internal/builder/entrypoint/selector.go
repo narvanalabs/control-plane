@@ -68,7 +68,6 @@ func (s *Selector) ListEntryPoints(ctx context.Context, repoPath string, languag
 	}
 }
 
-
 // SelectDefault returns the default entry point based on heuristics.
 // Priority order:
 // 1. Entry point already marked as default
@@ -217,7 +216,6 @@ func (s *Selector) listGoEntryPoints(ctx context.Context, repoPath string) ([]En
 
 	return entryPoints, nil
 }
-
 
 // listNodeEntryPoints finds entry points in a Node.js repository.
 func (s *Selector) listNodeEntryPoints(ctx context.Context, repoPath string) ([]EntryPoint, error) {
@@ -384,7 +382,6 @@ func (s *Selector) listRustEntryPoints(ctx context.Context, repoPath string) ([]
 
 	return entryPoints, nil
 }
-
 
 // listPythonEntryPoints finds entry points in a Python repository.
 func (s *Selector) listPythonEntryPoints(ctx context.Context, repoPath string) ([]EntryPoint, error) {
@@ -580,7 +577,6 @@ func parsePyprojectEntryPoints(pyprojectPath string) []EntryPoint {
 
 	return entryPoints
 }
-
 
 // MergeConfig merges a user-provided BuildConfig with detected values from DetectionResult.
 // User-provided values always override detected values.
