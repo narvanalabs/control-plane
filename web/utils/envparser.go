@@ -5,6 +5,44 @@ import (
 	"strings"
 )
 
+// unescapeValue processes escape sequences in a single pass to handle them correctly.
+// This ensures that \\n becomes \n (literal backslash-n) not a newline.
+func unescapeValue(s string) string {
+	var result strings.Builder
+	result.Grow(len(s))
+	
+	i := 0
+	for i < len(s) {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case 'n':
+				result.WriteByte('\n')
+				i += 2
+			case 't':
+				result.WriteByte('\t')
+				i += 2
+			case 'r':
+				result.WriteByte('\r')
+				i += 2
+			case '"':
+				result.WriteByte('"')
+				i += 2
+			case '\\':
+				result.WriteByte('\\')
+				i += 2
+			default:
+				// Unknown escape sequence, keep the backslash
+				result.WriteByte(s[i])
+				i++
+			}
+		} else {
+			result.WriteByte(s[i])
+			i++
+		}
+	}
+	return result.String()
+}
+
 // ParseEnvFile parses a .env file content and returns a map of key-value pairs.
 // This implementation mirrors the JavaScript parseEnvFile function in env_form.templ.
 // **Validates: Requirements 2.2, 2.3**
@@ -39,13 +77,9 @@ func ParseEnvFile(content string) map[string]string {
 		if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
 			(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
 			value = value[1 : len(value)-1]
-			// Handle escape sequences in double-quoted strings
+			// Handle escape sequences in double-quoted strings using single-pass processing
 			if strings.Contains(value, "\\") {
-				value = strings.ReplaceAll(value, "\\n", "\n")
-				value = strings.ReplaceAll(value, "\\t", "\t")
-				value = strings.ReplaceAll(value, "\\r", "\r")
-				value = strings.ReplaceAll(value, "\\\"", "\"")
-				value = strings.ReplaceAll(value, "\\\\", "\\")
+				value = unescapeValue(value)
 			}
 		}
 
