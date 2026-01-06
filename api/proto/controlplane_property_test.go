@@ -17,12 +17,12 @@ import (
 // genResourceMetrics generates a random ResourceMetrics.
 func genResourceMetrics() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Float64Range(1, 64),    // cpu_total
-		gen.Float64Range(0, 64),    // cpu_available
-		gen.Int64Range(1<<30, 256<<30),  // memory_total
-		gen.Int64Range(0, 256<<30),      // memory_available
-		gen.Int64Range(1<<30, 1<<40),    // disk_total
-		gen.Int64Range(0, 1<<40),        // disk_available
+		gen.Float64Range(1, 64),        // cpu_total
+		gen.Float64Range(0, 64),        // cpu_available
+		gen.Int64Range(1<<30, 256<<30), // memory_total
+		gen.Int64Range(0, 256<<30),     // memory_available
+		gen.Int64Range(1<<30, 1<<40),   // disk_total
+		gen.Int64Range(0, 1<<40),       // disk_available
 	).Map(func(vals []interface{}) *ResourceMetrics {
 		return &ResourceMetrics{
 			CpuTotal:        vals[0].(float64),
@@ -38,14 +38,14 @@ func genResourceMetrics() gopter.Gen {
 // genNodeInfo generates a random NodeInfo.
 func genNodeInfo() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Identifier(),                                    // id
+		gen.Identifier(), // id
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // hostname
 		gen.AlphaString().SuchThat(func(s string) bool { return len(s) > 0 }), // address
-		gen.Int32Range(1024, 65535),                         // grpc_port
-		genResourceMetrics(),                                // resources
-		gen.SliceOfN(5, gen.AlphaString()),                  // cached_paths
-		gen.Int32Range(0, 100),                              // available_slots
-		gen.Int32Range(0, 100),                              // active_deployments
+		gen.Int32Range(1024, 65535),        // grpc_port
+		genResourceMetrics(),               // resources
+		gen.SliceOfN(5, gen.AlphaString()), // cached_paths
+		gen.Int32Range(0, 100),             // available_slots
+		gen.Int32Range(0, 100),             // active_deployments
 	).Map(func(vals []interface{}) *NodeInfo {
 		return &NodeInfo{
 			Id:                vals[0].(string),
@@ -63,8 +63,8 @@ func genNodeInfo() gopter.Gen {
 // genNodeConfig generates a random NodeConfig.
 func genNodeConfig() gopter.Gen {
 	return gopter.CombineGens(
-		gen.Int32Range(5, 60),   // heartbeat_interval_seconds
-		gen.Int32Range(1, 100),  // max_concurrent_deployments
+		gen.Int32Range(5, 60),      // heartbeat_interval_seconds
+		gen.Int32Range(1, 100),     // max_concurrent_deployments
 		gen.Int32Range(100, 10000), // log_buffer_size
 	).Map(func(vals []interface{}) *NodeConfig {
 		return &NodeConfig{
@@ -104,7 +104,6 @@ func genRegisterResponse() gopter.Gen {
 		}
 	})
 }
-
 
 // TestRegisterRequestRoundTrip tests that RegisterRequest serializes and deserializes correctly.
 func TestRegisterRequestRoundTrip(t *testing.T) {
