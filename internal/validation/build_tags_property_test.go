@@ -179,7 +179,6 @@ func TestBuildTagsValidation(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // **Feature: ui-api-alignment, Property 8: Build Tags Formatting**
 // For any build configuration with multiple build tags, the builder SHALL format them
 // correctly as comma-separated values in the -tags flag.

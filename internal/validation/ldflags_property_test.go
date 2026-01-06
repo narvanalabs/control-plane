@@ -120,7 +120,7 @@ func TestLdflagsPassthrough(t *testing.T) {
 			result := templates.FormatLdflagsForNix(ldflags)
 			// Parse the original flags
 			originalParts := strings.Fields(ldflags)
-			
+
 			// Each original part should appear in the result
 			for _, part := range originalParts {
 				if !strings.Contains(result, part) {
@@ -162,7 +162,6 @@ func TestLdflagsPassthrough(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: ui-api-alignment, Property 11: Ldflags Variable Substitution**
 // For any ldflags containing substitution patterns (${version}, ${commit}, ${buildTime}),
@@ -408,7 +407,6 @@ func TestLdflagsVariableSubstitution(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // **Feature: ui-api-alignment, Property 12: Ldflags Override**
 // For any build configuration with custom ldflags, the builder SHALL use those
