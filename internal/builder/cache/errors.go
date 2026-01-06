@@ -25,4 +25,13 @@ var (
 
 	// ErrEmptyServiceID is returned when an empty service ID is provided.
 	ErrEmptyServiceID = errors.New("service ID is empty")
+
+	// ErrEmptyRepoURL is returned when an empty repository URL is provided.
+	ErrEmptyRepoURL = errors.New("repository URL is empty")
+
+	// ErrEmptyCommitSHA is returned when an empty commit SHA is provided.
+	ErrEmptyCommitSHA = errors.New("commit SHA is empty")
+
+	// ErrNilDetectionResult is returned when a nil detection result is provided.
+	ErrNilDetectionResult = errors.New("detection result is nil")
 )
