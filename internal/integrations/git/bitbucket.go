@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	bitbucketAPIURL      = "https://api.bitbucket.org/2.0"
+	bitbucketAPIURL       = "https://api.bitbucket.org/2.0"
 	bitbucketAuthorizeURL = "https://bitbucket.org/site/oauth2/authorize"
-	bitbucketTokenURL    = "https://bitbucket.org/site/oauth2/access_token"
+	bitbucketTokenURL     = "https://bitbucket.org/site/oauth2/access_token"
 )
 
 // BitbucketProvider implements the Provider interface for Bitbucket.

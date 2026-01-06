@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	githubAPIURL      = "https://api.github.com"
+	githubAPIURL       = "https://api.github.com"
 	githubAuthorizeURL = "https://github.com/login/oauth/authorize"
-	githubTokenURL    = "https://github.com/login/oauth/access_token"
+	githubTokenURL     = "https://github.com/login/oauth/access_token"
 )
 
 // GitHubProvider implements the Provider interface for GitHub.

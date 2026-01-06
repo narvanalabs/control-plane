@@ -295,11 +295,11 @@ func (p *GitLabProvider) CreateWebhook(ctx context.Context, token, owner, repo, 
 
 	// Map generic events to GitLab-specific events
 	payload := map[string]interface{}{
-		"url":                   webhookURL,
-		"token":                 secret,
-		"push_events":           contains(events, "push"),
-		"merge_requests_events": contains(events, "pull_request") || contains(events, "merge_request"),
-		"tag_push_events":       contains(events, "tag") || contains(events, "push"),
+		"url":                     webhookURL,
+		"token":                   secret,
+		"push_events":             contains(events, "push"),
+		"merge_requests_events":   contains(events, "pull_request") || contains(events, "merge_request"),
+		"tag_push_events":         contains(events, "tag") || contains(events, "push"),
 		"enable_ssl_verification": true,
 	}
 
