@@ -38,11 +38,25 @@
           subPackages = [ "{{ .EntryPoint }}" ];
           {{- end }}
           
-          # Vendor hash - will be calculated automatically
-          vendorHash = {{ if .Config.GoVersion }}{{ nixString .Config.GoVersion }}{{ else }}"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="{{ end }};
+          # Vendor hash - use null to skip hash verification (works with --impure)
+          vendorHash = null;
           
-          # CGO is enabled for this build
-          CGO_ENABLED = 1;
+          # Delete any existing vendor directory to avoid stale/incomplete vendor issues
+          deleteVendor = true;
+          
+          # Disable tests - they often require external services (databases, etc.)
+          # that aren't available in the Nix sandbox
+          doCheck = false;
+          
+          # Disable sandbox to avoid /homeless-shelter purity check
+          __noChroot = true;
+          
+          # Allow references to Go toolchain in output (needed for impure builds)
+          allowGoReference = true;
+          
+          # Environment variables for the build
+          env.CGO_ENABLED = "1";
+          env.GOTOOLCHAIN = "auto";
           {{- if .Config.IsWorkspace }}
           # Enable workspace mode
           # **Validates: Requirements 22.4**
@@ -89,6 +103,9 @@
           # Pre-build hook: includes CGO setup and user-defined commands
           # **Validates: Requirements 21.3, 21.5**
           preBuild = ''
+            rm -rf vendor 2>/dev/null || true
+            export GOFLAGS="-mod=mod"
+            export GOPROXY="https://proxy.golang.org,direct"
             export CGO_CFLAGS="-I${pkgs.lib.getDev pkgs.stdenv.cc.libc}/include"
             export CGO_LDFLAGS="-L${pkgs.lib.getLib pkgs.stdenv.cc.libc}/lib"
             {{- if .Config.IsWorkspace }}
