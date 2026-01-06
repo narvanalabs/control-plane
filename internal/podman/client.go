@@ -16,26 +16,26 @@ import (
 
 // ResourceLimits defines resource constraints for a container.
 type ResourceLimits struct {
-	CPUQuota   float64 // CPU quota in cores (e.g., 0.5 = half a core)
-	MemoryMB   int64   // Memory limit in megabytes
-	PidsLimit  int64   // Maximum number of PIDs
+	CPUQuota  float64 // CPU quota in cores (e.g., 0.5 = half a core)
+	MemoryMB  int64   // Memory limit in megabytes
+	PidsLimit int64   // Maximum number of PIDs
 }
 
 // ContainerConfig holds configuration for creating a container.
 type ContainerConfig struct {
-	Name         string
-	Image        string
-	Entrypoint   []string // Override container entrypoint
-	Command      []string
-	WorkDir      string
-	Env          map[string]string
-	Mounts       []Mount
-	Limits       *ResourceLimits
-	User         string
-	NetworkMode  string
-	Remove       bool   // Remove container after exit
-	Privileged   bool   // Run container in privileged mode
-	UserNS       string // User namespace mode (e.g., "keep-id", "host")
+	Name        string
+	Image       string
+	Entrypoint  []string // Override container entrypoint
+	Command     []string
+	WorkDir     string
+	Env         map[string]string
+	Mounts      []Mount
+	Limits      *ResourceLimits
+	User        string
+	NetworkMode string
+	Remove      bool   // Remove container after exit
+	Privileged  bool   // Run container in privileged mode
+	UserNS      string // User namespace mode (e.g., "keep-id", "host")
 }
 
 // Mount defines a bind mount for a container.
@@ -70,23 +70,90 @@ func NewClient(socketPath string, logger *slog.Logger) *Client {
 	}
 }
 
-
-// ResourceLimitsForTier returns resource limits for a given resource tier.
-func ResourceLimitsForTier(tier models.ResourceTier) *ResourceLimits {
-	switch tier {
-	case models.ResourceTierNano:
-		return &ResourceLimits{CPUQuota: 0.25, MemoryMB: 256, PidsLimit: 100}
-	case models.ResourceTierSmall:
-		return &ResourceLimits{CPUQuota: 0.5, MemoryMB: 512, PidsLimit: 200}
-	case models.ResourceTierMedium:
-		return &ResourceLimits{CPUQuota: 1.0, MemoryMB: 1024, PidsLimit: 500}
-	case models.ResourceTierLarge:
-		return &ResourceLimits{CPUQuota: 2.0, MemoryMB: 2048, PidsLimit: 1000}
-	case models.ResourceTierXLarge:
-		return &ResourceLimits{CPUQuota: 4.0, MemoryMB: 4096, PidsLimit: 2000}
-	default:
+// ResourceLimitsFromSpec returns resource limits from a ResourceSpec.
+// If spec is nil, returns default limits (0.5 CPU, 512MB).
+func ResourceLimitsFromSpec(spec *models.ResourceSpec) *ResourceLimits {
+	if spec == nil {
 		return &ResourceLimits{CPUQuota: 0.5, MemoryMB: 512, PidsLimit: 200}
 	}
+
+	limits := &ResourceLimits{PidsLimit: 200}
+
+	// Parse CPU (e.g., "0.5", "1", "2")
+	if spec.CPU != "" {
+		var cpu float64
+		fmt.Sscanf(spec.CPU, "%f", &cpu)
+		if cpu > 0 {
+			limits.CPUQuota = cpu
+		} else {
+			limits.CPUQuota = 0.5
+		}
+	} else {
+		limits.CPUQuota = 0.5
+	}
+
+	// Parse memory (e.g., "256Mi", "1Gi", "512")
+	if spec.Memory != "" {
+		limits.MemoryMB = parseMemoryToMB(spec.Memory)
+	} else {
+		limits.MemoryMB = 512
+	}
+
+	// Scale PIDs limit based on resources
+	if limits.CPUQuota >= 4 {
+		limits.PidsLimit = 2000
+	} else if limits.CPUQuota >= 2 {
+		limits.PidsLimit = 1000
+	} else if limits.CPUQuota >= 1 {
+		limits.PidsLimit = 500
+	}
+
+	return limits
+}
+
+// parseMemoryToMB parses a memory string to megabytes.
+func parseMemoryToMB(mem string) int64 {
+	mem = strings.TrimSpace(mem)
+	if mem == "" {
+		return 512
+	}
+
+	// Handle Gi suffix
+	if strings.HasSuffix(mem, "Gi") {
+		var val float64
+		fmt.Sscanf(mem, "%fGi", &val)
+		return int64(val * 1024)
+	}
+
+	// Handle Mi suffix
+	if strings.HasSuffix(mem, "Mi") {
+		var val int64
+		fmt.Sscanf(mem, "%dMi", &val)
+		return val
+	}
+
+	// Handle G suffix
+	if strings.HasSuffix(mem, "G") {
+		var val float64
+		fmt.Sscanf(mem, "%fG", &val)
+		return int64(val * 1024)
+	}
+
+	// Handle M suffix
+	if strings.HasSuffix(mem, "M") {
+		var val int64
+		fmt.Sscanf(mem, "%dM", &val)
+		return val
+	}
+
+	// Try parsing as plain number (assume MB)
+	var val int64
+	fmt.Sscanf(mem, "%d", &val)
+	if val > 0 {
+		return val
+	}
+
+	return 512 // default
 }
 
 // Run creates and runs a container, waiting for it to complete.
@@ -343,6 +410,7 @@ func (c *Client) RemoveImage(ctx context.Context, image string) error {
 
 	return nil
 }
+
 // Exec prepares a podman exec command.
 func (c *Client) Exec(containerName string, command []string) *exec.Cmd {
 	args := []string{"exec", "-it"}
@@ -350,7 +418,6 @@ func (c *Client) Exec(containerName string, command []string) *exec.Cmd {
 	args = append(args, command...)
 	return exec.Command("podman", args...)
 }
-
 
 // ContainerInfo holds information about a container.
 type ContainerInfo struct {
@@ -393,7 +460,7 @@ func (c *Client) ListStoppedContainers(ctx context.Context) ([]ContainerInfo, er
 		}
 
 		createdAt, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", parts[4])
-		
+
 		containers = append(containers, ContainerInfo{
 			ID:        parts[0],
 			Name:      parts[1],
@@ -443,7 +510,7 @@ func (c *Client) ListImages(ctx context.Context) ([]ImageInfo, error) {
 		}
 
 		createdAt, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", parts[3])
-		
+
 		images = append(images, ImageInfo{
 			ID:        parts[0],
 			Tags:      []string{parts[1]},
@@ -476,7 +543,7 @@ func (c *Client) ListDanglingImages(ctx context.Context) ([]ImageInfo, error) {
 		}
 
 		createdAt, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", parts[3])
-		
+
 		images = append(images, ImageInfo{
 			ID:        parts[0],
 			Tags:      []string{parts[1]},
