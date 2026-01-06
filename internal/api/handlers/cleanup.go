@@ -84,7 +84,6 @@ type CleanupAtticResponse struct {
 	Duration     string   `json:"duration"`
 }
 
-
 // CleanupContainers handles POST /v1/admin/cleanup/containers - triggers immediate container cleanup.
 // Requirements: 19.1, 19.4
 func (h *CleanupHandler) CleanupContainers(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +157,21 @@ func (h *CleanupHandler) NixGC(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("failed to list nodes for Nix GC", "error", err, "job_id", jobID)
 		WriteInternalError(w, "Failed to list nodes: "+err.Error())
+		return
+	}
+
+	// Check if there are any nodes registered
+	if len(nodes) == 0 {
+		h.logger.Warn("no nodes registered for Nix GC", "job_id", jobID)
+		response := &NixGCResponse{
+			JobID:        jobID,
+			Status:       "completed",
+			SpaceFreed:   0,
+			PathsRemoved: 0,
+			Error:        "",
+			Duration:     "0s",
+		}
+		WriteJSON(w, http.StatusOK, response)
 		return
 	}
 
