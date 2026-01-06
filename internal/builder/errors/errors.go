@@ -21,22 +21,22 @@ const (
 
 // Error codes for specific failure types.
 const (
-	CodeNoLanguageDetected    = "NO_LANGUAGE_DETECTED"
-	CodeMultipleLanguages     = "MULTIPLE_LANGUAGES"
-	CodeUnsupportedLanguage   = "UNSUPPORTED_LANGUAGE"
-	CodeRepositoryAccess      = "REPOSITORY_ACCESS_FAILED"
-	CodeTemplateNotFound      = "TEMPLATE_NOT_FOUND"
-	CodeTemplateRenderFailed  = "TEMPLATE_RENDER_FAILED"
-	CodeInvalidFlakeSyntax    = "INVALID_FLAKE_SYNTAX"
-	CodeBuildFailed           = "BUILD_FAILED"
-	CodeBuildTimeout          = "BUILD_TIMEOUT"
-	CodeBuildOOM              = "BUILD_OOM"
-	CodeVendorHashFailed      = "VENDOR_HASH_FAILED"
-	CodeDockerfileNotFound    = "DOCKERFILE_NOT_FOUND"
-	CodeFlakeNotFound         = "FLAKE_NOT_FOUND"
-	CodeDependencyMissing     = "DEPENDENCY_MISSING"
-	CodeInvalidConfig         = "INVALID_CONFIG"
-	CodeNixpacksFailed        = "NIXPACKS_FAILED"
+	CodeNoLanguageDetected   = "NO_LANGUAGE_DETECTED"
+	CodeMultipleLanguages    = "MULTIPLE_LANGUAGES"
+	CodeUnsupportedLanguage  = "UNSUPPORTED_LANGUAGE"
+	CodeRepositoryAccess     = "REPOSITORY_ACCESS_FAILED"
+	CodeTemplateNotFound     = "TEMPLATE_NOT_FOUND"
+	CodeTemplateRenderFailed = "TEMPLATE_RENDER_FAILED"
+	CodeInvalidFlakeSyntax   = "INVALID_FLAKE_SYNTAX"
+	CodeBuildFailed          = "BUILD_FAILED"
+	CodeBuildTimeout         = "BUILD_TIMEOUT"
+	CodeBuildOOM             = "BUILD_OOM"
+	CodeVendorHashFailed     = "VENDOR_HASH_FAILED"
+	CodeDockerfileNotFound   = "DOCKERFILE_NOT_FOUND"
+	CodeFlakeNotFound        = "FLAKE_NOT_FOUND"
+	CodeDependencyMissing    = "DEPENDENCY_MISSING"
+	CodeInvalidConfig        = "INVALID_CONFIG"
+	CodeNixpacksFailed       = "NIXPACKS_FAILED"
 )
 
 // BuildErrorResponse provides detailed error information with suggestions and next steps.
