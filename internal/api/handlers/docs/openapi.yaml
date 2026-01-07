@@ -1,0 +1,1841 @@
+openapi: 3.0.3
+info:
+  title: Narvana Control Plane API
+  description: |
+    The Narvana Control Plane API provides programmatic access to manage applications,
+    services, deployments, and infrastructure on the Narvana PaaS platform.
+    
+    ## Authentication
+    
+    All API endpoints (except `/auth/*` and `/health`) require authentication via Bearer token.
+    Include the token in the `Authorization` header:
+    
+    ```
+    Authorization: Bearer <your-token>
+    ```
+    
+    Tokens can be obtained via the `/auth/login` or `/auth/register` endpoints.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  contact:
+    name: Narvana Labs
+    url: https://narvana.io
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.narvana.io
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: User authentication and registration
+  - name: Applications
+    description: Application management
+  - name: Services
+    description: Service management within applications
+  - name: Deployments
+    description: Deployment management
+  - name: Builds
+    description: Build job management
+  - name: Nodes
+    description: Infrastructure node management
+  - name: Organizations
+    description: Organization management
+  - name: Users
+    description: User management
+  - name: Settings
+    description: Platform settings
+  - name: Health
+    description: Health check endpoints
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the API server and its dependencies
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+                components:
+                  database: healthy
+                version: 1.0.0
+                uptime: 24h30m15s
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /auth/setup:
+    get:
+      tags:
+        - Authentication
+      summary: Check setup status
+      description: Returns whether initial setup is complete (any users exist)
+      operationId: checkSetup
+      responses:
+        '200':
+          description: Setup status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  setup_complete:
+                    type: boolean
+                  user_count:
+                    type: integer
+              example:
+                setup_complete: true
+                user_count: 1
+
+  /auth/can-register:
+    get:
+      tags:
+        - Authentication
+      summary: Check registration availability
+      description: Returns whether public registration is allowed
+      operationId: canRegister
+      responses:
+        '200':
+          description: Registration status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  can_register:
+                    type: boolean
+              example:
+                can_register: false
+
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      description: |
+        Creates a new user account. Only allowed when no users exist (first user becomes owner)
+        or when public registration is enabled.
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Registration is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login
+      description: Authenticates a user and returns a JWT token
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/apps:
+    get:
+      tags:
+        - Applications
+      summary: List applications
+      description: Returns all applications for the current organization
+      operationId: listApps
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgHeader'
+      responses:
+        '200':
+          description: List of applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/App'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags:
+        - Applications
+      summary: Create application
+      description: Creates a new application
+      operationId: createApp
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAppRequest'
+      responses:
+        '201':
+          description: Application created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/App'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Application name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/apps/{appID}:
+    get:
+      tags:
+        - Applications
+      summary: Get application
+      description: Returns a specific application by ID
+      operationId: getApp
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+      responses:
+        '200':
+          description: Application details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/App'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - Applications
+      summary: Update application
+      description: Updates an application (partial update)
+      operationId: updateApp
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAppRequest'
+      responses:
+        '200':
+          description: Application updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/App'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Concurrent modification or duplicate name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags:
+        - Applications
+      summary: Delete application
+      description: Soft-deletes an application and cleans up associated resources
+      operationId: deleteApp
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+      responses:
+        '204':
+          description: Application deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/apps/{appID}/services:
+    get:
+      tags:
+        - Services
+      summary: List services
+      description: Returns all services for an application
+      operationId: listServices
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+      responses:
+        '200':
+          description: List of services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags:
+        - Services
+      summary: Create service
+      description: Creates a new service within an application
+      operationId: createService
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        '201':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Service name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/apps/{appID}/services/{serviceName}:
+    get:
+      tags:
+        - Services
+      summary: Get service
+      description: Returns a specific service by name
+      operationId: getService
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+        - $ref: '#/components/parameters/ServiceName'
+      responses:
+        '200':
+          description: Service details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - Services
+      summary: Update service
+      description: Updates a service (partial update)
+      operationId: updateService
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+        - $ref: '#/components/parameters/ServiceName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServiceRequest'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Services
+      summary: Delete service
+      description: Deletes a service and cleans up associated resources
+      operationId: deleteService
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+        - $ref: '#/components/parameters/ServiceName'
+      responses:
+        '204':
+          description: Service deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Service has dependents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/apps/{appID}/services/{serviceName}/deploy:
+    post:
+      tags:
+        - Deployments
+      summary: Deploy service
+      description: Triggers a deployment for a specific service
+      operationId: deployService
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+        - $ref: '#/components/parameters/ServiceName'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceDeployRequest'
+      responses:
+        '202':
+          description: Deployment triggered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/apps/{appID}/deploy:
+    post:
+      tags:
+        - Deployments
+      summary: Deploy application
+      description: Triggers a deployment for all services in an application
+      operationId: deployApp
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeploymentRequest'
+      responses:
+        '202':
+          description: Deployment triggered
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Deployment'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Deployment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/apps/{appID}/deployments:
+    get:
+      tags:
+        - Deployments
+      summary: List deployments for app
+      description: Returns all deployments for an application
+      operationId: listAppDeployments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppID'
+      responses:
+        '200':
+          description: List of deployments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Deployment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/deployments:
+    get:
+      tags:
+        - Deployments
+      summary: List all deployments
+      description: Returns all deployments for the authenticated user
+      operationId: listDeployments
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of deployments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Deployment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/deployments/{deploymentID}:
+    get:
+      tags:
+        - Deployments
+      summary: Get deployment
+      description: Returns a specific deployment by ID
+      operationId: getDeployment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeploymentID'
+      responses:
+        '200':
+          description: Deployment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/deployments/{deploymentID}/rollback:
+    post:
+      tags:
+        - Deployments
+      summary: Rollback deployment
+      description: Creates a new deployment using the artifact from a previous deployment
+      operationId: rollbackDeployment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeploymentID'
+      responses:
+        '202':
+          description: Rollback deployment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/builds:
+    get:
+      tags:
+        - Builds
+      summary: List builds
+      description: Returns all builds for the authenticated user
+      operationId: listBuilds
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of builds
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BuildJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/builds/{buildID}:
+    get:
+      tags:
+        - Builds
+      summary: Get build
+      description: Returns a specific build by ID
+      operationId: getBuild
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/BuildID'
+      responses:
+        '200':
+          description: Build details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/builds/{buildID}/retry:
+    post:
+      tags:
+        - Builds
+      summary: Retry build
+      description: Retries a failed build
+      operationId: retryBuild
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/BuildID'
+      responses:
+        '202':
+          description: Build retry queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/nodes:
+    get:
+      tags:
+        - Nodes
+      summary: List nodes
+      description: Returns all registered infrastructure nodes
+      operationId: listNodes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of nodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Node'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/nodes/register:
+    post:
+      tags:
+        - Nodes
+      summary: Register node
+      description: Registers a new infrastructure node
+      operationId: registerNode
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterNodeRequest'
+      responses:
+        '200':
+          description: Node registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  node_id:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/nodes/heartbeat:
+    post:
+      tags:
+        - Nodes
+      summary: Node heartbeat
+      description: Updates node health status
+      operationId: nodeHeartbeat
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/nodes/{nodeID}:
+    get:
+      tags:
+        - Nodes
+      summary: Get node
+      description: Returns a specific node by ID
+      operationId: getNode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/NodeID'
+      responses:
+        '200':
+          description: Node details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/orgs:
+    get:
+      tags:
+        - Organizations
+      summary: List organizations
+      description: Returns all organizations the user is a member of
+      operationId: listOrgs
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Organizations
+      summary: Create organization
+      description: Creates a new organization
+      operationId: createOrg
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrgRequest'
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Organization slug already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/orgs/{orgID}:
+    get:
+      tags:
+        - Organizations
+      summary: Get organization
+      description: Returns a specific organization by ID
+      operationId: getOrg
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgID'
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - Organizations
+      summary: Update organization
+      description: Updates an organization
+      operationId: updateOrg
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrgRequest'
+      responses:
+        '200':
+          description: Organization updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Organizations
+      summary: Delete organization
+      description: Deletes an organization
+      operationId: deleteOrg
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrgID'
+      responses:
+        '204':
+          description: Organization deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/user/profile:
+    get:
+      tags:
+        - Users
+      summary: Get current user profile
+      description: Returns the profile of the authenticated user
+      operationId: getUserProfile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      tags:
+        - Users
+      summary: Update current user profile
+      description: Updates the profile of the authenticated user
+      operationId: updateUserProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/settings:
+    get:
+      tags:
+        - Settings
+      summary: Get platform settings
+      description: Returns platform configuration settings
+      operationId: getSettings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Platform settings
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      tags:
+        - Settings
+      summary: Update platform settings
+      description: Updates platform configuration settings (admin only)
+      operationId: updateSettings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login or /auth/register
+
+  parameters:
+    AppID:
+      name: appID
+      in: path
+      required: true
+      description: Application ID (UUID) or name
+      schema:
+        type: string
+
+    ServiceName:
+      name: serviceName
+      in: path
+      required: true
+      description: Service name
+      schema:
+        type: string
+
+    DeploymentID:
+      name: deploymentID
+      in: path
+      required: true
+      description: Deployment ID (UUID)
+      schema:
+        type: string
+        format: uuid
+
+    BuildID:
+      name: buildID
+      in: path
+      required: true
+      description: Build ID (UUID)
+      schema:
+        type: string
+        format: uuid
+
+    NodeID:
+      name: nodeID
+      in: path
+      required: true
+      description: Node ID
+      schema:
+        type: string
+
+    OrgID:
+      name: orgID
+      in: path
+      required: true
+      description: Organization ID (UUID)
+      schema:
+        type: string
+        format: uuid
+
+    OrgHeader:
+      name: X-Org-ID
+      in: header
+      required: false
+      description: Organization ID to scope the request
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request - validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: VALIDATION_ERROR
+            message: Invalid request body
+            request_id: 550e8400-e29b-41d4-a716-446655440000
+
+    Unauthorized:
+      description: Unauthorized - authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: UNAUTHORIZED
+            message: Authentication required
+            request_id: 550e8400-e29b-41d4-a716-446655440000
+
+    Forbidden:
+      description: Forbidden - insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: FORBIDDEN
+            message: Access denied
+            request_id: 550e8400-e29b-41d4-a716-446655440000
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: NOT_FOUND
+            message: Resource not found
+            request_id: 550e8400-e29b-41d4-a716-446655440000
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: INTERNAL_ERROR
+            message: An unexpected error occurred
+            request_id: 550e8400-e29b-41d4-a716-446655440000
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - code
+        - message
+        - request_id
+      properties:
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - NOT_FOUND
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - INTERNAL_ERROR
+            - CONFLICT
+          description: Error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error details
+        request_id:
+          type: string
+          description: Request correlation ID
+
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            details:
+              type: object
+              properties:
+                fields:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      field:
+                        type: string
+                      message:
+                        type: string
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - components
+        - version
+        - uptime
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        components:
+          type: object
+          additionalProperties:
+            type: string
+        version:
+          type: string
+        uptime:
+          type: string
+
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+        token:
+          type: string
+        role:
+          type: string
+        is_admin:
+          type: boolean
+
+    App:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+        icon_url:
+          type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceConfig'
+        version:
+          type: integer
+          description: Version for optimistic locking
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateAppRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+        icon_url:
+          type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceConfig'
+
+    UpdateAppRequest:
+      type: object
+      required:
+        - version
+      properties:
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+        icon_url:
+          type: string
+        version:
+          type: integer
+          description: Current version for optimistic locking
+
+    ServiceConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        source_type:
+          type: string
+          enum: [git, flake, database]
+        git_repo:
+          type: string
+        git_ref:
+          type: string
+          default: main
+        flake_output:
+          type: string
+        flake_uri:
+          type: string
+        database:
+          $ref: '#/components/schemas/DatabaseConfig'
+        build_strategy:
+          type: string
+          enum: [flake, auto-go, auto-rust, auto-node, auto-python, dockerfile, nixpacks, auto, auto-database]
+        build_config:
+          $ref: '#/components/schemas/BuildConfig'
+        resources:
+          $ref: '#/components/schemas/ResourceSpec'
+        replicas:
+          type: integer
+          default: 1
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortMapping'
+        health_check:
+          $ref: '#/components/schemas/HealthCheckConfig'
+        depends_on:
+          type: array
+          items:
+            type: string
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+
+    CreateServiceRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        source_type:
+          type: string
+          enum: [git, flake, database]
+        git_repo:
+          type: string
+        git_ref:
+          type: string
+        flake_output:
+          type: string
+        flake_uri:
+          type: string
+        database:
+          $ref: '#/components/schemas/DatabaseConfig'
+        language:
+          type: string
+          description: Language for auto-detection (go, rust, python, node, dockerfile)
+        build_strategy:
+          type: string
+          enum: [flake, auto-go, auto-rust, auto-node, auto-python, dockerfile, nixpacks, auto, auto-database]
+        build_config:
+          $ref: '#/components/schemas/BuildConfig'
+        resources:
+          $ref: '#/components/schemas/ResourceSpec'
+        replicas:
+          type: integer
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortMapping'
+        health_check:
+          $ref: '#/components/schemas/HealthCheckConfig'
+        depends_on:
+          type: array
+          items:
+            type: string
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+
+    UpdateServiceRequest:
+      type: object
+      properties:
+        source_type:
+          type: string
+          enum: [git, flake, database]
+        git_repo:
+          type: string
+        git_ref:
+          type: string
+        flake_output:
+          type: string
+        flake_uri:
+          type: string
+        database:
+          $ref: '#/components/schemas/DatabaseConfig'
+        build_strategy:
+          type: string
+          enum: [flake, auto-go, auto-rust, auto-node, auto-python, dockerfile, nixpacks, auto, auto-database]
+        build_config:
+          $ref: '#/components/schemas/BuildConfig'
+        resources:
+          $ref: '#/components/schemas/ResourceSpec'
+        replicas:
+          type: integer
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortMapping'
+        health_check:
+          $ref: '#/components/schemas/HealthCheckConfig'
+        depends_on:
+          type: array
+          items:
+            type: string
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+
+    DatabaseConfig:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [postgres, mysql, redis, mongodb]
+        version:
+          type: string
+
+    BuildConfig:
+      type: object
+      properties:
+        entry_point:
+          type: string
+        build_command:
+          type: string
+        start_command:
+          type: string
+        ldflags:
+          type: string
+        cgo_enabled:
+          type: boolean
+        database_options:
+          $ref: '#/components/schemas/DatabaseOptions'
+
+    DatabaseOptions:
+      type: object
+      properties:
+        type:
+          type: string
+        version:
+          type: string
+
+    ResourceSpec:
+      type: object
+      properties:
+        cpu:
+          type: string
+          description: CPU allocation (e.g., "0.5", "1", "2")
+        memory:
+          type: string
+          description: Memory allocation (e.g., "512Mi", "1Gi", "2Gi")
+
+    PortMapping:
+      type: object
+      required:
+        - container_port
+      properties:
+        container_port:
+          type: integer
+        host_port:
+          type: integer
+        protocol:
+          type: string
+          default: tcp
+
+    HealthCheckConfig:
+      type: object
+      properties:
+        path:
+          type: string
+        port:
+          type: integer
+        interval:
+          type: string
+        timeout:
+          type: string
+        retries:
+          type: integer
+
+    Deployment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        app_id:
+          type: string
+          format: uuid
+        service_name:
+          type: string
+        version:
+          type: integer
+        git_ref:
+          type: string
+        git_commit:
+          type: string
+        build_type:
+          type: string
+          enum: [pure-nix, oci]
+        artifact:
+          type: string
+        status:
+          type: string
+          enum: [pending, building, built, scheduled, running, stopped, failed]
+        resources:
+          $ref: '#/components/schemas/ResourceSpec'
+        config:
+          $ref: '#/components/schemas/RuntimeConfig'
+        depends_on:
+          type: array
+          items:
+            type: string
+        node_id:
+          type: string
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RuntimeConfig:
+      type: object
+      properties:
+        resources:
+          $ref: '#/components/schemas/ResourceSpec'
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortMapping'
+        health_check:
+          $ref: '#/components/schemas/HealthCheckConfig'
+
+    CreateDeploymentRequest:
+      type: object
+      properties:
+        git_ref:
+          type: string
+          description: Git ref to deploy (uses service's git_ref if not specified)
+        service_name:
+          type: string
+          description: Specific service to deploy (deploys all if not specified)
+
+    ServiceDeployRequest:
+      type: object
+      properties:
+        git_ref:
+          type: string
+          description: Git ref to deploy (uses service's git_ref if not specified)
+
+    BuildJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        deployment_id:
+          type: string
+          format: uuid
+        app_id:
+          type: string
+          format: uuid
+        service_name:
+          type: string
+        git_url:
+          type: string
+        git_ref:
+          type: string
+        flake_output:
+          type: string
+        build_type:
+          type: string
+          enum: [pure-nix, oci]
+        build_strategy:
+          type: string
+          enum: [flake, auto-go, auto-rust, auto-node, auto-python, dockerfile, nixpacks, auto, auto-database]
+        build_config:
+          $ref: '#/components/schemas/BuildConfig'
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        artifact:
+          type: string
+        logs:
+          type: string
+        retry_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+
+    Node:
+      type: object
+      properties:
+        id:
+          type: string
+        hostname:
+          type: string
+        address:
+          type: string
+        grpc_port:
+          type: integer
+        healthy:
+          type: boolean
+        last_heartbeat:
+          type: string
+          format: date-time
+        resources:
+          $ref: '#/components/schemas/NodeResources'
+        disk_metrics:
+          $ref: '#/components/schemas/NodeDiskMetrics'
+
+    NodeResources:
+      type: object
+      properties:
+        cpu_cores:
+          type: integer
+        memory_total:
+          type: integer
+          format: int64
+        memory_available:
+          type: integer
+          format: int64
+
+    NodeDiskMetrics:
+      type: object
+      properties:
+        nix_store:
+          $ref: '#/components/schemas/DiskStats'
+        container_storage:
+          $ref: '#/components/schemas/DiskStats'
+
+    DiskStats:
+      type: object
+      properties:
+        path:
+          type: string
+        total:
+          type: integer
+          format: int64
+        used:
+          type: integer
+          format: int64
+        available:
+          type: integer
+          format: int64
+        usage_percent:
+          type: number
+          format: float
+
+    RegisterNodeRequest:
+      type: object
+      required:
+        - node_info
+      properties:
+        node_info:
+          $ref: '#/components/schemas/NodeInfo'
+
+    NodeInfo:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        hostname:
+          type: string
+        address:
+          type: string
+        grpc_port:
+          type: integer
+        resources:
+          $ref: '#/components/schemas/NodeResources'
+        disk_metrics:
+          $ref: '#/components/schemas/NodeDiskMetrics'
+
+    HeartbeatRequest:
+      type: object
+      properties:
+        node_id:
+          type: string
+        resources:
+          $ref: '#/components/schemas/NodeResources'
+        disk_metrics:
+          $ref: '#/components/schemas/NodeDiskMetrics'
+        node_info:
+          $ref: '#/components/schemas/NodeInfo'
+        timestamp:
+          type: integer
+          format: int64
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateOrgRequest:
+      type: object
+      required:
+        - name
+        - slug
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+
+    UpdateOrgRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+        role:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateUserProfileRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        avatar_url:
+          type: string
