@@ -202,6 +202,11 @@ func (s *PostgresStore) Close() error {
 	return s.db.Close()
 }
 
+// Ping verifies database connectivity.
+func (s *PostgresStore) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 // DB returns the underlying database connection.
 // This is useful for components that need direct database access.
 func (s *PostgresStore) DB() *sql.DB {
@@ -326,6 +331,12 @@ func (s *txStore) WithTx(ctx context.Context, fn func(store.Store) error) error 
 
 func (s *txStore) Close() error {
 	// No-op for transaction store
+	return nil
+}
+
+func (s *txStore) Ping(ctx context.Context) error {
+	// For transaction store, we can't ping directly
+	// Return nil as we're already in a transaction (connection is valid)
 	return nil
 }
 
