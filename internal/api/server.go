@@ -90,6 +90,12 @@ func (s *Server) setupRouter() {
 	// Health check endpoint (no auth required)
 	r.Get("/health", s.healthChecker.Handler())
 
+	// API Documentation endpoints (no auth required)
+	// Requirements: 9.1
+	docsHandler := handlers.NewDocsHandler(s.logger)
+	r.Get("/api/docs", docsHandler.ServeSwaggerUI)
+	r.Get("/api/docs/openapi.yaml", docsHandler.ServeOpenAPISpec)
+
 	// Auth routes (no auth required)
 	authHandler := handlers.NewAuthHandler(s.store, s.auth, s.logger)
 	invitationsPublicHandler := handlers.NewInvitationsHandler(s.store, s.auth, s.logger)
