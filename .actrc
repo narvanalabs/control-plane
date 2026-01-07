@@ -1,0 +1,14 @@
+# act configuration for running GitHub Actions locally
+# See: https://github.com/nektos/act
+
+# Use medium-sized Ubuntu image (good balance of size and compatibility)
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+# Use local secrets file for testing
+--secret-file .secrets
+
+# Reuse containers between runs for faster iteration
+--reuse
+
+# Default to running the CI workflow
+-W .github/workflows/ci.yml
