@@ -54,7 +54,6 @@ type Result struct {
 	CommitSHA string
 }
 
-
 // Repository clones a git repository to the specified destination path.
 // It uses shallow clone (--depth 1) for efficiency as specified in Requirements 4.1.
 //
