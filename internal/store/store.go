@@ -73,6 +73,9 @@ type Store interface {
 
 	// Close closes the database connection.
 	Close() error
+
+	// Ping verifies database connectivity.
+	Ping(ctx context.Context) error
 }
 
 // Role represents a user's role in the system.
