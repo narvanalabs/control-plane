@@ -263,6 +263,7 @@ func (m *MockStore) Domains() store.DomainStore                                 
 func (m *MockStore) Invitations() store.InvitationStore                           { return nil }
 func (m *MockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *MockStore) Close() error                                                 { return nil }
+func (m *MockStore) Ping(ctx context.Context) error                               { return nil }
 
 // MockOrgStore is a mock implementation of OrgStore for testing.
 type MockOrgStore struct {
