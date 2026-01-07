@@ -97,6 +97,9 @@ jobs:
       - name: Generate templ templates
         run: cd web && templ generate
 
+      - name: Auto-format Go files
+        run: gofmt -w .
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
