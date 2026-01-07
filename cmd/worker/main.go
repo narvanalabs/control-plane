@@ -5,12 +5,11 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/narvanalabs/control-plane/internal/builder"
 	postgresqueue "github.com/narvanalabs/control-plane/internal/queue/postgres"
+	"github.com/narvanalabs/control-plane/internal/shutdown"
 	"github.com/narvanalabs/control-plane/internal/store/postgres"
 	"github.com/narvanalabs/control-plane/pkg/config"
 	"github.com/narvanalabs/control-plane/pkg/logger"
@@ -97,9 +96,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Handle shutdown signals
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	// Create shutdown coordinator with configurable timeout
+	// **Validates: Requirements 15.1, 15.2, 15.4**
+	shutdownTimeout := 30 * time.Second
+	if cfg.ShutdownTimeout > 0 {
+		shutdownTimeout = cfg.ShutdownTimeout
+	}
+	coordinator := shutdown.NewCoordinator(
+		shutdown.WithTimeout(shutdownTimeout),
+		shutdown.WithLogger(log.Logger),
+	)
+
+	// Register database connection for cleanup (registered first, closed last)
+	coordinator.Register(shutdown.NewCloserComponent("database", store))
 
 	// Start health check HTTP server
 	healthChecker := builder.NewWorkerHealthChecker(store.DB(), builder.WorkerVersion)
@@ -110,6 +119,12 @@ func main() {
 		Addr:    ":8081",
 		Handler: healthMux,
 	}
+
+	// Register health server for graceful shutdown
+	coordinator.Register(shutdown.NewHTTPServerComponent("worker-health-server", healthServer))
+
+	// Register worker for graceful shutdown (waits for in-progress builds)
+	coordinator.Register(shutdown.NewWorkerComponent("build-worker", worker))
 
 	go func() {
 		log.Info("starting worker health check server", "addr", ":8081")
@@ -129,19 +144,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Wait for shutdown signal
-	sig := <-sigCh
-	log.Info("received shutdown signal", "signal", sig)
-
-	// Stop the health check server
-	healthCtx, healthCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer healthCancel()
-	if err := healthServer.Shutdown(healthCtx); err != nil {
-		log.Error("health server shutdown error", "error", err)
-	}
-
-	// Stop the worker gracefully
-	worker.Stop()
+	// Wait for shutdown signal and perform graceful shutdown
+	// **Validates: Requirements 15.1, 15.2, 15.4**
+	coordinator.WaitForSignal()
+	coordinator.Wait()
 
 	log.Info("build worker shutdown complete")
+	os.Exit(coordinator.ExitCode())
 }
