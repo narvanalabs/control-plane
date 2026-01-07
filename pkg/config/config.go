@@ -27,6 +27,10 @@ type Config struct {
 	GRPCPort int
 	APIHost  string
 
+	// Graceful shutdown timeout
+	// **Validates: Requirements 15.2, 15.3**
+	ShutdownTimeout time.Duration
+
 	// Scheduler configuration
 	Scheduler SchedulerConfig
 
@@ -66,15 +70,16 @@ type WorkerConfig struct {
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseDSN:   getEnv("DATABASE_URL", "postgres://localhost:5432/narvana?sslmode=disable"),
-		JWTSecret:     getEnv("JWT_SECRET", ""),
-		JWTExpiry:     getDurationEnv("JWT_EXPIRY", 24*time.Hour),
-		APIKeyHeader:  getEnv("API_KEY_HEADER", "X-API-Key"),
-		AtticEndpoint: getEnv("ATTIC_ENDPOINT", "http://localhost:5000"),
-		RegistryURL:   getEnv("REGISTRY_URL", "localhost:5000"),
-		APIPort:       getIntEnv("API_PORT", 8080),
-		GRPCPort:      getIntEnv("GRPC_PORT", 9090),
-		APIHost:       getEnv("API_HOST", "0.0.0.0"),
+		DatabaseDSN:     getEnv("DATABASE_URL", "postgres://localhost:5432/narvana?sslmode=disable"),
+		JWTSecret:       getEnv("JWT_SECRET", ""),
+		JWTExpiry:       getDurationEnv("JWT_EXPIRY", 24*time.Hour),
+		APIKeyHeader:    getEnv("API_KEY_HEADER", "X-API-Key"),
+		AtticEndpoint:   getEnv("ATTIC_ENDPOINT", "http://localhost:5000"),
+		RegistryURL:     getEnv("REGISTRY_URL", "localhost:5000"),
+		APIPort:         getIntEnv("API_PORT", 8080),
+		GRPCPort:        getIntEnv("GRPC_PORT", 9090),
+		APIHost:         getEnv("API_HOST", "0.0.0.0"),
+		ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 30*time.Second),
 		Scheduler: SchedulerConfig{
 			HealthThreshold:   getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
 			MaxRetries:        getIntEnv("SCHEDULER_MAX_RETRIES", 5),
@@ -115,15 +120,16 @@ func (c *Config) Validate() error {
 // It does not validate required fields, useful for testing.
 func LoadWithDefaults() *Config {
 	return &Config{
-		DatabaseDSN:   getEnv("DATABASE_URL", "postgres://localhost:5432/narvana?sslmode=disable"),
-		JWTSecret:     getEnv("JWT_SECRET", "development-secret-key-min-32-chars"),
-		JWTExpiry:     getDurationEnv("JWT_EXPIRY", 24*time.Hour),
-		APIKeyHeader:  getEnv("API_KEY_HEADER", "X-API-Key"),
-		AtticEndpoint: getEnv("ATTIC_ENDPOINT", "http://localhost:5000"),
-		RegistryURL:   getEnv("REGISTRY_URL", "localhost:5000"),
-		APIPort:       getIntEnv("API_PORT", 8080),
-		GRPCPort:      getIntEnv("GRPC_PORT", 9090),
-		APIHost:       getEnv("API_HOST", "0.0.0.0"),
+		DatabaseDSN:     getEnv("DATABASE_URL", "postgres://localhost:5432/narvana?sslmode=disable"),
+		JWTSecret:       getEnv("JWT_SECRET", "development-secret-key-min-32-chars"),
+		JWTExpiry:       getDurationEnv("JWT_EXPIRY", 24*time.Hour),
+		APIKeyHeader:    getEnv("API_KEY_HEADER", "X-API-Key"),
+		AtticEndpoint:   getEnv("ATTIC_ENDPOINT", "http://localhost:5000"),
+		RegistryURL:     getEnv("REGISTRY_URL", "localhost:5000"),
+		APIPort:         getIntEnv("API_PORT", 8080),
+		GRPCPort:        getIntEnv("GRPC_PORT", 9090),
+		APIHost:         getEnv("API_HOST", "0.0.0.0"),
+		ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 30*time.Second),
 		Scheduler: SchedulerConfig{
 			HealthThreshold:   getDurationEnv("SCHEDULER_HEALTH_THRESHOLD", 30*time.Second),
 			MaxRetries:        getIntEnv("SCHEDULER_MAX_RETRIES", 5),
