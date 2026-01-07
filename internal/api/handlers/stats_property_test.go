@@ -55,6 +55,7 @@ func (m *statsMockStore) Domains() store.DomainStore                            
 func (m *statsMockStore) Invitations() store.InvitationStore                           { return nil }
 func (m *statsMockStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *statsMockStore) Close() error                                                 { return nil }
+func (m *statsMockStore) Ping(ctx context.Context) error                               { return nil }
 
 // statsAppStore implements store.AppStore for stats testing
 type statsAppStore struct {
