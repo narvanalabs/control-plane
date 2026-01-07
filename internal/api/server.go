@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/narvanalabs/control-plane/internal/api/handlers"
+	"github.com/narvanalabs/control-plane/internal/api/health"
 	"github.com/narvanalabs/control-plane/internal/api/middleware"
 	"github.com/narvanalabs/control-plane/internal/auth"
 	"github.com/narvanalabs/control-plane/internal/cleanup"
@@ -21,16 +22,21 @@ import (
 	"github.com/narvanalabs/control-plane/pkg/config"
 )
 
+// Version is the current version of the API server.
+// This should be set at build time using ldflags.
+var Version = "dev"
+
 // Server represents the HTTP API server.
 type Server struct {
-	router      chi.Router
-	httpServer  *http.Server
-	store       store.Store
-	queue       queue.Queue
-	auth        *auth.Service
-	sopsService *secrets.SOPSService
-	config      *config.Config
-	logger      *slog.Logger
+	router        chi.Router
+	httpServer    *http.Server
+	store         store.Store
+	queue         queue.Queue
+	auth          *auth.Service
+	sopsService   *secrets.SOPSService
+	config        *config.Config
+	logger        *slog.Logger
+	healthChecker *health.Checker
 }
 
 // NewServer creates a new API server with the given dependencies.
@@ -46,6 +52,9 @@ func NewServer(cfg *config.Config, st store.Store, q queue.Queue, authSvc *auth.
 		config: cfg,
 		logger: logger,
 	}
+
+	// Initialize health checker
+	s.healthChecker = health.NewChecker(st, Version)
 
 	// Initialize SOPS service if configured
 	if cfg.SOPS.AgePublicKey != "" || cfg.SOPS.AgePrivateKey != "" {
@@ -79,7 +88,7 @@ func (s *Server) setupRouter() {
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 
 	// Health check endpoint (no auth required)
-	r.Get("/health", s.healthCheck)
+	r.Get("/health", s.healthChecker.Handler())
 
 	// Auth routes (no auth required)
 	authHandler := handlers.NewAuthHandler(s.store, s.auth, s.logger)
@@ -345,13 +354,6 @@ func (s *Server) setupRouter() {
 	})
 
 	s.router = r
-}
-
-// healthCheck handles the health check endpoint.
-func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
 }
 
 // Start starts the HTTP server.
