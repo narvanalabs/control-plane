@@ -100,6 +100,7 @@ func (m *mockStoreRBAC) Domains() store.DomainStore                             
 func (m *mockStoreRBAC) Invitations() store.InvitationStore                           { return nil }
 func (m *mockStoreRBAC) WithTx(ctx context.Context, fn func(store.Store) error) error { return nil }
 func (m *mockStoreRBAC) Close() error                                                 { return nil }
+func (m *mockStoreRBAC) Ping(ctx context.Context) error                               { return nil }
 
 // genRBACUserID generates a valid user ID.
 func genRBACUserID() gopter.Gen {
