@@ -87,6 +87,18 @@ migrate: migrate-up
 lint:
 	golangci-lint run ./...
 
+# OpenAPI validation
+# Requirements: 9.5
+validate-openapi:
+	@echo "Validating OpenAPI specification..."
+	go run scripts/validate-openapi.go
+
+# Copy OpenAPI spec to docs directory for embedding
+copy-openapi:
+	@echo "Copying OpenAPI spec to docs directory..."
+	mkdir -p internal/api/handlers/docs
+	cp api/openapi.yaml internal/api/handlers/docs/
+
 # Development targets (run inside nix develop)
 
 # Run all services with overmind (single terminal!)
@@ -142,3 +154,7 @@ help:
 	@echo "  make build-ui    - Build web UI only"
 	@echo "  make test        - Run all tests"
 	@echo "  make lint        - Run linter"
+	@echo ""
+	@echo "API Documentation:"
+	@echo "  make validate-openapi - Validate OpenAPI specification"
+	@echo "  make copy-openapi     - Copy OpenAPI spec for embedding"
