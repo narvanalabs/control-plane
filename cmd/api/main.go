@@ -4,10 +4,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -19,6 +19,7 @@ import (
 	pgqueue "github.com/narvanalabs/control-plane/internal/queue/postgres"
 	"github.com/narvanalabs/control-plane/internal/scheduler"
 	"github.com/narvanalabs/control-plane/internal/secrets"
+	"github.com/narvanalabs/control-plane/internal/shutdown"
 	pgstore "github.com/narvanalabs/control-plane/internal/store/postgres"
 	"github.com/narvanalabs/control-plane/pkg/config"
 	"github.com/narvanalabs/control-plane/pkg/logger"
@@ -108,19 +109,37 @@ func main() {
 	envMerger := deploy.NewEnvMerger(store, sopsService, log.Logger)
 	sched.SetEnvMerger(envMerger)
 
-	// Setup graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Create shutdown coordinator with configurable timeout
+	// **Validates: Requirements 15.1, 15.2, 15.3, 15.4, 15.5**
+	shutdownTimeout := 30 * time.Second
+	if cfg.ShutdownTimeout > 0 {
+		shutdownTimeout = cfg.ShutdownTimeout
+	}
+	coordinator := shutdown.NewCoordinator(
+		shutdown.WithTimeout(shutdownTimeout),
+		shutdown.WithLogger(log.Logger),
+	)
 
-	// Handle shutdown signals
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	// Register database connection for cleanup (registered first, closed last)
+	coordinator.Register(shutdown.NewCloserComponent("database", store))
 
-	go func() {
-		sig := <-sigCh
-		log.Info("received shutdown signal", "signal", sig)
-		cancel()
-	}()
+	// Create HTTP server for API
+	addr := fmt.Sprintf("%s:%d", cfg.APIHost, cfg.APIPort)
+	httpServer := &http.Server{
+		Addr:         addr,
+		Handler:      server.Router(),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Register HTTP server for graceful shutdown
+	coordinator.Register(shutdown.NewHTTPServerComponent("api-http-server", httpServer))
+
+	// Register gRPC server for graceful shutdown
+	coordinator.Register(shutdown.NewFuncComponent("grpc-server", func(ctx context.Context) error {
+		return grpcServer.Stop(ctx)
+	}))
 
 	// Start the gRPC server in a goroutine
 	grpcErrCh := make(chan error, 1)
@@ -129,13 +148,15 @@ func main() {
 			"host", cfg.APIHost,
 			"port", cfg.GRPCPort,
 		)
-		if err := grpcServer.Start(ctx); err != nil {
+		if err := grpcServer.Start(context.Background()); err != nil {
 			grpcErrCh <- err
 		}
 		close(grpcErrCh)
 	}()
 
 	// Start the scheduler loop in a goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go runSchedulerLoop(ctx, store, sched, log)
 
 	// Start the HTTP API server in a goroutine
@@ -145,31 +166,38 @@ func main() {
 			"host", cfg.APIHost,
 			"port", cfg.APIPort,
 		)
-		if err := server.Start(ctx); err != nil {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			httpErrCh <- err
 		}
 		close(httpErrCh)
 	}()
 
-	// Wait for either server to error or context to be cancelled
-	select {
-	case err := <-grpcErrCh:
-		if err != nil {
-			log.Error("gRPC server error", "error", err)
-			cancel() // Signal HTTP server to stop
+	// Wait for either server to error or shutdown signal
+	go func() {
+		select {
+		case err := <-grpcErrCh:
+			if err != nil {
+				log.Error("gRPC server error", "error", err)
+				coordinator.Shutdown()
+			}
+		case err := <-httpErrCh:
+			if err != nil {
+				log.Error("HTTP server error", "error", err)
+				coordinator.Shutdown()
+			}
 		}
-	case err := <-httpErrCh:
-		if err != nil {
-			log.Error("HTTP server error", "error", err)
-			cancel() // Signal gRPC server to stop
-		}
-	case <-ctx.Done():
-		// Context cancelled, servers will shut down
-	}
+	}()
 
-	// Give time for graceful shutdown
-	time.Sleep(100 * time.Millisecond)
-	log.Info("servers stopped")
+	// Wait for shutdown signal and perform graceful shutdown
+	// **Validates: Requirements 15.1, 15.2, 15.3, 15.4, 15.5**
+	coordinator.WaitForSignal()
+	coordinator.Wait()
+
+	// Cancel scheduler context
+	cancel()
+
+	log.Info("API server shutdown complete")
+	os.Exit(coordinator.ExitCode())
 }
 
 // runSchedulerLoop periodically checks for built deployments and schedules them.
