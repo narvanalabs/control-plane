@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/narvanalabs/control-plane/scripts"
 )
 
 func main() {
@@ -33,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	config := BannerConfig{
+	config := scripts.BannerConfig{
 		Version:    version,
 		Width:      width,
 		Height:     height,
@@ -41,7 +43,7 @@ func main() {
 		OutputPath: outputFile,
 	}
 
-	if err := WriteBannerToFile(config); err != nil {
+	if err := scripts.WriteBannerToFile(config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to generate banner: %v\n", err)
 		os.Exit(1)
 	}

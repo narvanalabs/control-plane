@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/narvanalabs/control-plane/scripts"
 )
 
 func main() {
@@ -55,7 +57,7 @@ func main() {
 		existingChangelog = string(content)
 	}
 
-	entry := ChangelogEntry{
+	entry := scripts.ChangelogEntry{
 		Version:      version,
 		Date:         date,
 		ReleaseNotes: releaseNotes,
@@ -63,12 +65,12 @@ func main() {
 	}
 
 	// Check if version already exists
-	if ChangelogContainsVersion(existingChangelog, version) {
+	if scripts.ChangelogContainsVersion(existingChangelog, version) {
 		fmt.Printf("Version %s already exists in changelog, skipping\n", version)
 		os.Exit(0)
 	}
 
-	newChangelog, err := PrependChangelogEntry(existingChangelog, entry)
+	newChangelog, err := scripts.PrependChangelogEntry(existingChangelog, entry)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to generate changelog: %v\n", err)
 		os.Exit(1)

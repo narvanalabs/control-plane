@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/narvanalabs/control-plane/scripts"
 )
 
 func main() {
@@ -55,13 +57,13 @@ func main() {
 		releaseNotes = string(content)
 	}
 
-	entry := ReleaseEntry{
+	entry := scripts.ReleaseEntry{
 		VersionNumber: version,
 		Date:          date,
 		Content:       releaseNotes,
 	}
 
-	markdown, err := GenerateReleaseEntry(entry)
+	markdown, err := scripts.GenerateReleaseEntry(entry)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to generate release entry: %v\n", err)
 		os.Exit(1)
