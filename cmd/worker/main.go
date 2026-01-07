@@ -3,9 +3,11 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/narvanalabs/control-plane/internal/builder"
 	postgresqueue "github.com/narvanalabs/control-plane/internal/queue/postgres"
@@ -99,6 +101,23 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	// Start health check HTTP server
+	healthChecker := builder.NewWorkerHealthChecker(store.DB(), builder.WorkerVersion)
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/health", healthChecker.Handler())
+
+	healthServer := &http.Server{
+		Addr:    ":8081",
+		Handler: healthMux,
+	}
+
+	go func() {
+		log.Info("starting worker health check server", "addr", ":8081")
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("health check server error", "error", err)
+		}
+	}()
+
 	// Start the worker
 	log.Info("starting build worker",
 		"concurrency", cfg.Worker.MaxConcurrency,
@@ -113,6 +132,13 @@ func main() {
 	// Wait for shutdown signal
 	sig := <-sigCh
 	log.Info("received shutdown signal", "signal", sig)
+
+	// Stop the health check server
+	healthCtx, healthCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer healthCancel()
+	if err := healthServer.Shutdown(healthCtx); err != nil {
+		log.Error("health server shutdown error", "error", err)
+	}
 
 	// Stop the worker gracefully
 	worker.Stop()
