@@ -1100,6 +1100,12 @@ func formatTimeAgo(t time.Time) string {
 // HTTP Helpers
 // ============================================================================
 
+// CheckHealth checks if the API server is healthy by calling the /health endpoint.
+func (c *Client) CheckHealth(ctx context.Context) error {
+	var result map[string]interface{}
+	return c.Get(ctx, "/health", &result)
+}
+
 // Get performs a GET request and unmarshals the response.
 func (c *Client) Get(ctx context.Context, path string, result interface{}) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
