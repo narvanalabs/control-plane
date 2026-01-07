@@ -19,6 +19,7 @@ import (
 	"github.com/narvanalabs/control-plane/internal/models"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/web/api"
+	webhealth "github.com/narvanalabs/control-plane/web/health"
 	"github.com/narvanalabs/control-plane/web/layouts"
 	"github.com/narvanalabs/control-plane/web/pages"
 	"github.com/narvanalabs/control-plane/web/pages/apps"
@@ -51,11 +52,21 @@ func main() {
 	r.Get("/logout", handleLogout)
 	r.Get("/settings/server", handleSettingsServer)
 	r.Post("/settings/server", handleSettingsServerUpdate)
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+
+	// Health check endpoint with API connectivity verification
+	// **Validates: Requirements 14.3, 14.4**
+	healthChecker := webhealth.NewChecker(func(ctx context.Context) error {
+		apiURL := os.Getenv("INTERNAL_API_URL")
+		if apiURL == "" {
+			apiURL = os.Getenv("API_URL")
+		}
+		if apiURL == "" {
+			apiURL = "http://127.0.0.1:8080"
+		}
+		client := api.NewClient(apiURL)
+		return client.CheckHealth(ctx)
+	}, webhealth.WebVersion)
+	r.Get("/health", healthChecker.Handler())
 
 	// Invitation acceptance routes (no auth required)
 	r.Get("/invite/{token}", handleInviteAcceptPage)
