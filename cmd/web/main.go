@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
 	"github.com/narvanalabs/control-plane/internal/models"
+	"github.com/narvanalabs/control-plane/internal/shutdown"
 	"github.com/narvanalabs/control-plane/internal/store"
 	"github.com/narvanalabs/control-plane/web/api"
 	webhealth "github.com/narvanalabs/control-plane/web/health"
@@ -216,15 +217,50 @@ func main() {
 		apiURL = "http://127.0.0.1:8080"
 	}
 
-	logger.Info("starting web server",
-		"addr", "0.0.0.0:8090",
-		"internal_api_url", apiURL,
+	// Create HTTP server with timeouts
+	server := &http.Server{
+		Addr:         ":8090",
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Create shutdown coordinator with configurable timeout
+	// **Validates: Requirements 15.1, 15.2**
+	shutdownTimeout := 30 * time.Second
+	if envTimeout := os.Getenv("SHUTDOWN_TIMEOUT"); envTimeout != "" {
+		if d, err := time.ParseDuration(envTimeout); err == nil {
+			shutdownTimeout = d
+		}
+	}
+	coordinator := shutdown.NewCoordinator(
+		shutdown.WithTimeout(shutdownTimeout),
+		shutdown.WithLogger(logger),
 	)
 
-	if err := http.ListenAndServe(":8090", r); err != nil {
-		logger.Error("web server failed to start", "error", err)
-		os.Exit(1)
-	}
+	// Register HTTP server for graceful shutdown
+	coordinator.Register(shutdown.NewHTTPServerComponent("web-server", server))
+
+	// Start the server in a goroutine
+	go func() {
+		logger.Info("starting web server",
+			"addr", "0.0.0.0:8090",
+			"internal_api_url", apiURL,
+		)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("web server failed to start", "error", err)
+			coordinator.Shutdown()
+		}
+	}()
+
+	// Wait for shutdown signal and perform graceful shutdown
+	// **Validates: Requirements 15.1, 15.2**
+	coordinator.WaitForSignal()
+	coordinator.Wait()
+
+	logger.Info("web server shutdown complete")
+	os.Exit(coordinator.ExitCode())
 }
 
 // ============================================================================
