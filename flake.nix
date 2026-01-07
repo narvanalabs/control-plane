@@ -49,6 +49,9 @@
             tailwindcss_4      # Tailwind CSS v4
             go-task            # Task runner
             air                # Live reload for Go
+
+            # CI/CD local testing
+            act                # Run GitHub Actions locally
           ];
 
           shellHook = ''
