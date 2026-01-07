@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  GO_VERSION: '1.24'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            # First release - get all commits
+            NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            # Get commits since previous tag
+            NOTES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          # Write to file for multiline output
+          echo "$NOTES" > release_notes.txt
+          echo "Generated release notes from commits"
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Narvana v${{ steps.get_version.outputs.version }}
+          body_path: release_notes.txt
+          draft: false
+          prerelease: false
+
+  build-artifacts:
+    name: Build Artifacts
+    runs-on: ubuntu-latest
+    needs: release
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
+      - name: Install tailwindcss
+        run: |
+          curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64
+          chmod +x tailwindcss-linux-x64
+          sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
+
+      - name: Generate templ templates
+        run: cd web && templ generate
+
+      - name: Generate tailwind CSS
+        run: cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
+
+      - name: Build binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${{ needs.release.outputs.version }}
+          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          
+          go build -ldflags="${LDFLAGS}" -o narvana-api-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/api
+          go build -ldflags="${LDFLAGS}" -o narvana-web-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/web
+          go build -ldflags="${LDFLAGS}" -o narvana-worker-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/worker
+
+      - name: Upload API binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.release.outputs.upload_url }}
+          asset_path: ./narvana-api-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_name: narvana-api-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload Web binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.release.outputs.upload_url }}
+          asset_path: ./narvana-web-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_name: narvana-web-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload Worker binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.release.outputs.upload_url }}
+          asset_path: ./narvana-worker-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_name: narvana-worker-${{ matrix.goos }}-${{ matrix.goarch }}
+          asset_content_type: application/octet-stream
+
+  trigger-changelog:
+    name: Trigger Changelog Update
+    runs-on: ubuntu-latest
+    needs: [release, build-artifacts]
+    steps:
+      - name: Dispatch changelog update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: release-published
+          client-payload: |
+            {
+              "version": "${{ needs.release.outputs.version }}",
+              "tag": "${{ github.ref_name }}",
+              "release_id": "${{ needs.release.outputs.release_id }}"
+            }
