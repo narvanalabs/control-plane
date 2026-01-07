@@ -519,20 +519,6 @@ func extractUserFriendlyMessage(rawMessage string) string {
 	return rawMessage
 }
 
-// isAuthenticationError checks if the error is a 401 Unauthorized error.
-// **Validates: Requirements 14.3**
-func isAuthenticationError(err error) bool {
-	apiErr := parseAPIError(err)
-	return apiErr != nil && apiErr.StatusCode == 401
-}
-
-// isAuthorizationError checks if the error is a 403 Forbidden error.
-// **Validates: Requirements 14.4**
-func isAuthorizationError(err error) bool {
-	apiErr := parseAPIError(err)
-	return apiErr != nil && apiErr.StatusCode == 403
-}
-
 // handleAPIError processes an API error and returns the appropriate redirect URL.
 // It handles authentication (401) and authorization (403) errors specially.
 // **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
@@ -2319,11 +2305,6 @@ func handleSettingsServerResourcesUpdate(w http.ResponseWriter, r *http.Request)
 	}
 
 	http.Redirect(w, r, "/settings/server?success=Resource+settings+updated+successfully", http.StatusFound)
-}
-
-func handleSettingsAPIKeys(w http.ResponseWriter, r *http.Request) {
-	data := settings_page.APIKeysData{}
-	settings_page.APIKeys(data).Render(r.Context(), w)
 }
 
 func handleSettingsServerLogs(w http.ResponseWriter, r *http.Request) {
