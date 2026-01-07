@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: '1.24'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable
+        run: |
+          for f in migrations/*.sql; do
+            echo "Applying $f..."
+            psql "$DATABASE_URL" -f "$f"
+          done
+
+      - name: Run unit tests
+        env:
+          DATABASE_URL: postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable
+          TEST_DATABASE_URL: postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable
+          JWT_SECRET: test-secret-key-minimum-32-characters-long
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Run property tests
+        env:
+          DATABASE_URL: postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable
+          TEST_DATABASE_URL: postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable
+          JWT_SECRET: test-secret-key-minimum-32-characters-long
+        run: go test -v -run Property ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
+      - name: Install tailwindcss
+        run: |
+          curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64
+          chmod +x tailwindcss-linux-x64
+          sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
+
+      - name: Generate templ templates
+        run: cd web && templ generate
+
+      - name: Generate tailwind CSS
+        run: cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
+
+      - name: Build API binary
+        run: go build -o bin/api ./cmd/api
+
+      - name: Build Web binary
+        run: go build -o bin/web ./cmd/web
+
+      - name: Build Worker binary
+        run: go build -o bin/worker ./cmd/worker
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: bin/
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${COVERAGE}%"
+          THRESHOLD=30
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
+          fi
+          echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
