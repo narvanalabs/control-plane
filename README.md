@@ -1,8 +1,8 @@
 # Narvana Control Plane
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Podman](https://img.shields.io/badge/Podman-Container_Runtime-892CA0?style=flat&logo=podman&logoColor=white)](https://podman.io/)
 [![Nix](https://img.shields.io/badge/Nix-Flakes-5277C3?style=flat&logo=nixos&logoColor=white)](https://nixos.org/)
 [![gRPC](https://img.shields.io/badge/gRPC-Protocol-244c5a?style=flat&logo=google&logoColor=white)](https://grpc.io/)
 [![Tests](https://img.shields.io/badge/Tests-Passing-success?style=flat)](#running-tests)
@@ -494,7 +494,7 @@ curl -X POST http://localhost:8080/v1/admin/cleanup/deployments \
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
 
