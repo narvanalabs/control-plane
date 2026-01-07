@@ -22,9 +22,6 @@ linters-settings:
       - all
       - -SA1019  # Ignore deprecation warnings for now
 
-  unused:
-    check-exported: false
-
   errcheck:
     check-type-assertions: true
     check-blank: false
