@@ -226,6 +226,10 @@ func (m *mockStore) Close() error {
 	return nil
 }
 
+func (m *mockStore) Ping(ctx context.Context) error {
+	return nil
+}
+
 // genAppName generates valid app names
 func genAppName() gopter.Gen {
 	return gen.RegexMatch("[a-z][a-z0-9-]{2,20}")
@@ -731,6 +735,10 @@ func (m *appDeletionMockStore) Invitations() store.InvitationStore {
 }
 
 func (m *appDeletionMockStore) Close() error {
+	return nil
+}
+
+func (m *appDeletionMockStore) Ping(ctx context.Context) error {
 	return nil
 }
 

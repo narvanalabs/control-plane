@@ -308,6 +308,10 @@ func (m *deploymentMockStore) Close() error {
 	return nil
 }
 
+func (m *deploymentMockStore) Ping(ctx context.Context) error {
+	return nil
+}
+
 func TestDeploymentInheritsBuildType(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
 	parameters.MinSuccessfulTests = 100
