@@ -1,0 +1,165 @@
+name: Changelog Update
+
+on:
+  repository_dispatch:
+    types: [release-published]
+
+env:
+  GO_VERSION: '1.24'
+
+permissions:
+  contents: write
+
+jobs:
+  update-changelog-md:
+    name: Update CHANGELOG.md
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout control-plane
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Get release information
+        id: release_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+          TAG="${{ github.event.client_payload.tag }}"
+          RELEASE_ID="${{ github.event.client_payload.release_id }}"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          
+          # Get release notes from GitHub API
+          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/$RELEASE_ID --jq '.body')
+          
+          # Write release notes to file for multiline handling
+          echo "$RELEASE_NOTES" > /tmp/release_notes.txt
+          echo "Release version: $VERSION"
+
+      - name: Run changelog generator
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+          RELEASE_NOTES=$(cat /tmp/release_notes.txt)
+          
+          # Run the changelog generator script
+          go run ./scripts/changelog_cmd.go \
+            -version "$VERSION" \
+            -date "$DATE" \
+            -notes /tmp/release_notes.txt \
+            -output CHANGELOG.md
+
+      - name: Commit and push CHANGELOG.md
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add CHANGELOG.md
+          
+          if git diff --staged --quiet; then
+            echo "No changes to CHANGELOG.md"
+          else
+            git commit -m "docs: update CHANGELOG.md for v${{ steps.release_info.outputs.version }}"
+            git push
+          fi
+
+  update-changelog-site:
+    name: Update Changelog Site
+    runs-on: ubuntu-latest
+    needs: update-changelog-md
+    steps:
+      - name: Checkout control-plane
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout changelog repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/changelog
+          path: changelog-repo
+          token: ${{ secrets.CHANGELOG_REPO_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Get release information
+        id: release_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+          TAG="${{ github.event.client_payload.tag }}"
+          RELEASE_ID="${{ github.event.client_payload.release_id }}"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          
+          # Convert version to underscore format for filenames
+          VERSION_UNDERSCORE=$(echo "$VERSION" | tr '.' '_')
+          echo "version_underscore=$VERSION_UNDERSCORE" >> $GITHUB_OUTPUT
+          
+          # Get release notes from GitHub API
+          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/$RELEASE_ID --jq '.body')
+          echo "$RELEASE_NOTES" > /tmp/release_notes.txt
+          
+          echo "Release version: $VERSION"
+
+      - name: Generate release entry markdown
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          VERSION_UNDERSCORE="${{ steps.release_info.outputs.version_underscore }}"
+          DATE=$(date +%Y-%m-%d)
+          
+          # Run the release entry generator script
+          go run ./scripts/release_entry_cmd.go \
+            -version "$VERSION" \
+            -date "$DATE" \
+            -notes /tmp/release_notes.txt \
+            -output "changelog-repo/src/content/releases/${VERSION_UNDERSCORE}.md"
+
+      - name: Generate banner SVG
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          VERSION_UNDERSCORE="${{ steps.release_info.outputs.version_underscore }}"
+          
+          # Check for custom banner first
+          CUSTOM_BANNER_PATH="changelog-repo/src/assets/custom/release-${VERSION_UNDERSCORE}.svg"
+          GENERATED_BANNER_PATH="changelog-repo/src/assets/release-${VERSION_UNDERSCORE}.svg"
+          
+          if [ -f "$CUSTOM_BANNER_PATH" ]; then
+            echo "Custom banner found at $CUSTOM_BANNER_PATH, skipping generation"
+          else
+            echo "Generating banner for version $VERSION"
+            go run ./scripts/generate_banner_cmd.go \
+              -version "$VERSION" \
+              -output "$GENERATED_BANNER_PATH"
+          fi
+
+      - name: Commit and push to changelog repository
+        working-directory: changelog-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add .
+          
+          if git diff --staged --quiet; then
+            echo "No changes to changelog site"
+          else
+            git commit -m "release: add v${{ steps.release_info.outputs.version }} release entry"
+            git push
+          fi
