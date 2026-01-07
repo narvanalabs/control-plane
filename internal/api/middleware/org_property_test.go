@@ -139,6 +139,7 @@ func (m *orgTestStore) Domains() store.DomainStore                              
 func (m *orgTestStore) Invitations() store.InvitationStore                           { return nil }
 func (m *orgTestStore) WithTx(ctx context.Context, fn func(store.Store) error) error { return fn(m) }
 func (m *orgTestStore) Close() error                                                 { return nil }
+func (m *orgTestStore) Ping(ctx context.Context) error                               { return nil }
 
 // genOrgSlug generates valid organization slugs
 func genOrgSlug() gopter.Gen {

@@ -141,6 +141,10 @@ func (m *mockStore) Close() error {
 	return nil
 }
 
+func (m *mockStore) Ping(ctx context.Context) error {
+	return nil
+}
+
 // genUserID generates valid user IDs (non-empty alphanumeric strings)
 func genUserID() gopter.Gen {
 	return gen.RegexMatch("[a-zA-Z][a-zA-Z0-9]{5,15}")
