@@ -1,0 +1,44 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    # Dead code detection (Requirements: 13.3)
+    - unused
+    - ineffassign
+    - staticcheck
+    - govet
+    - errcheck
+    - gosimple
+    - typecheck
+    - gofmt
+    - goimports
+    - unparam
+
+linters-settings:
+  staticcheck:
+    checks:
+      - all
+      - -SA1019  # Ignore deprecation warnings for now
+
+  unused:
+    check-exported: false
+
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+
+issues:
+  exclude-rules:
+    # Exclude test files from some checks
+    - path: _test\.go
+      linters:
+        - errcheck
+    # Exclude generated files
+    - path: _templ\.go
+      linters:
+        - all
+    - path: \.pb\.go
+      linters:
+        - all
