@@ -7,8 +7,9 @@ linters:
     # Core linters
     - govet
     - typecheck
-    - gofmt
   disable:
+    # Disable gofmt since we auto-fix before linting
+    - gofmt
     # Disable strict linters for now - can enable later
     - errcheck
     - unused
