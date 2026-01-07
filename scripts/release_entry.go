@@ -1,5 +1,5 @@
-// Package main provides release entry generation utilities for the changelog site.
-package main
+// Package scripts provides release entry generation utilities for the changelog site.
+package scripts
 
 import (
 	"bytes"

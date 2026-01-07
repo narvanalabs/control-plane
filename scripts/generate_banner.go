@@ -1,5 +1,5 @@
-// Package main provides banner generation utilities for release management.
-package main
+// Package scripts provides banner generation utilities for release management.
+package scripts
 
 import (
 	"bytes"

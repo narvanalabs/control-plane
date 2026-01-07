@@ -1,5 +1,5 @@
-// Package main provides CHANGELOG.md generation utilities.
-package main
+// Package scripts provides CHANGELOG.md generation utilities.
+package scripts
 
 import (
 	"bytes"

@@ -1,5 +1,5 @@
-// Package main provides version extraction utilities for release management.
-package main
+// Package scripts provides version extraction utilities for release management.
+package scripts
 
 import (
 	"errors"
