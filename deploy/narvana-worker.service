@@ -20,7 +20,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/log/narvana /tmp/narvana-builds
+ReadWritePaths=/var/log/narvana /var/lib/narvana/builds
 
 [Install]
 WantedBy=multi-user.target
