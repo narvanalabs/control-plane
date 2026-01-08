@@ -244,3 +244,47 @@ func ResolveBannerPath(version string) (string, bool) {
 	}
 	return GenerateBannerPath(version), false
 }
+
+// GenerateBannerRelativePath generates the relative path for a release banner
+// from the content directory (changelog/src/content/releases/).
+// This path format is compatible with Astro's image optimization.
+// Example: "1.0.0" -> "../../assets/release-1_0_0.svg"
+func GenerateBannerRelativePath(version string) string {
+	return "../../assets/" + GenerateBannerFilename(version)
+}
+
+// GenerateCustomBannerRelativePath generates the relative path for a custom release banner
+// from the content directory (changelog/src/content/releases/).
+// This path format is compatible with Astro's image optimization.
+// Example: "1.0.0" -> "../../assets/custom/release-1_0_0.svg"
+func GenerateCustomBannerRelativePath(version string) string {
+	return "../../assets/custom/" + GenerateBannerFilename(version)
+}
+
+// ResolveBannerRelativePath resolves the banner relative path with custom banner precedence.
+// Returns the relative path suitable for use in markdown frontmatter.
+// If a custom banner exists, returns the custom path; otherwise returns the generated path.
+// The returned path is relative to the content directory and compatible with Astro image optimization.
+func ResolveBannerRelativePath(version string) string {
+	if CustomBannerExists(version) {
+		return GenerateCustomBannerRelativePath(version)
+	}
+	return GenerateBannerRelativePath(version)
+}
+
+// ValidateBannerRelativePath checks if a banner relative path has the correct format
+// for Astro image optimization. The path should:
+// - Start with "../../assets/"
+// - End with ".svg"
+func ValidateBannerRelativePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("banner path is empty")
+	}
+	if !strings.HasPrefix(path, "../../assets/") {
+		return fmt.Errorf("banner path does not start with '../../assets/': %s", path)
+	}
+	if !strings.HasSuffix(path, ".svg") {
+		return fmt.Errorf("banner path does not end with '.svg': %s", path)
+	}
+	return nil
+}
