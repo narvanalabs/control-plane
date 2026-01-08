@@ -439,9 +439,19 @@ run_migrations() {
 setup_services() {
     log_info "Configuring systemd services..."
     
+    # Get narvana user's UID for XDG_RUNTIME_DIR
+    local NARVANA_UID=$(id -u narvana)
+    
+    # Create XDG_RUNTIME_DIR for rootless Podman
+    mkdir -p "/run/user/${NARVANA_UID}"
+    chown narvana:narvana "/run/user/${NARVANA_UID}"
+    chmod 700 "/run/user/${NARVANA_UID}"
+    
     cd "$INSTALL_DIR"
+    
+    # Update XDG_RUNTIME_DIR in service file with actual UID
+    sed "s|/run/user/1001|/run/user/${NARVANA_UID}|g" deploy/narvana-worker.service > /etc/systemd/system/narvana-worker.service
     cp deploy/narvana-api.service /etc/systemd/system/
-    cp deploy/narvana-worker.service /etc/systemd/system/
     cp deploy/narvana-web.service /etc/systemd/system/
     
     systemctl daemon-reload
