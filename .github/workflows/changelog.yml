@@ -118,18 +118,45 @@ jobs:
           
           echo "Release version: $VERSION"
 
+      - name: Check for override file
+        id: override_check
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          VERSION_UNDERSCORE="${{ steps.release_info.outputs.version_underscore }}"
+          
+          # Check for override file in changelog repo
+          OVERRIDE_PATH="changelog-repo/src/content/releases/${VERSION_UNDERSCORE}.override.md"
+          
+          if [ -f "$OVERRIDE_PATH" ]; then
+            echo "override_path=$OVERRIDE_PATH" >> $GITHUB_OUTPUT
+            echo "has_override=true" >> $GITHUB_OUTPUT
+            echo "Found override file at $OVERRIDE_PATH"
+          else
+            echo "has_override=false" >> $GITHUB_OUTPUT
+            echo "No override file found"
+          fi
+
       - name: Generate release entry markdown
         run: |
           VERSION="${{ steps.release_info.outputs.version }}"
           VERSION_UNDERSCORE="${{ steps.release_info.outputs.version_underscore }}"
           DATE=$(date +%Y-%m-%d)
           
-          # Run the release entry generator script
-          go run ./scripts/release_entry_cmd.go \
-            -version "$VERSION" \
-            -date "$DATE" \
+          # Build the command with optional override file
+          CMD="go run ./scripts/release_entry_cmd.go \
+            -version \"$VERSION\" \
+            -date \"$DATE\" \
             -notes /tmp/release_notes.txt \
-            -output "changelog-repo/src/content/releases/${VERSION_UNDERSCORE}.md"
+            -enhanced \
+            -output \"changelog-repo/src/content/releases/${VERSION_UNDERSCORE}.md\""
+          
+          # Add override file if it exists
+          if [ "${{ steps.override_check.outputs.has_override }}" = "true" ]; then
+            CMD="$CMD -override \"${{ steps.override_check.outputs.override_path }}\""
+          fi
+          
+          # Run the release entry generator script with enhanced mode
+          eval $CMD
 
       - name: Generate banner SVG
         run: |
