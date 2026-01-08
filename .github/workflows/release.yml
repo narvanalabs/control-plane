@@ -16,8 +16,6 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      release_id: ${{ steps.create_release.outputs.id }}
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - name: Checkout code
@@ -51,13 +49,9 @@ jobs:
           echo "Generated release notes from commits"
 
       - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Narvana v${{ steps.get_version.outputs.version }}
+          name: Narvana v${{ steps.get_version.outputs.version }}
           body_path: release_notes.txt
           draft: false
           prerelease: false
@@ -108,35 +102,13 @@ jobs:
           go build -ldflags="${LDFLAGS}" -o narvana-web-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/web
           go build -ldflags="${LDFLAGS}" -o narvana-worker-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/worker
 
-      - name: Upload API binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ needs.release.outputs.upload_url }}
-          asset_path: ./narvana-api-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_name: narvana-api-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload Web binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.release.outputs.upload_url }}
-          asset_path: ./narvana-web-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_name: narvana-web-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload Worker binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.release.outputs.upload_url }}
-          asset_path: ./narvana-worker-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_name: narvana-worker-${{ matrix.goos }}-${{ matrix.goarch }}
-          asset_content_type: application/octet-stream
+          files: |
+            narvana-api-${{ matrix.goos }}-${{ matrix.goarch }}
+            narvana-web-${{ matrix.goos }}-${{ matrix.goarch }}
+            narvana-worker-${{ matrix.goos }}-${{ matrix.goarch }}
 
   trigger-changelog:
     name: Trigger Changelog Update
@@ -151,6 +123,5 @@ jobs:
           client-payload: |
             {
               "version": "${{ needs.release.outputs.version }}",
-              "tag": "${{ github.ref_name }}",
-              "release_id": "${{ needs.release.outputs.release_id }}"
+              "tag": "${{ github.ref_name }}"
             }
