@@ -326,8 +326,15 @@ echo "Cache: %s"
 # Install attic-client
 nix profile install nixpkgs#attic-client
 
-# Login to Attic with token
-attic login narvana %s --set-default %s
+# Configure Attic client directly (write config file)
+mkdir -p /root/.config/attic
+cat > /root/.config/attic/config.toml << 'ATTIC_CONFIG'
+default-server = "narvana"
+
+[servers.narvana]
+endpoint = "%s"
+token = "%s"
+ATTIC_CONFIG
 
 # Create cache if it doesn't exist (ignore error if already exists)
 attic cache create %s 2>/dev/null || true
