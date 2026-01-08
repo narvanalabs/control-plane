@@ -2427,20 +2427,20 @@ func genReleaseSection() gopter.Gen {
 	)
 }
 
-// **Feature: intelligent-release-notes, Property 22: Section headers use emoji format**
+// **Feature: intelligent-release-notes, Property 22: Section headers use icon format**
 // For any non-empty section in the output, the section header SHALL contain
-// the appropriate emoji prefix (🍿, ⚡, 🐞, ⚠️, or 🔄).
+// the appropriate icon prefix (✦, ↑, ✓, !, or ○).
 // **Validates: Requirements 11.1, 11.2, 11.3, 11.4**
 func TestPropertyEmojiHeaders(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
 	parameters.MinSuccessfulTests = 100
 	properties := gopter.NewProperties(parameters)
 
-	// Property 22.1: Features section header contains 🍿
-	properties.Property("Features section header contains popcorn emoji", prop.ForAll(
+	// Property 22.1: Features section header contains 🚀
+	properties.Property("Features section header contains rocket emoji", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionFeatures)
-			return strings.Contains(header, "🍿") &&
+			return strings.Contains(header, "🚀") &&
 				strings.Contains(header, "New Features")
 		},
 		gen.Bool(),
@@ -2456,11 +2456,11 @@ func TestPropertyEmojiHeaders(t *testing.T) {
 		gen.Bool(),
 	))
 
-	// Property 22.3: BugFixes section header contains 🐞
+	// Property 22.3: BugFixes section header contains 🐛
 	properties.Property("BugFixes section header contains bug emoji", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionBugFixes)
-			return strings.Contains(header, "🐞") &&
+			return strings.Contains(header, "🐛") &&
 				strings.Contains(header, "Bug Fixes")
 		},
 		gen.Bool(),
@@ -2476,11 +2476,11 @@ func TestPropertyEmojiHeaders(t *testing.T) {
 		gen.Bool(),
 	))
 
-	// Property 22.5: Other section header contains 🔄
-	properties.Property("Other section header contains cycle emoji", prop.ForAll(
+	// Property 22.5: Other section header contains 📦
+	properties.Property("Other section header contains package emoji", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionOther)
-			return strings.Contains(header, "🔄") &&
+			return strings.Contains(header, "📦") &&
 				strings.Contains(header, "Other Changes")
 		},
 		gen.Bool(),
@@ -2508,7 +2508,7 @@ func TestPropertyEmojiHeaders(t *testing.T) {
 	properties.Property("unknown section returns default header", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(ReleaseSection("unknown"))
-			return strings.Contains(header, "🔄") &&
+			return strings.Contains(header, "📦") &&
 				strings.Contains(header, "Other Changes")
 		},
 		gen.Bool(),
@@ -2932,29 +2932,29 @@ func genNonEmptyOverrideString() gopter.Gen {
 	})
 }
 
-// **Feature: intelligent-release-notes, Property 11: Default content includes introduction**
-// For any release notes generated without an override, the output SHALL contain
-// an introduction paragraph before the first section heading.
+// **Feature: intelligent-release-notes, Property 11: Introduction only included when provided**
+// For any release notes generated, the introduction SHALL only be included
+// when explicitly provided via override.
 // **Validates: Requirements 5.4**
 func TestPropertyDefaultIntroduction(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
 	parameters.MinSuccessfulTests = 100
 	properties := gopter.NewProperties(parameters)
 
-	// Property 11.1: Empty override returns default introduction
-	properties.Property("empty override returns default introduction", prop.ForAll(
+	// Property 11.1: Empty override returns empty string (no default)
+	properties.Property("empty override returns empty string", prop.ForAll(
 		func(_ bool) bool {
 			intro := GenerateIntroduction("")
-			return intro == DefaultIntroduction
+			return intro == ""
 		},
 		gen.Bool(),
 	))
 
-	// Property 11.2: Default introduction is non-empty
-	properties.Property("default introduction is non-empty", prop.ForAll(
+	// Property 11.2: No default introduction is added
+	properties.Property("no default introduction is added", prop.ForAll(
 		func(_ bool) bool {
 			intro := GenerateIntroduction("")
-			return len(intro) > 0
+			return len(intro) == 0
 		},
 		gen.Bool(),
 	))
@@ -2978,11 +2978,11 @@ func TestPropertyDefaultIntroduction(t *testing.T) {
 		genNonEmptyOverrideString(),
 	))
 
-	// Property 11.5: GenerateIntroduction never returns empty for empty override
-	properties.Property("GenerateIntroduction never returns empty for empty override", prop.ForAll(
+	// Property 11.5: GenerateIntroduction returns empty for empty override
+	properties.Property("GenerateIntroduction returns empty for empty override", prop.ForAll(
 		func(_ bool) bool {
 			intro := GenerateIntroduction("")
-			return intro != ""
+			return intro == ""
 		},
 		gen.Bool(),
 	))
@@ -3002,34 +3002,29 @@ func genProjectName() gopter.Gen {
 	)
 }
 
-// **Feature: intelligent-release-notes, Property 24: Closing paragraph included with project name**
-// For any generated release notes, the output SHALL contain a closing paragraph
-// that includes the project name.
+// **Feature: intelligent-release-notes, Property 24: Closing paragraph only included when provided**
+// For any generated release notes, the closing paragraph SHALL only be included
+// when explicitly provided via override.
 // **Validates: Requirements 12.1, 12.3, 12.4**
 func TestPropertyClosingParagraph(t *testing.T) {
 	parameters := gopter.DefaultTestParameters()
 	parameters.MinSuccessfulTests = 100
 	properties := gopter.NewProperties(parameters)
 
-	// Property 24.1: Default closing contains project name
-	properties.Property("default closing contains project name", prop.ForAll(
+	// Property 24.1: Empty override returns empty string (no default)
+	properties.Property("empty override returns empty string", prop.ForAll(
 		func(projectName string) bool {
 			closing := GenerateClosing(projectName, "")
-			// If project name is empty, it should use default
-			expectedName := projectName
-			if expectedName == "" {
-				expectedName = DefaultProjectName
-			}
-			return strings.Contains(closing, expectedName)
+			return closing == ""
 		},
 		genProjectName(),
 	))
 
-	// Property 24.2: Default closing is non-empty
-	properties.Property("default closing is non-empty", prop.ForAll(
+	// Property 24.2: No default closing is added
+	properties.Property("no default closing is added", prop.ForAll(
 		func(projectName string) bool {
 			closing := GenerateClosing(projectName, "")
-			return len(closing) > 0
+			return len(closing) == 0
 		},
 		genProjectName(),
 	))
@@ -3055,35 +3050,11 @@ func TestPropertyClosingParagraph(t *testing.T) {
 		genNonEmptyOverrideString(),
 	))
 
-	// Property 24.5: Empty project name uses default project name
-	properties.Property("empty project name uses default project name", prop.ForAll(
-		func(_ bool) bool {
-			closing := GenerateClosing("", "")
-			return strings.Contains(closing, DefaultProjectName)
-		},
-		gen.Bool(),
-	))
-
-	// Property 24.6: GenerateClosing never returns empty for empty override
-	properties.Property("GenerateClosing never returns empty for empty override", prop.ForAll(
+	// Property 24.5: GenerateClosing returns empty for empty override
+	properties.Property("GenerateClosing returns empty for empty override", prop.ForAll(
 		func(projectName string) bool {
 			closing := GenerateClosing(projectName, "")
-			return closing != ""
-		},
-		genProjectName(),
-	))
-
-	// Property 24.7: Default closing mentions project name at least twice
-	properties.Property("default closing mentions project name at least twice", prop.ForAll(
-		func(projectName string) bool {
-			closing := GenerateClosing(projectName, "")
-			expectedName := projectName
-			if expectedName == "" {
-				expectedName = DefaultProjectName
-			}
-			// Count occurrences of project name
-			count := strings.Count(closing, expectedName)
-			return count >= 2
+			return closing == ""
 		},
 		genProjectName(),
 	))
@@ -3432,7 +3403,7 @@ func TestPropertyReleaseNotesRoundTrip(t *testing.T) {
 		genCategorizedContentWithCommits(),
 	))
 
-	// Property 15.6: Content after frontmatter contains introduction
+	// Property 15.6: Content after frontmatter contains introduction when provided
 	properties.Property("content after frontmatter contains introduction", prop.ForAll(
 		func(config ReleaseNotesConfig, content CategorizedContent) bool {
 			markdown, err := GenerateReleaseNotes(content, config)
@@ -3444,18 +3415,18 @@ func TestPropertyReleaseNotesRoundTrip(t *testing.T) {
 				return false
 			}
 			
-			// Body should contain introduction (either custom or default)
-			expectedIntro := config.Introduction
-			if expectedIntro == "" {
-				expectedIntro = DefaultIntroduction
+			// Body should contain introduction only if provided
+			if config.Introduction != "" {
+				return strings.Contains(bodyContent, config.Introduction)
 			}
-			return strings.Contains(bodyContent, expectedIntro)
+			// If no introduction provided, just verify the body is valid
+			return len(bodyContent) > 0
 		},
 		genReleaseNotesConfig(),
 		genCategorizedContentWithCommits(),
 	))
 
-	// Property 15.7: Content after frontmatter contains closing
+	// Property 15.7: Content after frontmatter contains closing when provided
 	properties.Property("content after frontmatter contains closing", prop.ForAll(
 		func(config ReleaseNotesConfig, content CategorizedContent) bool {
 			markdown, err := GenerateReleaseNotes(content, config)
@@ -3467,16 +3438,12 @@ func TestPropertyReleaseNotesRoundTrip(t *testing.T) {
 				return false
 			}
 			
-			// Body should contain closing (either custom or default with project name)
+			// Body should contain closing only if provided
 			if config.Closing != "" {
 				return strings.Contains(bodyContent, config.Closing)
 			}
-			// Default closing contains project name
-			projectName := config.ProjectName
-			if projectName == "" {
-				projectName = DefaultProjectName
-			}
-			return strings.Contains(bodyContent, projectName)
+			// If no closing provided, just verify the body is valid
+			return len(bodyContent) > 0
 		},
 		genReleaseNotesConfig(),
 		genCategorizedContentWithCommits(),
@@ -3561,17 +3528,17 @@ func TestPropertyEmptyFilteredResults(t *testing.T) {
 				return false
 			}
 			
-			// Should contain introduction
-			expectedIntro := config.Introduction
-			if expectedIntro == "" {
-				expectedIntro = DefaultIntroduction
+			// Should contain introduction only if provided
+			if config.Introduction != "" {
+				return strings.Contains(bodyContent, config.Introduction)
 			}
-			return strings.Contains(bodyContent, expectedIntro)
+			// If no introduction, just verify body is valid
+			return len(bodyContent) > 0
 		},
 		genReleaseNotesConfig(),
 	))
 
-	// Property 27.4: Empty content includes closing
+	// Property 27.4: Empty content includes closing when provided
 	properties.Property("empty content includes closing", prop.ForAll(
 		func(config ReleaseNotesConfig) bool {
 			markdown, err := GenerateReleaseNotes(CategorizedContent{}, config)
@@ -3583,15 +3550,12 @@ func TestPropertyEmptyFilteredResults(t *testing.T) {
 				return false
 			}
 			
-			// Should contain closing with project name
-			projectName := config.ProjectName
-			if projectName == "" {
-				projectName = DefaultProjectName
-			}
+			// Should contain closing only if provided
 			if config.Closing != "" {
 				return strings.Contains(bodyContent, config.Closing)
 			}
-			return strings.Contains(bodyContent, projectName)
+			// If no closing, just verify body is valid
+			return len(bodyContent) > 0
 		},
 		genReleaseNotesConfig(),
 	))

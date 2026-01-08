@@ -756,12 +756,13 @@ const (
 
 // SectionHeaders maps each section to its emoji-enhanced header.
 // These headers are used when generating the release notes markdown.
+// Uses emojis for visual appeal and wide browser support.
 var SectionHeaders = map[ReleaseSection]string{
-	SectionFeatures:        "🍿 New Features & Enhancements",
+	SectionFeatures:        "🚀 New Features & Enhancements",
 	SectionImprovements:    "⚡ Performance & Improvements",
-	SectionBugFixes:        "🐞 Bug Fixes",
+	SectionBugFixes:        "🐛 Bug Fixes",
 	SectionBreakingChanges: "⚠️ Breaking Changes",
-	SectionOther:           "🔄 Other Changes",
+	SectionOther:           "📦 Other Changes",
 }
 
 // SectionHeader returns the emoji-enhanced header for a section.
@@ -770,7 +771,7 @@ func SectionHeader(section ReleaseSection) string {
 	if header, ok := SectionHeaders[section]; ok {
 		return header
 	}
-	return "🔄 Other Changes"
+	return "📦 Other Changes"
 }
 
 // CategorizedContent holds commits organized by section.
@@ -1081,39 +1082,24 @@ func GenerateTitle(version string, override string) string {
 	return fmt.Sprintf("%s v%s", DefaultProjectName, cleanVersion)
 }
 
-// DefaultIntroduction is the default introduction message for release notes.
-// It provides a friendly greeting to users about the new release.
-const DefaultIntroduction = "Hey there, Narvana users! We're back with some exciting updates that will turbocharge your Narvana experience. Here's the lowdown:"
-
 // GenerateIntroduction creates the introduction paragraph for release notes.
-// If an override is provided (non-empty), it is used instead of the default.
+// Only returns content if an override is provided; otherwise returns empty string.
 // The introduction appears at the beginning of the release notes, before any sections.
 func GenerateIntroduction(override string) string {
 	if override != "" {
 		return strings.TrimSpace(override)
 	}
-	return DefaultIntroduction
+	return ""
 }
 
-// DefaultClosingTemplate is the default closing message template for release notes.
-// It includes a placeholder for the project name that will be dynamically replaced.
-const DefaultClosingTemplate = "Thank you for making %s your tech partner. We thrive on your feedback, so if you have ideas or run into bumps, don't hesitate to drop a line to our support wizards. Together, we're taking %s to the next level!"
-
 // GenerateClosing creates the closing paragraph for release notes.
-// If an override is provided (non-empty), it is used instead of the default.
+// Only returns content if an override is provided; otherwise returns empty string.
 // The closing appears at the end of the release notes, after all sections.
-// The project name is dynamically inserted into the default closing message.
 func GenerateClosing(projectName string, override string) string {
 	if override != "" {
 		return strings.TrimSpace(override)
 	}
-	
-	// Use default project name if not provided
-	if projectName == "" {
-		projectName = DefaultProjectName
-	}
-	
-	return fmt.Sprintf(DefaultClosingTemplate, projectName, projectName)
+	return ""
 }
 
 
@@ -1146,7 +1132,7 @@ type ReleaseNotesFrontmatterImage struct {
 
 // GenerateReleaseNotes produces the final markdown release notes.
 // It accepts CategorizedContent and config, generating complete markdown with frontmatter,
-// introduction, sections, and closing.
+// banner image reference, optional introduction, sections, and optional closing.
 func GenerateReleaseNotes(content CategorizedContent, config ReleaseNotesConfig) (string, error) {
 	// Validate required fields
 	if config.Version == "" {
@@ -1189,10 +1175,15 @@ func GenerateReleaseNotes(content CategorizedContent, config ReleaseNotesConfig)
 	sb.WriteString(fmt.Sprintf("  alt: \"%s v%s Release\"\n", projectName, cleanVersion))
 	sb.WriteString("---\n\n")
 
-	// Write introduction
+	// Write banner image as markdown (for display in the release notes body)
+	sb.WriteString(fmt.Sprintf("![%s v%s Release](%s)\n\n", projectName, cleanVersion, bannerPath))
+
+	// Write introduction only if provided
 	intro := GenerateIntroduction(config.Introduction)
-	sb.WriteString(intro)
-	sb.WriteString("\n\n")
+	if intro != "" {
+		sb.WriteString(intro)
+		sb.WriteString("\n\n")
+	}
 
 	// Write sections (only non-empty ones)
 	sectionsWritten := false
@@ -1211,10 +1202,12 @@ func GenerateReleaseNotes(content CategorizedContent, config ReleaseNotesConfig)
 		sb.WriteString("No significant changes in this release.\n\n")
 	}
 
-	// Write closing
+	// Write closing only if provided
 	closing := GenerateClosing(projectName, config.Closing)
-	sb.WriteString(closing)
-	sb.WriteString("\n")
+	if closing != "" {
+		sb.WriteString(closing)
+		sb.WriteString("\n")
+	}
 
 	return sb.String(), nil
 }

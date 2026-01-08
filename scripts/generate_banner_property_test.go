@@ -180,10 +180,9 @@ func TestPropertyBannerSVGGeneration(t *testing.T) {
 				return false
 			}
 
-			// Check for orange color values (hex codes for orange-500, orange-600, orange-700)
-			return strings.Contains(svg, "#f97316") || // orange-500
-				strings.Contains(svg, "#ea580c") || // orange-600
-				strings.Contains(svg, "#c2410c") // orange-700
+			// Check for orange color values (hex codes for the gradient)
+			return strings.Contains(svg, "#ff6b35") || // bright orange
+				strings.Contains(svg, "#f7931e") // golden orange
 		},
 		gen.IntRange(0, 999),
 		gen.IntRange(0, 999),

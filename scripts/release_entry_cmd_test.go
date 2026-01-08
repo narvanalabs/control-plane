@@ -70,11 +70,11 @@ func TestIntegrationEnhancedReleaseNotes(t *testing.T) {
 		t.Error("Image.Src should not be empty")
 	}
 
-	// Verify sections are present
-	if !strings.Contains(markdown, "🍿 New Features") {
+	// Verify sections are present (using emoji format)
+	if !strings.Contains(markdown, "🚀 New Features") {
 		t.Error("Features section should be present")
 	}
-	if !strings.Contains(markdown, "🐞 Bug Fixes") {
+	if !strings.Contains(markdown, "🐛 Bug Fixes") {
 		t.Error("Bug Fixes section should be present")
 	}
 	if !strings.Contains(markdown, "⚠️ Breaking Changes") {
@@ -89,13 +89,8 @@ func TestIntegrationEnhancedReleaseNotes(t *testing.T) {
 		t.Error("Style commits should be filtered out")
 	}
 
-	// Verify introduction and closing are present
-	if !strings.Contains(markdown, "Hey there") {
-		t.Error("Introduction should be present")
-	}
-	if !strings.Contains(markdown, "Thank you") {
-		t.Error("Closing should be present")
-	}
+	// Introduction and closing are no longer included by default
+	// They are only included when explicitly provided via override
 }
 
 // TestIntegrationEmptyCommits tests generation with no commits.
@@ -408,8 +403,8 @@ func TestPropertyEndToEndGeneration(t *testing.T) {
 		gen.IntRange(0, 99),
 	))
 
-	// Property: Introduction is always present
-	properties.Property("introduction is always present", prop.ForAll(
+	// Property: Introduction is present when provided
+	properties.Property("introduction is present when provided", prop.ForAll(
 		func(major, minor, patch int) bool {
 			version := genVersionString(major, minor, patch)
 			
@@ -418,9 +413,10 @@ func TestPropertyEndToEndGeneration(t *testing.T) {
 			categorizedContent := ProcessCommitsWithFallback(commits, filterConfig)
 
 			config := ReleaseNotesConfig{
-				Version:     version,
-				Date:        "2026-01-08",
-				ProjectName: "Narvana",
+				Version:      version,
+				Date:         "2026-01-08",
+				ProjectName:  "Narvana",
+				Introduction: "Custom intro text",
 			}
 
 			markdown, err := GenerateReleaseNotes(categorizedContent, config)
@@ -428,17 +424,16 @@ func TestPropertyEndToEndGeneration(t *testing.T) {
 				return false
 			}
 
-			// Should contain introduction
-			return strings.Contains(markdown, "Hey there") || 
-				strings.Contains(markdown, "Narvana users")
+			// Should contain the custom introduction
+			return strings.Contains(markdown, "Custom intro text")
 		},
 		gen.IntRange(0, 99),
 		gen.IntRange(0, 99),
 		gen.IntRange(0, 99),
 	))
 
-	// Property: Closing is always present
-	properties.Property("closing is always present", prop.ForAll(
+	// Property: Closing is present when provided
+	properties.Property("closing is present when provided", prop.ForAll(
 		func(major, minor, patch int) bool {
 			version := genVersionString(major, minor, patch)
 			
@@ -450,6 +445,7 @@ func TestPropertyEndToEndGeneration(t *testing.T) {
 				Version:     version,
 				Date:        "2026-01-08",
 				ProjectName: "Narvana",
+				Closing:     "Custom closing text",
 			}
 
 			markdown, err := GenerateReleaseNotes(categorizedContent, config)
@@ -457,9 +453,8 @@ func TestPropertyEndToEndGeneration(t *testing.T) {
 				return false
 			}
 
-			// Should contain closing
-			return strings.Contains(markdown, "Thank you") ||
-				strings.Contains(markdown, "Narvana")
+			// Should contain the custom closing
+			return strings.Contains(markdown, "Custom closing text")
 		},
 		gen.IntRange(0, 99),
 		gen.IntRange(0, 99),
