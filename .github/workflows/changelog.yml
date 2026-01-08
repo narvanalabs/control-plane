@@ -156,22 +156,23 @@ jobs:
           # Run the release entry generator script with enhanced mode
           eval $CMD
 
-      - name: Generate banner SVG
+      - name: Generate banner SVGs
         run: |
           VERSION="${{ steps.release_info.outputs.version }}"
           VERSION_UNDERSCORE="${{ steps.release_info.outputs.version_underscore }}"
           
           # Check for custom banner first
           CUSTOM_BANNER_PATH="changelog-repo/src/assets/custom/release-${VERSION_UNDERSCORE}.svg"
-          GENERATED_BANNER_PATH="changelog-repo/src/assets/release-${VERSION_UNDERSCORE}.svg"
           
           if [ -f "$CUSTOM_BANNER_PATH" ]; then
             echo "Custom banner found at $CUSTOM_BANNER_PATH, skipping generation"
           else
-            echo "Generating banner for version $VERSION"
+            echo "Generating banners for version $VERSION"
+            # Generate both content (800x200) and social (1200x630) banners
             go run ./scripts/generate_banner_cmd.go \
               -version "$VERSION" \
-              -output "$GENERATED_BANNER_PATH"
+              -both \
+              -output-dir "changelog-repo/src/assets"
           fi
 
       - name: Commit and push to changelog repository
