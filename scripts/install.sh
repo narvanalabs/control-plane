@@ -300,17 +300,62 @@ setup_postgresql() {
     log_success "PostgreSQL configured"
 }
 
-# Create narvana user
+# Create narvana user and directories
 create_user() {
     if ! id "narvana" &>/dev/null; then
         log_info "Creating narvana user..."
         useradd -r -m -s /bin/bash -d /opt/narvana narvana || true
     fi
     
+    # Create all required directories
     mkdir -p /opt/narvana /var/log/narvana /tmp/narvana-builds /etc/narvana
     chown -R narvana:narvana /opt/narvana /var/log/narvana /tmp/narvana-builds
     
     log_success "User configured"
+}
+
+# Install Nix package manager (required for builds)
+install_nix() {
+    if command -v nix &> /dev/null; then
+        log_success "Nix already installed"
+        return
+    fi
+    
+    log_info "Installing Nix package manager..."
+    
+    # Create nix build users group if it doesn't exist
+    if ! getent group nixbld > /dev/null 2>&1; then
+        groupadd -r nixbld
+    fi
+    
+    # Create nix build users
+    for i in $(seq 1 10); do
+        if ! id "nixbld$i" &>/dev/null; then
+            useradd -r -g nixbld -G nixbld -d /var/empty -s /sbin/nologin "nixbld$i" 2>/dev/null || true
+        fi
+    done
+    
+    # Install Nix in multi-user mode
+    sh <(curl -L https://nixos.org/nix/install) --daemon --yes || {
+        log_error "Nix installation failed"
+        exit 1
+    }
+    
+    # Source nix profile for current session
+    if [[ -f /etc/profile.d/nix.sh ]]; then
+        . /etc/profile.d/nix.sh
+    fi
+    
+    # Enable and start nix-daemon
+    systemctl enable nix-daemon 2>/dev/null || true
+    systemctl start nix-daemon 2>/dev/null || true
+    
+    # Verify installation
+    if command -v nix &> /dev/null; then
+        log_success "Nix installed: $(nix --version)"
+    else
+        log_warn "Nix installed but not in PATH - may need shell restart"
+    fi
 }
 
 # Setup environment
@@ -461,11 +506,12 @@ main() {
     get_latest_version
     install_dependencies
     install_podman
+    install_nix
     setup_postgresql
+    create_user
     clone_repo
     generate_web_assets
     download_binaries
-    create_user
     setup_environment
     run_migrations
     setup_services
