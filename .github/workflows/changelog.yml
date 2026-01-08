@@ -34,13 +34,12 @@ jobs:
         run: |
           VERSION="${{ github.event.client_payload.version }}"
           TAG="${{ github.event.client_payload.tag }}"
-          RELEASE_ID="${{ github.event.client_payload.release_id }}"
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           
-          # Get release notes from GitHub API
-          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/$RELEASE_ID --jq '.body')
+          # Get release notes from GitHub API by tag
+          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/tags/$TAG --jq '.body')
           
           # Write release notes to file for multiline handling
           echo "$RELEASE_NOTES" > /tmp/release_notes.txt
@@ -103,7 +102,6 @@ jobs:
         run: |
           VERSION="${{ github.event.client_payload.version }}"
           TAG="${{ github.event.client_payload.tag }}"
-          RELEASE_ID="${{ github.event.client_payload.release_id }}"
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
@@ -112,8 +110,8 @@ jobs:
           VERSION_UNDERSCORE=$(echo "$VERSION" | tr '.' '_')
           echo "version_underscore=$VERSION_UNDERSCORE" >> $GITHUB_OUTPUT
           
-          # Get release notes from GitHub API
-          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/$RELEASE_ID --jq '.body')
+          # Get release notes from GitHub API by tag
+          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/tags/$TAG --jq '.body')
           echo "$RELEASE_NOTES" > /tmp/release_notes.txt
           
           echo "Release version: $VERSION"
