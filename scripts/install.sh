@@ -535,8 +535,6 @@ EOF
     
     log_success "Attic binary cache configured with authentication"
 }
-    log_success "Attic binary cache configured"
-}
 
 # Setup environment
 setup_environment() {
