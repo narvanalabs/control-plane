@@ -2436,51 +2436,51 @@ func TestPropertyEmojiHeaders(t *testing.T) {
 	parameters.MinSuccessfulTests = 100
 	properties := gopter.NewProperties(parameters)
 
-	// Property 22.1: Features section header contains 🚀
-	properties.Property("Features section header contains rocket emoji", prop.ForAll(
+	// Property 22.1: Features section header contains rocket icon
+	properties.Property("Features section header contains rocket icon", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionFeatures)
-			return strings.Contains(header, "🚀") &&
+			return strings.Contains(header, "rocket.svg") &&
 				strings.Contains(header, "New Features")
 		},
 		gen.Bool(),
 	))
 
-	// Property 22.2: Improvements section header contains ⚡
-	properties.Property("Improvements section header contains lightning emoji", prop.ForAll(
+	// Property 22.2: Improvements section header contains bolt icon
+	properties.Property("Improvements section header contains bolt icon", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionImprovements)
-			return strings.Contains(header, "⚡") &&
+			return strings.Contains(header, "bolt.svg") &&
 				strings.Contains(header, "Performance")
 		},
 		gen.Bool(),
 	))
 
-	// Property 22.3: BugFixes section header contains 🐛
-	properties.Property("BugFixes section header contains bug emoji", prop.ForAll(
+	// Property 22.3: BugFixes section header contains bug icon
+	properties.Property("BugFixes section header contains bug icon", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionBugFixes)
-			return strings.Contains(header, "🐛") &&
+			return strings.Contains(header, "bug.svg") &&
 				strings.Contains(header, "Bug Fixes")
 		},
 		gen.Bool(),
 	))
 
-	// Property 22.4: BreakingChanges section header contains ⚠️
-	properties.Property("BreakingChanges section header contains warning emoji", prop.ForAll(
+	// Property 22.4: BreakingChanges section header contains warning icon
+	properties.Property("BreakingChanges section header contains warning icon", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionBreakingChanges)
-			return strings.Contains(header, "⚠️") &&
+			return strings.Contains(header, "warning.svg") &&
 				strings.Contains(header, "Breaking Changes")
 		},
 		gen.Bool(),
 	))
 
-	// Property 22.5: Other section header contains 📦
-	properties.Property("Other section header contains package emoji", prop.ForAll(
+	// Property 22.5: Other section header contains box icon
+	properties.Property("Other section header contains box icon", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(SectionOther)
-			return strings.Contains(header, "📦") &&
+			return strings.Contains(header, "box.svg") &&
 				strings.Contains(header, "Other Changes")
 		},
 		gen.Bool(),
@@ -2508,7 +2508,7 @@ func TestPropertyEmojiHeaders(t *testing.T) {
 	properties.Property("unknown section returns default header", prop.ForAll(
 		func(_ bool) bool {
 			header := SectionHeader(ReleaseSection("unknown"))
-			return strings.Contains(header, "📦") &&
+			return strings.Contains(header, "box.svg") &&
 				strings.Contains(header, "Other Changes")
 		},
 		gen.Bool(),

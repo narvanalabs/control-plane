@@ -754,24 +754,24 @@ const (
 	SectionOther           ReleaseSection = "other"
 )
 
-// SectionHeaders maps each section to its emoji-enhanced header.
+// SectionHeaders maps each section to its icon-enhanced header.
 // These headers are used when generating the release notes markdown.
-// Uses emojis for visual appeal and wide browser support.
+// Uses Font Awesome SVG icons for visual appeal.
 var SectionHeaders = map[ReleaseSection]string{
-	SectionFeatures:        "🚀 New Features & Enhancements",
-	SectionImprovements:    "⚡ Performance & Improvements",
-	SectionBugFixes:        "🐛 Bug Fixes",
-	SectionBreakingChanges: "⚠️ Breaking Changes",
-	SectionOther:           "📦 Other Changes",
+	SectionFeatures:        "![rocket](../../assets/icons/rocket.svg) New Features & Enhancements",
+	SectionImprovements:    "![bolt](../../assets/icons/bolt.svg) Performance & Improvements",
+	SectionBugFixes:        "![bug](../../assets/icons/bug.svg) Bug Fixes",
+	SectionBreakingChanges: "![warning](../../assets/icons/warning.svg) Breaking Changes",
+	SectionOther:           "![box](../../assets/icons/box.svg) Other Changes",
 }
 
-// SectionHeader returns the emoji-enhanced header for a section.
-// Returns the appropriate header with emoji prefix based on the section type.
+// SectionHeader returns the icon-enhanced header for a section.
+// Returns the appropriate header with icon prefix based on the section type.
 func SectionHeader(section ReleaseSection) string {
 	if header, ok := SectionHeaders[section]; ok {
 		return header
 	}
-	return "📦 Other Changes"
+	return "![box](../../assets/icons/box.svg) Other Changes"
 }
 
 // CategorizedContent holds commits organized by section.
@@ -1161,6 +1161,9 @@ func GenerateReleaseNotes(content CategorizedContent, config ReleaseNotesConfig)
 		bannerPath = generateDefaultBannerPath(cleanVersion)
 	}
 
+	// Social banner path for Open Graph/Twitter previews (1200x630)
+	socialBannerPath := generateSocialBannerPath(cleanVersion)
+
 	// Build the markdown output
 	var sb strings.Builder
 
@@ -1171,11 +1174,12 @@ func GenerateReleaseNotes(content CategorizedContent, config ReleaseNotesConfig)
 	sb.WriteString(fmt.Sprintf("versionNumber: %q\n", cleanVersion))
 	sb.WriteString(fmt.Sprintf("description: \"Release notes for %s v%s\"\n", projectName, cleanVersion))
 	sb.WriteString("image:\n")
-	sb.WriteString(fmt.Sprintf("  src: %q\n", bannerPath))
+	sb.WriteString(fmt.Sprintf("  src: %q\n", socialBannerPath))
 	sb.WriteString(fmt.Sprintf("  alt: \"%s v%s Release\"\n", projectName, cleanVersion))
 	sb.WriteString("---\n\n")
 
 	// Write banner image as markdown (for display in the release notes body)
+	// Use the content banner (800x200) for inline display
 	sb.WriteString(fmt.Sprintf("![%s v%s Release](%s)\n\n", projectName, cleanVersion, bannerPath))
 
 	// Write introduction only if provided
@@ -1218,6 +1222,13 @@ func generateDefaultBannerPath(version string) string {
 	// Replace dots with underscores for the filename
 	safeVersion := strings.ReplaceAll(version, ".", "_")
 	return fmt.Sprintf("../../assets/release-%s.svg", safeVersion)
+}
+
+// generateSocialBannerPath generates the social media banner path for a version.
+// This is the 1200x630 version optimized for social media previews.
+func generateSocialBannerPath(version string) string {
+	safeVersion := strings.ReplaceAll(version, ".", "_")
+	return fmt.Sprintf("../../assets/release-%s-social.svg", safeVersion)
 }
 
 // ParsedReleaseNotes represents the parsed structure of release notes.

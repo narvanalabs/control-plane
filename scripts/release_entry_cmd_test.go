@@ -70,14 +70,14 @@ func TestIntegrationEnhancedReleaseNotes(t *testing.T) {
 		t.Error("Image.Src should not be empty")
 	}
 
-	// Verify sections are present (using emoji format)
-	if !strings.Contains(markdown, "🚀 New Features") {
+	// Verify sections are present (using icon format)
+	if !strings.Contains(markdown, "rocket.svg") || !strings.Contains(markdown, "New Features") {
 		t.Error("Features section should be present")
 	}
-	if !strings.Contains(markdown, "🐛 Bug Fixes") {
+	if !strings.Contains(markdown, "bug.svg") || !strings.Contains(markdown, "Bug Fixes") {
 		t.Error("Bug Fixes section should be present")
 	}
-	if !strings.Contains(markdown, "⚠️ Breaking Changes") {
+	if !strings.Contains(markdown, "warning.svg") || !strings.Contains(markdown, "Breaking Changes") {
 		t.Error("Breaking Changes section should be present")
 	}
 
