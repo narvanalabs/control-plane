@@ -367,6 +367,65 @@ install_nix() {
     fi
 }
 
+# Install Attic binary cache server
+install_attic() {
+    log_info "Setting up Attic binary cache server..."
+    
+    # Source nix if available
+    if [[ -f /etc/profile.d/nix.sh ]]; then
+        . /etc/profile.d/nix.sh
+    fi
+    
+    # Install attic using nix
+    if ! command -v atticd &> /dev/null; then
+        log_info "Installing Attic..."
+        nix profile install --extra-experimental-features "nix-command flakes" nixpkgs#attic-server || {
+            log_warn "Failed to install Attic via nix profile, trying nix-env..."
+            nix-env -iA nixpkgs.attic-server || {
+                log_error "Failed to install Attic"
+                return 1
+            }
+        }
+    fi
+    
+    # Create Attic data directories
+    mkdir -p /var/lib/narvana/attic/storage
+    chown -R narvana:narvana /var/lib/narvana/attic
+    
+    # Generate JWT secret for Attic
+    ATTIC_JWT_SECRET=$(openssl rand -base64 32)
+    
+    # Create Attic config
+    cd "$INSTALL_DIR"
+    sed "s|ATTIC_JWT_SECRET_PLACEHOLDER|${ATTIC_JWT_SECRET}|g" deploy/attic.toml > /etc/narvana/attic.toml
+    chown narvana:narvana /etc/narvana/attic.toml
+    chmod 600 /etc/narvana/attic.toml
+    
+    # Copy and enable Attic service
+    cp deploy/narvana-attic.service /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable narvana-attic
+    systemctl start narvana-attic
+    
+    # Wait for Attic to start
+    sleep 2
+    
+    # Initialize the narvana cache
+    if command -v attic &> /dev/null; then
+        # Configure attic client
+        log_info "Configuring Attic client..."
+        
+        # Generate an admin token (this is a simplified setup)
+        # In production, you'd want proper token management
+        sudo -u narvana bash -c "
+            export HOME=/opt/narvana
+            attic login local http://localhost:5000 --set-default 2>/dev/null || true
+        " || true
+    fi
+    
+    log_success "Attic binary cache configured"
+}
+
 # Setup environment
 setup_environment() {
     log_info "Configuring environment..."
@@ -529,6 +588,7 @@ main() {
     setup_postgresql
     create_user
     clone_repo
+    install_attic
     generate_web_assets
     download_binaries
     setup_environment

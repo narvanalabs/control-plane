@@ -1,0 +1,19 @@
+[Unit]
+Description=Narvana Attic Binary Cache Server
+After=network.target
+
+[Service]
+Type=simple
+User=narvana
+Group=narvana
+WorkingDirectory=/opt/narvana
+ExecStart=/nix/var/nix/profiles/default/bin/atticd --config /etc/narvana/attic.toml
+Restart=always
+RestartSec=5
+
+# Environment
+Environment=HOME=/opt/narvana
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
