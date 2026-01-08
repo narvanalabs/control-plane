@@ -308,8 +308,9 @@ create_user() {
     fi
     
     # Create all required directories
-    mkdir -p /opt/narvana /var/log/narvana /tmp/narvana-builds /etc/narvana
-    chown -R narvana:narvana /opt/narvana /var/log/narvana /tmp/narvana-builds
+    mkdir -p /opt/narvana /var/log/narvana /var/lib/narvana/builds /etc/narvana
+    chown -R narvana:narvana /opt/narvana /var/log/narvana /var/lib/narvana
+    chmod 755 /var/lib/narvana /var/lib/narvana/builds
     
     log_success "User configured"
 }
@@ -394,7 +395,7 @@ API_URL=http://${PUBLIC_IP}:8080
 WEB_URL=http://${PUBLIC_IP}:8090
 
 # Worker
-WORKER_WORKDIR=/tmp/narvana-builds
+WORKER_WORKDIR=/var/lib/narvana/builds
 WORKER_MAX_CONCURRENCY=4
 BUILD_TIMEOUT=30m
 PODMAN_SOCKET=unix:///run/podman/podman.sock
