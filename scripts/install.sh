@@ -388,6 +388,19 @@ install_attic() {
         }
     fi
     
+    # Find atticd binary path
+    ATTICD_PATH=$(which atticd 2>/dev/null || echo "/root/.nix-profile/bin/atticd")
+    if [[ ! -x "$ATTICD_PATH" ]]; then
+        # Try common locations
+        for path in /root/.nix-profile/bin/atticd /nix/var/nix/profiles/default/bin/atticd; do
+            if [[ -x "$path" ]]; then
+                ATTICD_PATH="$path"
+                break
+            fi
+        done
+    fi
+    log_info "Using atticd at: $ATTICD_PATH"
+    
     # Create Attic data directories
     mkdir -p /var/lib/narvana/attic/storage
     chown -R narvana:narvana /var/lib/narvana/attic
@@ -401,26 +414,38 @@ install_attic() {
     chown narvana:narvana /etc/narvana/attic.toml
     chmod 600 /etc/narvana/attic.toml
     
-    # Copy and enable Attic service
-    cp deploy/narvana-attic.service /etc/systemd/system/
+    # Create service file with correct binary path
+    cat > /etc/systemd/system/narvana-attic.service << EOF
+[Unit]
+Description=Narvana Attic Binary Cache Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/var/lib/narvana/attic
+ExecStart=${ATTICD_PATH} --config /etc/narvana/attic.toml
+Restart=always
+RestartSec=5
+
+Environment=HOME=/root
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
     systemctl daemon-reload
     systemctl enable narvana-attic
     systemctl start narvana-attic
     
-    # Wait for Attic to start
-    sleep 2
-    
-    # Initialize the narvana cache
-    if command -v attic &> /dev/null; then
-        # Configure attic client
-        log_info "Configuring Attic client..."
-        
-        # Generate an admin token (this is a simplified setup)
-        # In production, you'd want proper token management
-        sudo -u narvana bash -c "
-            export HOME=/opt/narvana
-            attic login local http://localhost:5000 --set-default 2>/dev/null || true
-        " || true
+    # Wait for Attic to start and verify
+    sleep 3
+    if curl -sf http://localhost:5000/ > /dev/null 2>&1; then
+        log_success "Attic server is running"
+    else
+        log_warn "Attic server may not have started correctly - check: journalctl -u narvana-attic"
     fi
     
     log_success "Attic binary cache configured"
