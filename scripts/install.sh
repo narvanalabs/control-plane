@@ -376,12 +376,12 @@ install_attic() {
         . /etc/profile.d/nix.sh
     fi
     
-    # Install attic using nix
+    # Install attic (both server and client) using nix
     if ! command -v atticd &> /dev/null; then
-        log_info "Installing Attic..."
-        nix profile install --extra-experimental-features "nix-command flakes" nixpkgs#attic-server || {
+        log_info "Installing Attic server and client..."
+        nix profile install --extra-experimental-features "nix-command flakes" nixpkgs#attic-server nixpkgs#attic-client || {
             log_warn "Failed to install Attic via nix profile, trying nix-env..."
-            nix-env -iA nixpkgs.attic-server || {
+            nix-env -iA nixpkgs.attic-server nixpkgs.attic-client || {
                 log_error "Failed to install Attic"
                 return 1
             }
@@ -391,7 +391,6 @@ install_attic() {
     # Find atticd binary path
     ATTICD_PATH=$(which atticd 2>/dev/null || echo "/root/.nix-profile/bin/atticd")
     if [[ ! -x "$ATTICD_PATH" ]]; then
-        # Try common locations
         for path in /root/.nix-profile/bin/atticd /nix/var/nix/profiles/default/bin/atticd; do
             if [[ -x "$path" ]]; then
                 ATTICD_PATH="$path"
@@ -401,20 +400,46 @@ install_attic() {
     fi
     log_info "Using atticd at: $ATTICD_PATH"
     
+    # Find attic client binary path
+    ATTIC_PATH=$(which attic 2>/dev/null || echo "/root/.nix-profile/bin/attic")
+    
     # Create Attic data directories
     mkdir -p /var/lib/narvana/attic/storage
-    chown -R narvana:narvana /var/lib/narvana/attic
+    mkdir -p /opt/narvana/.config/attic
+    chown -R root:root /var/lib/narvana/attic
+    chown -R narvana:narvana /opt/narvana/.config
     
-    # Generate JWT secret for Attic
+    # Generate JWT secret for Attic (base64 encoded, min 32 bytes)
     ATTIC_JWT_SECRET=$(openssl rand -base64 32)
     
-    # Create Attic config
-    cd "$INSTALL_DIR"
-    sed "s|ATTIC_JWT_SECRET_PLACEHOLDER|${ATTIC_JWT_SECRET}|g" deploy/attic.toml > /etc/narvana/attic.toml
-    chown narvana:narvana /etc/narvana/attic.toml
+    # Create Attic server config
+    cat > /etc/narvana/attic.toml << EOF
+# Attic server configuration for Narvana
+listen = "[::]:5000"
+
+[database]
+url = "sqlite:///var/lib/narvana/attic/server.db?mode=rwc"
+
+[storage]
+type = "local"
+path = "/var/lib/narvana/attic/storage"
+
+[chunking]
+nar-size-threshold = 65536
+min-size = 16384
+avg-size = 65536
+max-size = 262144
+
+[garbage-collection]
+default-retention-period = "30 days"
+
+[jwt.signing]
+token-hs256-secret-base64 = "${ATTIC_JWT_SECRET}"
+EOF
+    
     chmod 600 /etc/narvana/attic.toml
     
-    # Create service file with correct binary path
+    # Create systemd service for Attic
     cat > /etc/systemd/system/narvana-attic.service << EOF
 [Unit]
 Description=Narvana Attic Binary Cache Server
@@ -438,16 +463,78 @@ EOF
     
     systemctl daemon-reload
     systemctl enable narvana-attic
-    systemctl start narvana-attic
+    systemctl restart narvana-attic
     
-    # Wait for Attic to start and verify
-    sleep 3
-    if curl -sf http://localhost:5000/ > /dev/null 2>&1; then
-        log_success "Attic server is running"
+    # Wait for Attic server to start
+    log_info "Waiting for Attic server to start..."
+    for i in {1..10}; do
+        if curl -sf http://localhost:5000/ > /dev/null 2>&1; then
+            log_success "Attic server is running"
+            break
+        fi
+        sleep 1
+    done
+    
+    # Generate a proper JWT token for the worker
+    # The token needs: sub (subject), exp (expiry), and the cache permissions
+    # Using a long expiry (10 years) for the service token
+    EXPIRY=$(($(date +%s) + 315360000))  # 10 years from now
+    
+    # Create JWT header and payload
+    JWT_HEADER=$(echo -n '{"alg":"HS256","typ":"JWT"}' | base64 -w0 | tr '+/' '-_' | tr -d '=')
+    JWT_PAYLOAD=$(echo -n "{\"sub\":\"narvana-worker\",\"exp\":${EXPIRY},\"https://jwt.attic.rs/v1\":{\"caches\":{\"narvana\":{\"r\":1,\"w\":1,\"cc\":1}},\"*\":{\"r\":1,\"w\":1,\"cc\":1}}}" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+    
+    # Sign the token
+    JWT_SIGNATURE=$(echo -n "${JWT_HEADER}.${JWT_PAYLOAD}" | openssl dgst -sha256 -hmac "$(echo ${ATTIC_JWT_SECRET} | base64 -d)" -binary | base64 -w0 | tr '+/' '-_' | tr -d '=')
+    ATTIC_TOKEN="${JWT_HEADER}.${JWT_PAYLOAD}.${JWT_SIGNATURE}"
+    
+    # Configure attic client for the narvana user
+    mkdir -p /opt/narvana/.config/attic
+    cat > /opt/narvana/.config/attic/config.toml << EOF
+# Attic client configuration
+default-server = "narvana"
+
+[servers.narvana]
+endpoint = "http://localhost:5000"
+token = "${ATTIC_TOKEN}"
+EOF
+    
+    chown -R narvana:narvana /opt/narvana/.config/attic
+    chmod 600 /opt/narvana/.config/attic/config.toml
+    
+    # Also configure for root (used during builds in containers)
+    mkdir -p /root/.config/attic
+    cat > /root/.config/attic/config.toml << EOF
+# Attic client configuration
+default-server = "narvana"
+
+[servers.narvana]
+endpoint = "http://localhost:5000"
+token = "${ATTIC_TOKEN}"
+EOF
+    
+    chmod 600 /root/.config/attic/config.toml
+    
+    # Create the narvana cache
+    log_info "Creating narvana cache..."
+    ${ATTIC_PATH} cache create narvana 2>/dev/null || log_info "Cache 'narvana' may already exist"
+    
+    # Verify the setup works
+    if ${ATTIC_PATH} cache info narvana > /dev/null 2>&1; then
+        log_success "Attic cache 'narvana' is configured and accessible"
     else
-        log_warn "Attic server may not have started correctly - check: journalctl -u narvana-attic"
+        log_warn "Could not verify Attic cache - check: journalctl -u narvana-attic"
     fi
     
+    # Store the token in the environment file for the worker
+    if ! grep -q "ATTIC_TOKEN=" /etc/narvana/control-plane.env 2>/dev/null; then
+        echo "" >> /etc/narvana/control-plane.env
+        echo "# Attic binary cache token" >> /etc/narvana/control-plane.env
+        echo "ATTIC_TOKEN=${ATTIC_TOKEN}" >> /etc/narvana/control-plane.env
+    fi
+    
+    log_success "Attic binary cache configured with authentication"
+}
     log_success "Attic binary cache configured"
 }
 
