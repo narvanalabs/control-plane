@@ -155,11 +155,14 @@ install_go() {
     local GO_TAR="go${GO_VERSION}.linux-${GOARCH}.tar.gz"
     local GO_URL="https://go.dev/dl/${GO_TAR}"
     
-    cd /tmp
-    curl -fsSL "$GO_URL" -o "$GO_TAR"
-    rm -rf /usr/local/go
-    tar -C /usr/local -xzf "$GO_TAR"
-    rm "$GO_TAR"
+    # Use subshell to avoid changing current directory
+    (
+        cd /tmp
+        curl -fsSL "$GO_URL" -o "$GO_TAR"
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf "$GO_TAR"
+        rm "$GO_TAR"
+    )
     
     export PATH=$PATH:/usr/local/go/bin
     if ! grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null; then
@@ -194,10 +197,8 @@ clone_repo() {
 generate_web_assets() {
     log_info "Generating web assets..."
     
-    cd "$INSTALL_DIR"
-    
     # Check if assets already exist (e.g., from a previous install)
-    if [[ -f "web/assets/css/output.css" ]] && [[ -f "web/layouts/base_templ.go" ]]; then
+    if [[ -f "$INSTALL_DIR/web/assets/css/output.css" ]] && [[ -f "$INSTALL_DIR/web/layouts/base_templ.go" ]]; then
         log_success "Web assets already exist"
         return
     fi
@@ -216,7 +217,7 @@ generate_web_assets() {
     fi
     
     log_info "Generating templ templates..."
-    (cd web && templ generate) || {
+    (cd "$INSTALL_DIR/web" && templ generate) || {
         log_error "templ generate failed"
         exit 1
     }
@@ -235,7 +236,7 @@ generate_web_assets() {
     
     # Generate CSS
     log_info "Generating CSS..."
-    (cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify) || {
+    (cd "$INSTALL_DIR/web" && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify) || {
         log_error "CSS generation failed"
         exit 1
     }
