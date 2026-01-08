@@ -190,6 +190,59 @@ clone_repo() {
     log_success "Repository ready"
 }
 
+# Generate web assets (templ templates and CSS)
+generate_web_assets() {
+    log_info "Generating web assets..."
+    
+    cd "$INSTALL_DIR"
+    
+    # Check if assets already exist (e.g., from a previous install)
+    if [[ -f "web/assets/css/output.css" ]] && [[ -f "web/layouts/base_templ.go" ]]; then
+        log_success "Web assets already exist"
+        return
+    fi
+    
+    # We need Go for templ - install it if not present
+    if ! command -v go &> /dev/null; then
+        install_go
+    fi
+    
+    export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH 2>/dev/null || echo "$HOME/go")/bin
+    
+    # Install and run templ
+    if ! command -v templ &> /dev/null; then
+        log_info "Installing templ..."
+        go install github.com/a-h/templ/cmd/templ@latest
+    fi
+    
+    log_info "Generating templ templates..."
+    (cd web && templ generate) || {
+        log_error "templ generate failed"
+        exit 1
+    }
+    
+    # Install tailwindcss if not available
+    if ! command -v tailwindcss &> /dev/null; then
+        log_info "Installing tailwindcss..."
+        local TAILWIND_ARCH="x64"
+        if [[ "$GOARCH" == "arm64" ]]; then
+            TAILWIND_ARCH="arm64"
+        fi
+        curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${TAILWIND_ARCH}"
+        chmod +x "tailwindcss-linux-${TAILWIND_ARCH}"
+        mv "tailwindcss-linux-${TAILWIND_ARCH}" /usr/local/bin/tailwindcss
+    fi
+    
+    # Generate CSS
+    log_info "Generating CSS..."
+    (cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify) || {
+        log_error "CSS generation failed"
+        exit 1
+    }
+    
+    log_success "Web assets generated"
+}
+
 # Install system dependencies
 install_dependencies() {
     log_info "Installing system dependencies..."
@@ -409,6 +462,7 @@ main() {
     install_podman
     setup_postgresql
     clone_repo
+    generate_web_assets
     download_binaries
     create_user
     setup_environment
