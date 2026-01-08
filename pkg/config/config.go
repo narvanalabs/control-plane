@@ -20,6 +20,7 @@ type Config struct {
 
 	// External services
 	AtticEndpoint string
+	AtticToken    string // JWT token for Attic binary cache authentication
 	RegistryURL   string
 
 	// Server configuration
@@ -75,6 +76,7 @@ func Load() (*Config, error) {
 		JWTExpiry:       getDurationEnv("JWT_EXPIRY", 24*time.Hour),
 		APIKeyHeader:    getEnv("API_KEY_HEADER", "X-API-Key"),
 		AtticEndpoint:   getEnv("ATTIC_ENDPOINT", "http://localhost:5000"),
+		AtticToken:      getEnv("ATTIC_TOKEN", ""),
 		RegistryURL:     getEnv("REGISTRY_URL", "localhost:5000"),
 		APIPort:         getIntEnv("API_PORT", 8080),
 		GRPCPort:        getIntEnv("GRPC_PORT", 9090),
@@ -125,6 +127,7 @@ func LoadWithDefaults() *Config {
 		JWTExpiry:       getDurationEnv("JWT_EXPIRY", 24*time.Hour),
 		APIKeyHeader:    getEnv("API_KEY_HEADER", "X-API-Key"),
 		AtticEndpoint:   getEnv("ATTIC_ENDPOINT", "http://localhost:5000"),
+		AtticToken:      getEnv("ATTIC_TOKEN", ""),
 		RegistryURL:     getEnv("REGISTRY_URL", "localhost:5000"),
 		APIPort:         getIntEnv("API_PORT", 8080),
 		GRPCPort:        getIntEnv("GRPC_PORT", 9090),

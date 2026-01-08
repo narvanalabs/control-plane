@@ -56,8 +56,12 @@ func main() {
 		)
 	}
 
-	// Get default config for AtticToken
-	defaultNixCfg := builder.DefaultNixBuilderConfig()
+	// Get Attic token from config, fall back to default dev token if not set
+	atticToken := cfg.AtticToken
+	if atticToken == "" {
+		defaultNixCfg := builder.DefaultNixBuilderConfig()
+		atticToken = defaultNixCfg.AtticToken
+	}
 
 	// Configure the worker
 	workerCfg := &builder.WorkerConfig{
@@ -68,7 +72,7 @@ func main() {
 			NixImage:     "docker.io/nixos/nix:latest",
 			AtticURL:     cfg.AtticEndpoint,
 			AtticCache:   "narvana",
-			AtticToken:   defaultNixCfg.AtticToken, // Use default dev token
+			AtticToken:   atticToken,
 		},
 		OCIConfig: &builder.OCIBuilderConfig{
 			NixBuilderConfig: &builder.NixBuilderConfig{
@@ -77,7 +81,7 @@ func main() {
 				NixImage:     "docker.io/nixos/nix:latest",
 				AtticURL:     cfg.AtticEndpoint,
 				AtticCache:   "narvana",
-				AtticToken:   defaultNixCfg.AtticToken,
+				AtticToken:   atticToken,
 			},
 			Registry:     cfg.RegistryURL,
 			PodmanSocket: cfg.Worker.PodmanSocket,
