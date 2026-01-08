@@ -15,13 +15,13 @@ RestartSec=5
 # Environment
 EnvironmentFile=/etc/narvana/control-plane.env
 Environment=HOME=/opt/narvana
+Environment=XDG_RUNTIME_DIR=/run/user/1001
 
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/log/narvana /var/lib/narvana/builds /opt/narvana
+# Security settings relaxed for rootless Podman (requires user namespaces)
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=false
 
 [Install]
 WantedBy=multi-user.target
