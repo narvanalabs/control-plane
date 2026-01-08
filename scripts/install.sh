@@ -308,7 +308,7 @@ create_user() {
     fi
     
     # Create all required directories
-    mkdir -p /opt/narvana /var/log/narvana /var/lib/narvana/builds /etc/narvana
+    mkdir -p /opt/narvana /opt/narvana/.config/containers /var/log/narvana /var/lib/narvana/builds /etc/narvana
     chown -R narvana:narvana /opt/narvana /var/log/narvana /var/lib/narvana
     chmod 755 /var/lib/narvana /var/lib/narvana/builds
     

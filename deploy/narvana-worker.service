@@ -14,13 +14,14 @@ RestartSec=5
 
 # Environment
 EnvironmentFile=/etc/narvana/control-plane.env
+Environment=HOME=/opt/narvana
 
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/log/narvana /var/lib/narvana/builds
+ReadWritePaths=/var/log/narvana /var/lib/narvana/builds /opt/narvana
 
 [Install]
 WantedBy=multi-user.target
