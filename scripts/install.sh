@@ -307,6 +307,14 @@ create_user() {
         useradd -r -m -s /bin/bash -d /opt/narvana narvana || true
     fi
     
+    # Setup subuid/subgid for rootless Podman
+    if ! grep -q "^narvana:" /etc/subuid 2>/dev/null; then
+        echo "narvana:165536:65536" >> /etc/subuid
+    fi
+    if ! grep -q "^narvana:" /etc/subgid 2>/dev/null; then
+        echo "narvana:165536:65536" >> /etc/subgid
+    fi
+    
     # Create all required directories
     mkdir -p /opt/narvana /opt/narvana/.config/containers /var/log/narvana /var/lib/narvana/builds /etc/narvana
     chown -R narvana:narvana /opt/narvana /var/log/narvana /var/lib/narvana
