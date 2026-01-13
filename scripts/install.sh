@@ -482,7 +482,7 @@ EOF
     
     # Create JWT header and payload
     JWT_HEADER=$(echo -n '{"alg":"HS256","typ":"JWT"}' | base64 -w0 | tr '+/' '-_' | tr -d '=')
-    JWT_PAYLOAD=$(echo -n "{\"sub\":\"narvana-worker\",\"exp\":${EXPIRY},\"https://jwt.attic.rs/v1\":{\"caches\":{\"narvana\":{\"r\":1,\"w\":1,\"cc\":1}},\"*\":{\"r\":1,\"w\":1,\"cc\":1}}}" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+    JWT_PAYLOAD=$(echo -n "{\"sub\":\"narvana-worker\",\"exp\":${EXPIRY},\"https://jwt.attic.rs/v1\":{\"caches\":{\"narvana\":{\"r\":1,\"w\":1,\"cc\":1},\"*\":{\"r\":1,\"w\":1,\"cc\":1}}}}" | base64 -w0 | tr '+/' '-_' | tr -d '=')
     
     # Sign the token
     JWT_SIGNATURE=$(echo -n "${JWT_HEADER}.${JWT_PAYLOAD}" | openssl dgst -sha256 -hmac "$(echo ${ATTIC_JWT_SECRET} | base64 -d)" -binary | base64 -w0 | tr '+/' '-_' | tr -d '=')
@@ -698,10 +698,10 @@ main() {
     setup_postgresql
     create_user
     clone_repo
-    install_attic
     generate_web_assets
     download_binaries
     setup_environment
+    install_attic
     run_migrations
     setup_services
     
