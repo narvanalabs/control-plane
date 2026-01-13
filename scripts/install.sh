@@ -485,7 +485,7 @@ EOF
     JWT_PAYLOAD=$(echo -n "{\"sub\":\"narvana-worker\",\"exp\":${EXPIRY},\"https://jwt.attic.rs/v1\":{\"caches\":{\"narvana\":{\"r\":1,\"w\":1,\"cc\":1},\"*\":{\"r\":1,\"w\":1,\"cc\":1}}}}" | base64 -w0 | tr '+/' '-_' | tr -d '=')
     
     # Sign the token
-    JWT_SIGNATURE=$(echo -n "${JWT_HEADER}.${JWT_PAYLOAD}" | openssl dgst -sha256 -hmac "$(echo ${ATTIC_JWT_SECRET} | base64 -d)" -binary | base64 -w0 | tr '+/' '-_' | tr -d '=')
+    JWT_SIGNATURE=$(echo -n "${JWT_HEADER}.${JWT_PAYLOAD}" | openssl dgst -sha256 -hmac "$(echo -n ${ATTIC_JWT_SECRET} | base64 -d)" -binary | base64 -w0 | tr '+/' '-_' | tr -d '=')
     ATTIC_TOKEN="${JWT_HEADER}.${JWT_PAYLOAD}.${JWT_SIGNATURE}"
     
     # Configure attic client for the narvana user
