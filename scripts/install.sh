@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Narvana Control Plane - One-Click Installer
+# Narvana Control Plane - One-Click Installer (Nix-first)
 # Usage: curl -fsSL https://raw.githubusercontent.com/narvanalabs/control-plane/master/scripts/install.sh | bash
 
 # Colors
@@ -79,100 +79,135 @@ get_latest_version() {
     log_info "Installing Narvana v${VERSION}"
 }
 
-# Download pre-built binaries from GitHub releases
-download_binaries() {
-    log_info "Downloading pre-built binaries..."
+# Install minimal system dependencies (only what Nix can't handle)
+install_system_dependencies() {
+    log_info "Installing system dependencies..."
     
-    mkdir -p "$BIN_DIR"
-    local base_url="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}"
-    local binaries=("narvana-api" "narvana-web" "narvana-worker")
+    $PKG_UPDATE || true
+    # Only install: curl (for this script), git (for repo), postgresql, and openssl (for secrets)
+    $PKG_INSTALL curl wget git openssl postgresql postgresql-contrib python3 2>/dev/null || \
+    $PKG_INSTALL curl wget git openssl postgresql postgresql-server python3 2>/dev/null || {
+        log_error "Failed to install dependencies"
+        exit 1
+    }
     
-    for binary in "${binaries[@]}"; do
-        local url="${base_url}/${binary}-linux-${GOARCH}"
-        local dest="${BIN_DIR}/${binary#narvana-}"
-        
-        log_info "Downloading ${binary}..."
-        if curl -fsSL "$url" -o "$dest"; then
-            chmod +x "$dest"
-            log_success "Downloaded ${binary}"
-        else
-            log_error "Failed to download ${binary} from ${url}"
-            log_warn "Falling back to building from source..."
-            build_from_source
-            return
+    log_success "System dependencies installed"
+}
+
+# Install Podman (still via system package manager)
+install_podman() {
+    if command -v podman &> /dev/null; then
+        log_success "Podman already installed"
+        return
+    fi
+    
+    log_info "Installing Podman..."
+    $PKG_INSTALL podman || log_warn "Failed to install Podman - install manually if needed"
+    
+    systemctl enable --now podman.socket 2>/dev/null || true
+}
+
+# Setup PostgreSQL
+setup_postgresql() {
+    log_info "Setting up PostgreSQL..."
+    
+    if command -v systemctl &> /dev/null; then
+        systemctl enable postgresql 2>/dev/null || true
+        systemctl start postgresql 2>/dev/null || true
+    fi
+    
+    if [[ -f "$ENV_FILE" ]] && grep -q "DATABASE_URL=" "$ENV_FILE"; then
+        DB_PASSWORD=$(grep "^DATABASE_URL=" "$ENV_FILE" | sed -n 's|.*//[^:]*:\([^@]*\)@.*|\1|p')
+    fi
+    
+    if [[ -z "${DB_PASSWORD:-}" ]] || [[ "$DB_PASSWORD" == *":"* ]] || [[ "$DB_PASSWORD" == *"/"* ]]; then
+        DB_PASSWORD=$(openssl rand -hex 16)
+    fi
+    
+    sudo -u postgres psql -c "CREATE USER narvana WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || \
+    sudo -u postgres psql -c "ALTER USER narvana WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || true
+    sudo -u postgres psql -c "CREATE DATABASE narvana OWNER narvana;" 2>/dev/null || true
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE narvana TO narvana;" 2>/dev/null || true
+    
+    log_success "PostgreSQL configured"
+}
+
+# Create narvana user and directories
+create_user() {
+    if ! id "narvana" &>/dev/null; then
+        log_info "Creating narvana user..."
+        useradd -r -m -s /bin/bash -d /opt/narvana narvana || true
+    fi
+    
+    if ! grep -q "^narvana:" /etc/subuid 2>/dev/null; then
+        echo "narvana:165536:65536" >> /etc/subuid
+    fi
+    if ! grep -q "^narvana:" /etc/subgid 2>/dev/null; then
+        echo "narvana:165536:65536" >> /etc/subgid
+    fi
+    
+    mkdir -p /opt/narvana /opt/narvana/.config/containers /var/log/narvana /var/lib/narvana/builds /etc/narvana
+    chown -R narvana:narvana /opt/narvana /var/log/narvana /var/lib/narvana
+    chmod 755 /var/lib/narvana /var/lib/narvana/builds
+    
+    log_success "User configured"
+}
+
+# Install Nix package manager
+install_nix() {
+    if command -v nix &> /dev/null; then
+        log_success "Nix already installed"
+        return
+    fi
+    
+    log_info "Installing Nix package manager..."
+    
+    if ! getent group nixbld > /dev/null 2>&1; then
+        groupadd -r nixbld
+    fi
+    
+    for i in $(seq 1 10); do
+        if ! id "nixbld$i" &>/dev/null; then
+            useradd -r -g nixbld -G nixbld -d /var/empty -s /sbin/nologin "nixbld$i" 2>/dev/null || true
         fi
     done
     
-    log_success "All binaries downloaded"
+    sh <(curl -L https://nixos.org/nix/install) --daemon --yes || {
+        log_error "Nix installation failed"
+        exit 1
+    }
+    
+    if [[ -f /etc/profile.d/nix.sh ]]; then
+        . /etc/profile.d/nix.sh
+    fi
+    
+    systemctl enable nix-daemon 2>/dev/null || true
+    systemctl start nix-daemon 2>/dev/null || true
+    
+    if command -v nix &> /dev/null; then
+        log_success "Nix installed: $(nix --version)"
+    else
+        log_warn "Nix installed but not in PATH - sourcing profile"
+        export PATH="/nix/var/nix/profiles/default/bin:$PATH"
+    fi
 }
 
-# Fallback: Build from source if binary download fails
-build_from_source() {
-    log_info "Building from source (this may take a few minutes)..."
-    
-    # Check for Go
-    if ! command -v go &> /dev/null; then
-        install_go
+# Source Nix environment
+source_nix() {
+    if [[ -f /etc/profile.d/nix.sh ]]; then
+        . /etc/profile.d/nix.sh
     fi
     
-    # Clone repository if needed
-    if [[ ! -d "$INSTALL_DIR/.git" ]]; then
-        clone_repo
+    # Ensure nix is in PATH
+    if ! command -v nix &> /dev/null; then
+        export PATH="/nix/var/nix/profiles/default/bin:$PATH"
     fi
     
-    cd "$INSTALL_DIR"
-    export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH 2>/dev/null || echo "$HOME/go")/bin
-    
-    # Install templ
-    if ! command -v templ &> /dev/null; then
-        log_info "Installing templ..."
-        go install github.com/a-h/templ/cmd/templ@latest
-    fi
-    
-    # Generate UI components
-    log_info "Generating UI components..."
-    (cd web && templ generate) || log_warn "templ generate failed"
-    
-    # Build CSS (optional)
-    if command -v tailwindcss &> /dev/null; then
-        (cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify 2>/dev/null) || true
-    fi
-    
-    # Build binaries
-    mkdir -p "$BIN_DIR"
-    go build -buildvcs=false -o "$BIN_DIR/api" ./cmd/api
-    go build -buildvcs=false -o "$BIN_DIR/worker" ./cmd/worker
-    go build -buildvcs=false -o "$BIN_DIR/web" ./cmd/web
-    
-    log_success "Binaries built from source"
+    # Enable flakes and nix-command
+    export NIX_CONFIG="experimental-features = nix-command flakes"
 }
 
-# Install Go (only needed for source builds)
-install_go() {
-    local GO_VERSION="1.24.0"
-    log_info "Installing Go ${GO_VERSION}..."
-    
-    local GO_TAR="go${GO_VERSION}.linux-${GOARCH}.tar.gz"
-    local GO_URL="https://go.dev/dl/${GO_TAR}"
-    
-    # Use subshell to avoid changing current directory
-    (
-        cd /tmp
-        curl -fsSL "$GO_URL" -o "$GO_TAR"
-        rm -rf /usr/local/go
-        tar -C /usr/local -xzf "$GO_TAR"
-        rm "$GO_TAR"
-    )
-    
-    export PATH=$PATH:/usr/local/go/bin
-    if ! grep -q "/usr/local/go/bin" /etc/profile 2>/dev/null; then
-        echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-    fi
-    
-    log_success "Go installed"
-}
-
-# Clone repository (for migrations and service files)
+# Clone repository
 clone_repo() {
     log_info "Cloning repository..."
     
@@ -193,228 +228,140 @@ clone_repo() {
     log_success "Repository ready"
 }
 
-# Generate web assets (templ templates and CSS)
-generate_web_assets() {
-    log_info "Generating web assets..."
+# Create shell.nix for the build environment
+create_nix_shell() {
+    log_info "Creating Nix shell environment..."
     
-    # Check if assets already exist (e.g., from a previous install)
-    if [[ -f "$INSTALL_DIR/web/assets/css/output.css" ]] && [[ -f "$INSTALL_DIR/web/layouts/base_templ.go" ]]; then
-        log_success "Web assets already exist"
-        return
-    fi
+    cat > "$INSTALL_DIR/shell.nix" << 'EOF'
+{ pkgs ? import <nixpkgs> {} }:
+
+pkgs.mkShell {
+  buildInputs = with pkgs; [
+    go_1_24
+    templ
+    tailwindcss
+    nodejs
+    git
+  ];
+
+  shellHook = ''
+    export GOPATH=$HOME/go
+    export PATH=$GOPATH/bin:$PATH
+    echo "Narvana build environment ready"
+    echo "Go version: $(go version)"
+  '';
+}
+EOF
     
-    # We need Go for templ - install it if not present
-    if ! command -v go &> /dev/null; then
-        install_go
-    fi
+    log_success "Nix shell environment created"
+}
+
+# Build everything using Nix
+build_with_nix() {
+    log_info "Building Narvana using Nix environment..."
     
-    export PATH=$PATH:/usr/local/go/bin:$(go env GOPATH 2>/dev/null || echo "$HOME/go")/bin
+    source_nix
+    cd "$INSTALL_DIR"
     
-    # Install and run templ
-    if ! command -v templ &> /dev/null; then
-        log_info "Installing templ..."
-        go install github.com/a-h/templ/cmd/templ@latest
-    fi
-    
-    log_info "Generating templ templates..."
-    (cd "$INSTALL_DIR/web" && templ generate) || {
-        log_error "templ generate failed"
+    # Enter nix-shell and build
+    nix-shell --run '
+        set -e
+        
+        # Generate templ templates
+        echo "Generating templ templates..."
+        cd web
+        templ generate || exit 1
+        cd ..
+        
+        # Generate CSS
+        echo "Generating CSS..."
+        cd web
+        tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify || exit 1
+        cd ..
+        
+        # Build binaries
+        echo "Building binaries..."
+        mkdir -p '"$BIN_DIR"'
+        go build -buildvcs=false -o '"$BIN_DIR"'/api ./cmd/api || exit 1
+        go build -buildvcs=false -o '"$BIN_DIR"'/worker ./cmd/worker || exit 1
+        go build -buildvcs=false -o '"$BIN_DIR"'/web ./cmd/web || exit 1
+        
+        echo "Build completed successfully"
+    ' || {
+        log_error "Nix build failed"
         exit 1
     }
     
-    # Install tailwindcss if not available
-    if ! command -v tailwindcss &> /dev/null; then
-        log_info "Installing tailwindcss..."
-        local TAILWIND_ARCH="x64"
-        if [[ "$GOARCH" == "arm64" ]]; then
-            TAILWIND_ARCH="arm64"
-        fi
-        curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${TAILWIND_ARCH}"
-        chmod +x "tailwindcss-linux-${TAILWIND_ARCH}"
-        mv "tailwindcss-linux-${TAILWIND_ARCH}" /usr/local/bin/tailwindcss
-    fi
-    
-    # Generate CSS
-    log_info "Generating CSS..."
-    (cd "$INSTALL_DIR/web" && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify) || {
-        log_error "CSS generation failed"
-        exit 1
-    }
-    
-    log_success "Web assets generated"
+    log_success "Binaries built with Nix"
 }
 
-# Install system dependencies
-install_dependencies() {
-    log_info "Installing system dependencies..."
+# Download pre-built binaries (fallback)
+download_binaries() {
+    log_info "Attempting to download pre-built binaries..."
     
-    $PKG_UPDATE || true
-    $PKG_INSTALL curl wget git openssl postgresql postgresql-contrib 2>/dev/null || \
-    $PKG_INSTALL curl wget git openssl postgresql postgresql-server 2>/dev/null || {
-        log_error "Failed to install dependencies"
-        exit 1
-    }
+    mkdir -p "$BIN_DIR"
+    local base_url="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}"
+    local binaries=("narvana-api" "narvana-web" "narvana-worker")
+    local download_success=true
     
-    log_success "Dependencies installed"
-}
-
-# Install Podman
-install_podman() {
-    if command -v podman &> /dev/null; then
-        log_success "Podman already installed"
-        return
-    fi
-    
-    log_info "Installing Podman..."
-    $PKG_INSTALL podman || log_warn "Failed to install Podman - install manually if needed"
-    
-    # Enable podman socket
-    systemctl enable --now podman.socket 2>/dev/null || true
-}
-
-# Setup PostgreSQL
-setup_postgresql() {
-    log_info "Setting up PostgreSQL..."
-    
-    # Start PostgreSQL
-    if command -v systemctl &> /dev/null; then
-        systemctl enable postgresql 2>/dev/null || true
-        systemctl start postgresql 2>/dev/null || true
-    fi
-    
-    # Get or generate password
-    if [[ -f "$ENV_FILE" ]] && grep -q "DATABASE_URL=" "$ENV_FILE"; then
-        DB_PASSWORD=$(grep "^DATABASE_URL=" "$ENV_FILE" | sed -n 's|.*//[^:]*:\([^@]*\)@.*|\1|p')
-    fi
-    
-    if [[ -z "${DB_PASSWORD:-}" ]] || [[ "$DB_PASSWORD" == *":"* ]] || [[ "$DB_PASSWORD" == *"/"* ]]; then
-        DB_PASSWORD=$(openssl rand -hex 16)
-    fi
-    
-    # Create user and database
-    sudo -u postgres psql -c "CREATE USER narvana WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || \
-    sudo -u postgres psql -c "ALTER USER narvana WITH PASSWORD '${DB_PASSWORD}';" 2>/dev/null || true
-    sudo -u postgres psql -c "CREATE DATABASE narvana OWNER narvana;" 2>/dev/null || true
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE narvana TO narvana;" 2>/dev/null || true
-    
-    log_success "PostgreSQL configured"
-}
-
-# Create narvana user and directories
-create_user() {
-    if ! id "narvana" &>/dev/null; then
-        log_info "Creating narvana user..."
-        useradd -r -m -s /bin/bash -d /opt/narvana narvana || true
-    fi
-    
-    # Setup subuid/subgid for rootless Podman
-    if ! grep -q "^narvana:" /etc/subuid 2>/dev/null; then
-        echo "narvana:165536:65536" >> /etc/subuid
-    fi
-    if ! grep -q "^narvana:" /etc/subgid 2>/dev/null; then
-        echo "narvana:165536:65536" >> /etc/subgid
-    fi
-    
-    # Create all required directories
-    mkdir -p /opt/narvana /opt/narvana/.config/containers /var/log/narvana /var/lib/narvana/builds /etc/narvana
-    chown -R narvana:narvana /opt/narvana /var/log/narvana /var/lib/narvana
-    chmod 755 /var/lib/narvana /var/lib/narvana/builds
-    
-    log_success "User configured"
-}
-
-# Install Nix package manager (required for builds)
-install_nix() {
-    if command -v nix &> /dev/null; then
-        log_success "Nix already installed"
-        return
-    fi
-    
-    log_info "Installing Nix package manager..."
-    
-    # Create nix build users group if it doesn't exist
-    if ! getent group nixbld > /dev/null 2>&1; then
-        groupadd -r nixbld
-    fi
-    
-    # Create nix build users
-    for i in $(seq 1 10); do
-        if ! id "nixbld$i" &>/dev/null; then
-            useradd -r -g nixbld -G nixbld -d /var/empty -s /sbin/nologin "nixbld$i" 2>/dev/null || true
+    for binary in "${binaries[@]}"; do
+        local url="${base_url}/${binary}-linux-${GOARCH}"
+        local dest="${BIN_DIR}/${binary#narvana-}"
+        
+        log_info "Downloading ${binary}..."
+        if curl -fsSL "$url" -o "$dest" 2>/dev/null; then
+            chmod +x "$dest"
+            log_success "Downloaded ${binary}"
+        else
+            log_warn "Failed to download ${binary}"
+            download_success=false
+            break
         fi
     done
     
-    # Install Nix in multi-user mode
-    sh <(curl -L https://nixos.org/nix/install) --daemon --yes || {
-        log_error "Nix installation failed"
-        exit 1
-    }
-    
-    # Source nix profile for current session
-    if [[ -f /etc/profile.d/nix.sh ]]; then
-        . /etc/profile.d/nix.sh
-    fi
-    
-    # Enable and start nix-daemon
-    systemctl enable nix-daemon 2>/dev/null || true
-    systemctl start nix-daemon 2>/dev/null || true
-    
-    # Verify installation
-    if command -v nix &> /dev/null; then
-        log_success "Nix installed: $(nix --version)"
+    if [[ "$download_success" == "false" ]]; then
+        log_info "Falling back to Nix build..."
+        create_nix_shell
+        build_with_nix
     else
-        log_warn "Nix installed but not in PATH - may need shell restart"
+        log_success "All binaries downloaded"
     fi
 }
 
-# Install Attic binary cache server
+# Install Attic using Nix
 install_attic() {
     log_info "Setting up Attic binary cache server..."
     
-    # Source nix if available
-    if [[ -f /etc/profile.d/nix.sh ]]; then
-        . /etc/profile.d/nix.sh
-    fi
+    source_nix
     
-    # Install attic (both server and client) using nix
+    # Install attic using Nix
     if ! command -v atticd &> /dev/null; then
-        log_info "Installing Attic server and client..."
-        nix profile install --extra-experimental-features "nix-command flakes" nixpkgs#attic-server nixpkgs#attic-client || {
-            log_warn "Failed to install Attic via nix profile, trying nix-env..."
-            nix-env -iA nixpkgs.attic-server nixpkgs.attic-client || {
-                log_error "Failed to install Attic"
-                return 1
-            }
+        log_info "Installing Attic via Nix..."
+        nix profile install nixpkgs#attic-server nixpkgs#attic-client || {
+            log_error "Failed to install Attic"
+            return 1
         }
     fi
     
-    # Find atticd binary path
     ATTICD_PATH=$(which atticd 2>/dev/null || echo "/root/.nix-profile/bin/atticd")
-    if [[ ! -x "$ATTICD_PATH" ]]; then
-        for path in /root/.nix-profile/bin/atticd /nix/var/nix/profiles/default/bin/atticd; do
-            if [[ -x "$path" ]]; then
-                ATTICD_PATH="$path"
-                break
-            fi
-        done
-    fi
-    log_info "Using atticd at: $ATTICD_PATH"
-    
-    # Find attic client binary path
     ATTIC_PATH=$(which attic 2>/dev/null || echo "/root/.nix-profile/bin/attic")
+    
+    log_info "Using atticd at: $ATTICD_PATH"
+    log_info "Using attic at: $ATTIC_PATH"
     
     # Create Attic data directories
     mkdir -p /var/lib/narvana/attic/storage
     mkdir -p /opt/narvana/.config/attic
+    mkdir -p /root/.config/attic
     chown -R root:root /var/lib/narvana/attic
     chown -R narvana:narvana /opt/narvana/.config
     
-    # Generate JWT secret for Attic (base64 encoded, min 32 bytes)
-    ATTIC_JWT_SECRET=$(openssl rand -base64 32)
+    # Generate a strong JWT secret (must be base64 encoded and >= 32 bytes when decoded)
+    ATTIC_JWT_SECRET=$(openssl rand -base64 48)
     
-    # Create Attic server config
+    # Create Attic server config with simplified settings
     cat > /etc/narvana/attic.toml << EOF
-# Attic server configuration for Narvana
+# Attic server configuration
 listen = "[::]:5000"
 
 [database]
@@ -430,16 +377,20 @@ min-size = 16384
 avg-size = 65536
 max-size = 262144
 
+[compression]
+type = "zstd"
+
 [garbage-collection]
 default-retention-period = "30 days"
 
+# JWT token configuration
 [jwt.signing]
 token-hs256-secret-base64 = "${ATTIC_JWT_SECRET}"
 EOF
     
     chmod 600 /etc/narvana/attic.toml
     
-    # Create systemd service for Attic
+    # Create systemd service
     cat > /etc/systemd/system/narvana-attic.service << EOF
 [Unit]
 Description=Narvana Attic Binary Cache Server
@@ -453,45 +404,138 @@ WorkingDirectory=/var/lib/narvana/attic
 ExecStart=${ATTICD_PATH} --config /etc/narvana/attic.toml
 Restart=always
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 Environment=HOME=/root
-Environment=RUST_LOG=info
+Environment=RUST_LOG=info,attic=debug
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
+    # Start Attic server
     systemctl daemon-reload
     systemctl enable narvana-attic
     systemctl restart narvana-attic
     
-    # Wait for Attic server to start
+    # Wait for server with better checking
     log_info "Waiting for Attic server to start..."
-    for i in {1..10}; do
-        if curl -sf http://localhost:5000/ > /dev/null 2>&1; then
+    local max_attempts=20
+    local attempt=0
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -sf http://localhost:5000/_health > /dev/null 2>&1; then
             log_success "Attic server is running"
             break
         fi
+        attempt=$((attempt + 1))
         sleep 1
     done
     
-    # Generate a proper JWT token for the worker
-    # The token needs: sub (subject), exp (expiry), and the cache permissions
-    # Using a long expiry (10 years) for the service token
-    EXPIRY=$(($(date +%s) + 315360000))  # 10 years from now
+    if [ $attempt -eq $max_attempts ]; then
+        log_error "Attic server failed to start. Checking logs..."
+        journalctl -u narvana-attic -n 50 --no-pager
+        return 1
+    fi
     
-    # Create JWT header and payload
-    JWT_HEADER=$(echo -n '{"alg":"HS256","typ":"JWT"}' | base64 -w0 | tr '+/' '-_' | tr -d '=')
-    JWT_PAYLOAD=$(echo -n "{\"sub\":\"narvana-worker\",\"exp\":${EXPIRY},\"https://jwt.attic.rs/v1\":{\"caches\":{\"narvana\":{\"r\":1,\"w\":1,\"cc\":1},\"*\":{\"r\":1,\"w\":1,\"cc\":1}}}}" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+    # Generate token using atticd itself (most reliable method)
+    log_info "Generating authentication token..."
     
-    # Sign the token
-    JWT_SIGNATURE=$(echo -n "${JWT_HEADER}.${JWT_PAYLOAD}" | openssl dgst -sha256 -hmac "$(echo ${ATTIC_JWT_SECRET} | base64 -d)" -binary | base64 -w0 | tr '+/' '-_' | tr -d '=')
-    ATTIC_TOKEN="${JWT_HEADER}.${JWT_PAYLOAD}.${JWT_SIGNATURE}"
+    # Create a token with 10-year expiry using atticd's built-in command
+    ATTIC_TOKEN=$(cd /var/lib/narvana/attic && ${ATTICD_PATH} --config /etc/narvana/attic.toml \
+        make-token --sub "narvana-worker" \
+        --validity "87600h" \
+        --pull "*" \
+        --push "*" \
+        --delete "*" \
+        --create-cache "*" \
+        --configure-cache "*" \
+        --destroy-cache "*" 2>/dev/null) || {
+        
+        log_warn "atticd make-token failed, using Python fallback..."
+        
+        # Fallback: Use Python to generate proper JWT
+        ATTIC_TOKEN=$(python3 << 'PYTHON_EOF'
+import json
+import base64
+import hmac
+import hashlib
+import time
+import sys
+
+# Read the secret from the config file
+with open('/etc/narvana/attic.toml', 'r') as f:
+    for line in f:
+        if 'token-hs256-secret-base64' in line:
+            secret_b64 = line.split('"')[1]
+            break
+
+secret = base64.b64decode(secret_b64)
+
+# Create header
+header = {
+    "alg": "HS256",
+    "typ": "JWT"
+}
+
+# Create payload with proper structure
+payload = {
+    "sub": "narvana-worker",
+    "exp": int(time.time()) + (87600 * 3600),  # 10 years
+    "https://jwt.attic.rs/v1": {
+        "caches": {
+            "*": {
+                "r": 1,
+                "w": 1,
+                "cc": 1,
+                "cd": 1,
+                "dc": 1
+            }
+        }
+    }
+}
+
+# Encode header and payload
+def b64_encode(data):
+    return base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip('=')
+
+header_b64 = b64_encode(header)
+payload_b64 = b64_encode(payload)
+
+# Create signature
+message = f"{header_b64}.{payload_b64}".encode()
+signature = hmac.new(secret, message, hashlib.sha256).digest()
+signature_b64 = base64.urlsafe_b64encode(signature).decode().rstrip('=')
+
+# Create final token
+token = f"{header_b64}.{payload_b64}.{signature_b64}"
+print(token)
+PYTHON_EOF
+)
+    }
     
-    # Configure attic client for the narvana user
-    mkdir -p /opt/narvana/.config/attic
+    if [ -z "$ATTIC_TOKEN" ]; then
+        log_error "Failed to generate Attic token"
+        return 1
+    fi
+    
+    log_success "Token generated successfully"
+    
+    # Configure attic client for root user
+    cat > /root/.config/attic/config.toml << EOF
+# Attic client configuration for root
+default-server = "narvana"
+
+[servers.narvana]
+endpoint = "http://localhost:5000"
+token = "${ATTIC_TOKEN}"
+EOF
+    
+    chmod 600 /root/.config/attic/config.toml
+    
+    # Configure attic client for narvana user
     cat > /opt/narvana/.config/attic/config.toml << EOF
-# Attic client configuration
+# Attic client configuration for narvana user
 default-server = "narvana"
 
 [servers.narvana]
@@ -502,35 +546,50 @@ EOF
     chown -R narvana:narvana /opt/narvana/.config/attic
     chmod 600 /opt/narvana/.config/attic/config.toml
     
-    # Also configure for root (used during builds in containers)
-    mkdir -p /root/.config/attic
-    cat > /root/.config/attic/config.toml << EOF
-# Attic client configuration
-default-server = "narvana"
-
-[servers.narvana]
-endpoint = "http://localhost:5000"
-token = "${ATTIC_TOKEN}"
-EOF
+    # Create the cache using the token
+    log_info "Creating 'narvana' cache..."
     
-    chmod 600 /root/.config/attic/config.toml
+    # Export token for attic CLI
+    export ATTIC_TOKEN="${ATTIC_TOKEN}"
     
-    # Create the narvana cache
-    log_info "Creating narvana cache..."
-    ${ATTIC_PATH} cache create narvana 2>/dev/null || log_info "Cache 'narvana' may already exist"
-    
-    # Verify the setup works
-    if ${ATTIC_PATH} cache info narvana > /dev/null 2>&1; then
-        log_success "Attic cache 'narvana' is configured and accessible"
+    # Try to create cache
+    if ${ATTIC_PATH} cache create narvana 2>&1 | tee /tmp/attic-create.log; then
+        log_success "Cache 'narvana' created"
+    elif grep -q "already exists" /tmp/attic-create.log; then
+        log_info "Cache 'narvana' already exists"
     else
-        log_warn "Could not verify Attic cache - check: journalctl -u narvana-attic"
+        log_warn "Could not create cache. Checking server status..."
+        journalctl -u narvana-attic -n 20 --no-pager
     fi
     
-    # Store the token in the environment file for the worker
+    # Verify the setup
+    log_info "Verifying Attic configuration..."
+    if ${ATTIC_PATH} cache info narvana 2>&1; then
+        log_success "Attic cache 'narvana' is configured and accessible"
+    else
+        log_error "Cannot access Attic cache. Troubleshooting info:"
+        echo ""
+        echo "1. Check if server is running:"
+        echo "   systemctl status narvana-attic"
+        echo ""
+        echo "2. Check server logs:"
+        echo "   journalctl -u narvana-attic -f"
+        echo ""
+        echo "3. Test server directly:"
+        echo "   curl http://localhost:5000/_health"
+        echo ""
+        echo "4. Verify token manually:"
+        echo "   attic cache list"
+        echo ""
+        return 1
+    fi
+    
+    # Store token in environment file for worker
     if ! grep -q "ATTIC_TOKEN=" /etc/narvana/control-plane.env 2>/dev/null; then
         echo "" >> /etc/narvana/control-plane.env
-        echo "# Attic binary cache token" >> /etc/narvana/control-plane.env
+        echo "# Attic binary cache authentication" >> /etc/narvana/control-plane.env
         echo "ATTIC_TOKEN=${ATTIC_TOKEN}" >> /etc/narvana/control-plane.env
+        echo "ATTIC_ENDPOINT=http://localhost:5000" >> /etc/narvana/control-plane.env
     fi
     
     log_success "Attic binary cache configured with authentication"
@@ -540,14 +599,11 @@ EOF
 setup_environment() {
     log_info "Configuring environment..."
     
-    # Detect public IP
     PUBLIC_IP=$(curl -s --max-time 5 https://ifconfig.me || \
                 curl -s --max-time 5 https://ifconfig.io || \
-                curl -s --max-time 5 https://icanhazip.com || \
                 hostname -I | awk '{print $1}' || \
                 echo "your-server-ip")
     
-    # Generate secrets if needed
     if [[ ! -f "$ENV_FILE" ]] || ! grep -q "JWT_SECRET=" "$ENV_FILE"; then
         JWT_SECRET=$(openssl rand -hex 32)
     else
@@ -608,17 +664,14 @@ run_migrations() {
 setup_services() {
     log_info "Configuring systemd services..."
     
-    # Get narvana user's UID for XDG_RUNTIME_DIR
     local NARVANA_UID=$(id -u narvana)
     
-    # Create XDG_RUNTIME_DIR for rootless Podman
     mkdir -p "/run/user/${NARVANA_UID}"
     chown narvana:narvana "/run/user/${NARVANA_UID}"
     chmod 700 "/run/user/${NARVANA_UID}"
     
     cd "$INSTALL_DIR"
     
-    # Update XDG_RUNTIME_DIR in service file with actual UID
     sed "s|/run/user/1001|/run/user/${NARVANA_UID}|g" deploy/narvana-worker.service > /etc/systemd/system/narvana-worker.service
     cp deploy/narvana-api.service /etc/systemd/system/
     cp deploy/narvana-web.service /etc/systemd/system/
@@ -686,20 +739,21 @@ main() {
     echo -e "${BLUE}${BOLD}"
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║        Narvana Control Plane - One-Click Installer           ║"
+    echo "║                  (Nix-powered Build)                         ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     
     check_root
     detect_system
     get_latest_version
-    install_dependencies
+    install_system_dependencies
     install_podman
     install_nix
+    source_nix
     setup_postgresql
     create_user
     clone_repo
-    generate_web_assets
-    download_binaries
+    download_binaries  # Will fallback to Nix build if download fails
     setup_environment
     install_attic
     run_migrations
