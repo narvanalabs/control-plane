@@ -2,6 +2,10 @@
 
 All notable changes to Narvana are documented here.
 
+## [0.0.8] - 2026-01-24
+
+- fix: correct container paths for binary and assets (08b7b4d)
+
 ## [0.0.6] - 2026-01-24
 
 - fix: use glibc-based image for tailwindcss binary compatibility (47f020d)
@@ -745,5 +749,6 @@ All notable changes to Narvana are documented here.
 - Add Makefile with build, test, migration, and lint targets (e06bc9e)
 - first commit (b69dbd1)
 
+[0.0.8]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.8
 [0.0.6]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.6
 [0.0.1]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.1
