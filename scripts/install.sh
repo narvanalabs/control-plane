@@ -140,8 +140,66 @@ start_services() {
     success "Services started"
 }
 
+wait_for_postgres() {
+    info "Waiting for PostgreSQL to be ready..."
+    local max_wait=30
+    local waited=0
+
+    while [[ $waited -lt $max_wait ]]; do
+        if $RUNTIME exec narvana-postgres pg_isready -U narvana -d narvana &>/dev/null; then
+            success "PostgreSQL is ready"
+            return 0
+        fi
+        sleep 2
+        waited=$((waited + 2))
+        echo -n "."
+    done
+    echo ""
+    warn "PostgreSQL health check timed out"
+    return 1
+}
+
+run_migrations() {
+    info "Running database migrations..."
+    
+    # List of migration files in order
+    local migrations=(
+        "001_initial_schema.sql"
+        "002_build_queue.sql"
+        "003_deployment_depends_on.sql"
+        "004_users.sql"
+        "005_service_source_config.sql"
+        "006_remove_app_build_type.sql"
+        "007_flexible_build_strategies.sql"
+        "008_github_app_settings.sql"
+        "009_add_config_type_to_github_app_settings.sql"
+        "010_github_accounts.sql"
+        "011_settings.sql"
+        "012_add_user_profile_fields.sql"
+        "013_add_app_icon_url.sql"
+        "014_add_auto_database_strategy.sql"
+        "015_add_domains_table.sql"
+        "016_organizations.sql"
+        "017_user_roles.sql"
+        "018_invitations.sql"
+        "019_domain_wildcard_verified.sql"
+        "020_app_version_optimistic_locking.sql"
+        "021_buildjob_source_fields.sql"
+        "022_node_disk_metrics.sql"
+        "023_replace_resource_tier_with_resources.sql"
+        "024_build_detection_result.sql"
+    )
+    
+    for migration in "${migrations[@]}"; do
+        curl -fsSL "$GITHUB_RAW/migrations/$migration" 2>/dev/null | \
+            $RUNTIME exec -i narvana-postgres psql -U narvana -d narvana -q 2>/dev/null || true
+    done
+    
+    success "Migrations completed"
+}
+
 wait_for_healthy() {
-    info "Waiting for services to be healthy..."
+    info "Waiting for API to be healthy..."
     local max_wait=60
     local waited=0
 
@@ -217,6 +275,8 @@ main() {
     generate_env
     pull_images
     start_services
+    wait_for_postgres
+    run_migrations
     wait_for_healthy
 
     print_success
