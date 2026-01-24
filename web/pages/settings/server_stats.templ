@@ -116,7 +116,7 @@ templ ServerStats(data ServerStatsData) {
 							</div>
 							<div class="flex justify-between border-b border-zinc-800 pb-2">
 								<span class="text-muted-foreground">Control Plane Version</span>
-								<span class="font-medium">v0.1.0-alpha</span>
+								<span class="font-medium" id="version">--</span>
 							</div>
 						</div>
 					</div>
@@ -208,6 +208,7 @@ templ ServerStats(data ServerStatsData) {
 				document.getElementById('os-name').innerText = data.os;
 				document.getElementById('hostname').innerText = data.hostname;
 				document.getElementById('uptime').innerText = formatUptime(data.uptime);
+				document.getElementById('version').innerText = data.version || 'dev';
 			};
 
 			window.onbeforeunload = function() {

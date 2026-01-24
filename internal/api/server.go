@@ -336,7 +336,7 @@ func (s *Server) setupRouter() {
 		r.Post("/server/restart", serverLogsHandler.Restart)
 		r.Get("/server/console/ws", serverLogsHandler.TerminalWS)
 
-		serverStatsHandler := handlers.NewServerStatsHandler(s.logger)
+		serverStatsHandler := handlers.NewServerStatsHandler(s.logger, Version)
 		r.Get("/server/stats", serverStatsHandler.Get)
 		r.Get("/server/stats/stream", serverStatsHandler.Stream)
 

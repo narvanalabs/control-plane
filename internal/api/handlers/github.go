@@ -367,6 +367,18 @@ func (h *GitHubHandler) AppInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure this is an App configuration (not OAuth)
+	if config.ConfigType != "app" {
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Not a GitHub App configuration"})
+		return
+	}
+
+	// Check if slug is available
+	if config.Slug == nil || *config.Slug == "" {
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "GitHub App slug not available"})
+		return
+	}
+
 	installURL := fmt.Sprintf("https://github.com/settings/apps/%s/installations/new", *config.Slug)
 	WriteJSON(w, http.StatusOK, map[string]string{"url": installURL})
 }

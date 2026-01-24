@@ -196,12 +196,14 @@
 
                     if (data.url) {
                         window.location.href = data.url;
+                    } else if (data.error) {
+                        throw new Error(data.error);
                     } else {
-                        throw new Error(data.error || 'Failed to connect');
+                        throw new Error('Failed to get connection URL');
                     }
                 } catch (err) {
                     console.error('Connection failed:', err);
-                    alert('Error: ' + err.message);
+                    alert('Error connecting to GitHub: ' + err.message);
                     btnConnectInstance.disabled = false;
                     btnConnectInstance.innerHTML = 'Connect';
                 }
