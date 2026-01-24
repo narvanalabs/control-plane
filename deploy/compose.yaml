@@ -1,0 +1,85 @@
+# Narvana Control Plane
+# Compatible with: podman-compose, podman compose, docker compose
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: narvana-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: narvana
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: narvana
+    volumes:
+      - narvana-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U narvana -d narvana"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: ghcr.io/narvanalabs/control-plane-api:${NARVANA_VERSION:-latest}
+    container_name: narvana-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"
+      - "${GRPC_PORT:-9090}:9090"
+    environment:
+      DATABASE_URL: postgres://narvana:${POSTGRES_PASSWORD}@postgres:5432/narvana?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      API_HOST: 0.0.0.0
+      API_PORT: 8080
+      GRPC_PORT: 9090
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  web:
+    image: ghcr.io/narvanalabs/control-plane-web:${NARVANA_VERSION:-latest}
+    container_name: narvana-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8090}:8090"
+    environment:
+      API_URL: http://api:8080
+      WEB_PORT: 8090
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8090/login || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    image: ghcr.io/narvanalabs/control-plane-worker:${NARVANA_VERSION:-latest}
+    container_name: narvana-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - label:disable
+    volumes:
+      # Podman socket (rootful). For rootless: /run/user/$UID/podman/podman.sock
+      - /run/podman/podman.sock:/run/podman/podman.sock:ro
+      - narvana-builds:/var/lib/narvana/builds
+    environment:
+      DATABASE_URL: postgres://narvana:${POSTGRES_PASSWORD}@postgres:5432/narvana?sslmode=disable
+      PODMAN_SOCKET: unix:///run/podman/podman.sock
+      WORKER_WORKDIR: /var/lib/narvana/builds
+      WORKER_MAX_CONCURRENCY: ${WORKER_MAX_CONCURRENCY:-4}
+      BUILD_TIMEOUT: ${BUILD_TIMEOUT:-30m}
+
+volumes:
+  narvana-postgres-data:
+  narvana-builds:
