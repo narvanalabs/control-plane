@@ -279,6 +279,19 @@ main() {
     run_migrations
     wait_for_healthy
 
+    # Install update watcher (optional, requires systemd)
+    if command -v systemctl &>/dev/null; then
+        info "Installing update watcher service..."
+        curl -fsSL "$GITHUB_RAW/scripts/update-watcher.sh" -o update-watcher.sh
+        chmod +x update-watcher.sh
+        curl -fsSL "$GITHUB_RAW/deploy/narvana-updater.service" -o /etc/systemd/system/narvana-updater.service
+        sed -i "s|/opt/narvana|$INSTALL_DIR|g" /etc/systemd/system/narvana-updater.service
+        systemctl daemon-reload
+        systemctl enable narvana-updater
+        systemctl start narvana-updater
+        success "Update watcher service installed"
+    fi
+
     print_success
 }
 

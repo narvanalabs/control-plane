@@ -874,6 +874,29 @@ func (c *Client) ListGitHubRepos(ctx context.Context) ([]GitHubRepository, error
 // Settings Methods
 // ============================================================================
 
+// UpdateInfo contains information about available updates.
+type UpdateInfo struct {
+	CurrentVersion  string `json:"current_version"`
+	LatestVersion   string `json:"latest_version"`
+	UpdateAvailable bool   `json:"update_available"`
+	ReleaseURL      string `json:"release_url,omitempty"`
+	ReleaseNotes    string `json:"release_notes,omitempty"`
+	PublishedAt     string `json:"published_at,omitempty"`
+}
+
+// CheckForUpdates checks if a new version is available.
+func (c *Client) CheckForUpdates(ctx context.Context) (*UpdateInfo, error) {
+	var info UpdateInfo
+	err := c.Get(ctx, "/v1/updates/check", &info)
+	return &info, err
+}
+
+// ApplyUpdate triggers an update to the specified version.
+func (c *Client) ApplyUpdate(ctx context.Context, version string) error {
+	req := map[string]string{"version": version}
+	return c.post(ctx, "/v1/updates/apply", req, nil)
+}
+
 // GetSettings fetches global settings.
 func (c *Client) GetSettings(ctx context.Context) (map[string]string, error) {
 	var settings map[string]string
