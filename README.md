@@ -437,32 +437,33 @@ make db-status
 make lint
 ```
 
-### Testing `scripts/install.sh` in a Podman container
+### Testing `scripts/install.sh` in a container
 
-You can iterate on the one-click installer locally without pushing to GitHub by running it inside a disposable Podman container.
+You can iterate on the installer locally without pushing to GitHub by running it inside a disposable container.
 
-From your host machine (where this repository is checked out):
+**Using Docker:**
 
 ```bash
 cd control-plane
 
-# Start an ephemeral privileged container with the installer script mounted read-only
-sudo podman run --rm -it --privileged \
-  -v "$PWD/scripts/install.sh:/install.sh:ro" \
-  ubuntu:24.04 bash
+docker run --rm -it --privileged \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$PWD:/repo:ro" \
+  docker:24-dind sh -c "apk add curl bash openssl && bash /repo/scripts/install.sh"
 ```
 
-Inside the container:
+**Using Podman:**
 
 ```bash
-apt-get update
-apt-get install -y systemd sudo curl wget git openssl postgresql postgresql-contrib python3
+cd control-plane
 
-# Run the installer with verbose output
-bash -x /install.sh
+podman run --rm -it --privileged \
+  -v /var/run/podman/podman.sock:/var/run/docker.sock \
+  -v "$PWD:/repo:ro" \
+  docker.io/library/docker:24-cli sh -c "apk add curl bash openssl && bash /repo/scripts/install.sh"
 ```
 
-This lets you repeatedly edit `scripts/install.sh` on your host and re-run it in a clean environment by restarting the container. Some systemd-based steps and health checks may behave differently inside a container; for full end-to-end verification of services, use a real VM or bare-metal Linux host.
+The installer only requires Docker/Podman and curl - it pulls pre-built container images rather than building from source.
 
 ## Supported Databases
 
