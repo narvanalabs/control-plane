@@ -12,9 +12,15 @@ RUN apk add --no-cache git curl
 RUN go install github.com/a-h/templ/cmd/templ@latest
 
 # Install tailwindcss standalone binary (architecture-aware)
-RUN TWARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "x64") && \
-    curl -sL "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${TWARCH}" -o /usr/local/bin/tailwindcss && \
-    chmod +x /usr/local/bin/tailwindcss
+# TARGETARCH is "amd64" or "arm64" from buildx
+RUN set -ex; \
+    case "${TARGETARCH}" in \
+        arm64) TWARCH="arm64" ;; \
+        *)     TWARCH="x64" ;; \
+    esac; \
+    curl -fsSL "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${TWARCH}" -o /usr/local/bin/tailwindcss; \
+    chmod +x /usr/local/bin/tailwindcss; \
+    tailwindcss --help > /dev/null
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -23,7 +29,7 @@ COPY . .
 
 # Generate templates and CSS
 RUN cd web && templ generate
-RUN cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
+RUN cd web && /usr/local/bin/tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION}" \
