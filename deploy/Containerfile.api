@@ -1,0 +1,31 @@
+# Narvana Control Plane - API Server
+FROM docker.io/library/golang:1.24-alpine AS builder
+
+ARG VERSION=dev
+
+WORKDIR /build
+
+RUN apk add --no-cache git
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.Version=${VERSION}" \
+    -o /api ./cmd/api
+
+# Runtime
+FROM docker.io/library/alpine:3.20
+
+RUN apk add --no-cache ca-certificates curl
+
+COPY --from=builder /api /usr/local/bin/api
+
+EXPOSE 8080 9090
+
+USER nobody:nobody
+
+ENTRYPOINT ["/usr/local/bin/api"]
+

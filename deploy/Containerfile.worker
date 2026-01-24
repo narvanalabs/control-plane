@@ -1,0 +1,37 @@
+# Narvana Control Plane - Build Worker
+FROM docker.io/library/golang:1.24-alpine AS builder
+
+ARG VERSION=dev
+
+WORKDIR /build
+
+RUN apk add --no-cache git
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.Version=${VERSION}" \
+    -o /worker ./cmd/worker
+
+# Runtime - includes tools needed for builds
+FROM docker.io/library/alpine:3.20
+
+RUN apk add --no-cache \
+    ca-certificates \
+    curl \
+    git \
+    podman-remote
+
+# Symlink podman-remote as podman for convenience
+RUN ln -s /usr/bin/podman-remote /usr/bin/podman
+
+COPY --from=builder /worker /usr/local/bin/worker
+
+# Worker needs root to access container socket
+USER root
+
+ENTRYPOINT ["/usr/local/bin/worker"]
+
