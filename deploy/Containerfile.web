@@ -37,17 +37,24 @@ RUN cd web && /usr/local/bin/tailwindcss -i ./assets/css/input.css -o ./assets/c
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION}" \
-    -o /web ./cmd/web
+    -o /narvana-web ./cmd/web
 
 # Runtime - Alpine is fine here since we're running a static Go binary
 FROM docker.io/library/alpine:3.20
 
 RUN apk add --no-cache ca-certificates curl
 
-COPY --from=builder /web /usr/local/bin/web
+# Create app directory
+WORKDIR /app
+
+# Copy binary
+COPY --from=builder /narvana-web /app/narvana-web
+
+# Copy static assets (CSS, JS) - must match the path the binary expects: "web/assets"
+COPY --from=builder /build/web/assets /app/web/assets
 
 EXPOSE 8090
 
 USER nobody:nobody
 
-ENTRYPOINT ["/usr/local/bin/web"]
+ENTRYPOINT ["/app/narvana-web"]

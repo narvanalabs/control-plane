@@ -168,7 +168,12 @@ wait_for_healthy() {
 # -----------------------------------------------------------------------------
 
 print_success() {
-    PUBLIC_IP=$(curl -sf --max-time 5 https://ifconfig.me 2>/dev/null || echo "localhost")
+    # Try multiple services to get public IP
+    PUBLIC_IP=$(curl -sf --max-time 3 https://ifconfig.me 2>/dev/null || \
+                curl -sf --max-time 3 https://api.ipify.org 2>/dev/null || \
+                curl -sf --max-time 3 https://icanhazip.com 2>/dev/null || \
+                hostname -I 2>/dev/null | awk '{print $1}' || \
+                echo "YOUR_SERVER_IP")
 
     echo ""
     echo -e "${GREEN}${BOLD}╔════════════════════════════════════════════════════════════════╗${NC}"
