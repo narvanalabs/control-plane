@@ -1,18 +1,22 @@
 # Narvana Control Plane - Web UI
-FROM docker.io/library/golang:1.24-alpine AS builder
+# Using Debian-based image for glibc compatibility with tailwindcss binary
+FROM docker.io/library/golang:1.24-bookworm AS builder
 
 ARG VERSION=dev
 ARG TARGETARCH
 
 WORKDIR /build
 
-RUN apk add --no-cache git curl
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install templ
 RUN go install github.com/a-h/templ/cmd/templ@latest
 
 # Install tailwindcss standalone binary (architecture-aware)
-# TARGETARCH is "amd64" or "arm64" from buildx
 RUN set -ex; \
     case "${TARGETARCH}" in \
         arm64) TWARCH="arm64" ;; \
@@ -20,7 +24,7 @@ RUN set -ex; \
     esac; \
     curl -fsSL "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${TWARCH}" -o /usr/local/bin/tailwindcss; \
     chmod +x /usr/local/bin/tailwindcss; \
-    tailwindcss --help > /dev/null
+    /usr/local/bin/tailwindcss --help > /dev/null
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -35,7 +39,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION}" \
     -o /web ./cmd/web
 
-# Runtime
+# Runtime - Alpine is fine here since we're running a static Go binary
 FROM docker.io/library/alpine:3.20
 
 RUN apk add --no-cache ca-certificates curl
