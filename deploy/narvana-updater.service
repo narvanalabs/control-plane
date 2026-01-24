@@ -1,0 +1,25 @@
+[Unit]
+Description=Narvana Update Watcher
+Documentation=https://github.com/narvanalabs/control-plane
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/narvana
+ExecStart=/opt/narvana/update-watcher.sh
+Restart=always
+RestartSec=10
+
+# Environment
+Environment=UPDATE_FLAG_FILE=/var/lib/narvana/.update-requested
+Environment=COMPOSE_FILE=/opt/narvana/compose.yaml
+Environment=ENV_FILE=/opt/narvana/.env
+
+# Security
+NoNewPrivileges=false
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+

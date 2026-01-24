@@ -16,11 +16,15 @@ import (
 )
 
 type ServerStatsHandler struct {
-	logger *slog.Logger
+	logger  *slog.Logger
+	version string
 }
 
-func NewServerStatsHandler(logger *slog.Logger) *ServerStatsHandler {
-	return &ServerStatsHandler{logger: logger}
+func NewServerStatsHandler(logger *slog.Logger, version string) *ServerStatsHandler {
+	return &ServerStatsHandler{
+		logger:  logger,
+		version: version,
+	}
 }
 
 type SystemStats struct {
@@ -28,6 +32,7 @@ type SystemStats struct {
 	Uptime    float64               `json:"uptime"`
 	OS        string                `json:"os"`
 	Hostname  string                `json:"hostname"`
+	Version   string                `json:"version"`
 	Timestamp int64                 `json:"timestamp"`
 }
 
@@ -91,14 +96,52 @@ func (h *ServerStatsHandler) collectStats() SystemStats {
 	}
 
 	hostname, _ := os.Hostname()
+	osName := detectOS()
 
 	return SystemStats{
 		Resources: resources,
 		Uptime:    uptime,
-		OS:        "Linux",
+		OS:        osName,
 		Hostname:  hostname,
+		Version:   h.version,
 		Timestamp: time.Now().Unix(),
 	}
+}
+
+// detectOS reads /etc/os-release to get the actual OS name and version
+func detectOS() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return "Linux" // Fallback
+	}
+
+	lines := strings.Split(string(data), "\n")
+	prettyName := ""
+	name := ""
+	version := ""
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "PRETTY_NAME=") {
+			prettyName = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), `"`)
+		} else if strings.HasPrefix(line, "NAME=") {
+			name = strings.Trim(strings.TrimPrefix(line, "NAME="), `"`)
+		} else if strings.HasPrefix(line, "VERSION=") {
+			version = strings.Trim(strings.TrimPrefix(line, "VERSION="), `"`)
+		}
+	}
+
+	// Prefer PRETTY_NAME (e.g. "Ubuntu 24.04 LTS")
+	if prettyName != "" {
+		return prettyName
+	}
+	// Fallback to NAME + VERSION
+	if name != "" {
+		if version != "" {
+			return name + " " + version
+		}
+		return name
+	}
+	return "Linux"
 }
 
 type memInfo struct {

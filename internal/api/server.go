@@ -19,6 +19,7 @@ import (
 	"github.com/narvanalabs/control-plane/internal/queue"
 	"github.com/narvanalabs/control-plane/internal/secrets"
 	"github.com/narvanalabs/control-plane/internal/store"
+	"github.com/narvanalabs/control-plane/internal/updater"
 	"github.com/narvanalabs/control-plane/pkg/config"
 )
 
@@ -336,9 +337,15 @@ func (s *Server) setupRouter() {
 		r.Post("/server/restart", serverLogsHandler.Restart)
 		r.Get("/server/console/ws", serverLogsHandler.TerminalWS)
 
-		serverStatsHandler := handlers.NewServerStatsHandler(s.logger)
+		serverStatsHandler := handlers.NewServerStatsHandler(s.logger, Version)
 		r.Get("/server/stats", serverStatsHandler.Get)
 		r.Get("/server/stats/stream", serverStatsHandler.Stream)
+
+		// Update routes
+		updaterService := updater.NewService(Version, "narvanalabs/control-plane", s.logger)
+		updatesHandler := handlers.NewUpdatesHandler(updaterService, s.logger)
+		r.Get("/updates/check", updatesHandler.CheckForUpdates)
+		r.Post("/updates/apply", updatesHandler.TriggerUpdate)
 
 		// Admin cleanup routes
 		// Requirements: 19.1, 19.2, 19.3, 19.4, 25.4, 26.4
