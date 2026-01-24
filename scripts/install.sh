@@ -25,6 +25,14 @@ log_success() { echo -e "${GREEN}${BOLD}[✓]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}${BOLD}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}${BOLD}[ERROR]${NC} $1"; }
 
+# Detect if systemd is running as PID 1 (not the case in most containers)
+has_systemd() {
+    if command -v systemctl &> /dev/null && [[ -d /run/systemd/system ]]; then
+        return 0
+    fi
+    return 1
+}
+
 # Check if running as root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -159,19 +167,25 @@ install_nix() {
         log_success "Nix already installed"
         return
     fi
-    
-    log_info "Installing Nix package manager..."
-    
-    if ! getent group nixbld > /dev/null 2>&1; then
-        groupadd -r nixbld
+
+    # Allow skipping Nix when testing the installer in constrained environments
+    if [[ "${NARVANA_SKIP_NIX_INSTALL:-0}" == "1" ]]; then
+        log_warn "Skipping Nix installation because NARVANA_SKIP_NIX_INSTALL=1"
+        return
     fi
-    
-    for i in $(seq 1 10); do
-        if ! id "nixbld$i" &>/dev/null; then
-            useradd -r -g nixbld -G nixbld -d /var/empty -s /sbin/nologin "nixbld$i" 2>/dev/null || true
+
+    log_info "Installing Nix package manager..."
+
+    # If a nixbld group already exists (e.g. from a previous Nix install),
+    # tell the installer to reuse its GID instead of failing.
+    if getent group nixbld > /dev/null 2>&1; then
+        NIX_BUILD_GROUP_ID="$(getent group nixbld | cut -d: -f3 || true)"
+        if [[ -n "${NIX_BUILD_GROUP_ID:-}" ]]; then
+            export NIX_BUILD_GROUP_ID
+            log_info "Using existing nixbld group (GID ${NIX_BUILD_GROUP_ID}) for Nix installer"
         fi
-    done
-    
+    fi
+
     sh <(curl -L https://nixos.org/nix/install) --daemon --yes || {
         log_error "Nix installation failed"
         exit 1
@@ -414,10 +428,15 @@ Environment=RUST_LOG=info,attic=debug
 WantedBy=multi-user.target
 EOF
     
-    # Start Attic server
-    systemctl daemon-reload
-    systemctl enable narvana-attic
-    systemctl restart narvana-attic
+    # Start Attic server (use systemd when available, otherwise run directly)
+    if has_systemd; then
+        systemctl daemon-reload
+        systemctl enable narvana-attic
+        systemctl restart narvana-attic
+    else
+        log_warn "systemd not available (container/test environment); starting atticd directly"
+        "${ATTICD_PATH}" --config /etc/narvana/attic.toml >/var/log/narvana/atticd.log 2>&1 &
+    fi
     
     # Wait for server with better checking
     log_info "Waiting for Attic server to start..."
@@ -433,9 +452,14 @@ EOF
     done
     
     if [ $attempt -eq $max_attempts ]; then
-        log_error "Attic server failed to start. Checking logs..."
-        journalctl -u narvana-attic -n 50 --no-pager
-        return 1
+        if has_systemd; then
+            log_error "Attic server failed to start. Checking logs..."
+            journalctl -u narvana-attic -n 50 --no-pager
+            return 1
+        else
+            log_warn "Attic server failed to start in non-systemd environment; continuing without binary cache"
+            return 0
+        fi
     fi
     
     # Generate token using atticd itself (most reliable method)
@@ -567,21 +591,25 @@ EOF
     if ${ATTIC_PATH} cache info narvana 2>&1; then
         log_success "Attic cache 'narvana' is configured and accessible"
     else
-        log_error "Cannot access Attic cache. Troubleshooting info:"
-        echo ""
-        echo "1. Check if server is running:"
-        echo "   systemctl status narvana-attic"
-        echo ""
-        echo "2. Check server logs:"
-        echo "   journalctl -u narvana-attic -f"
-        echo ""
-        echo "3. Test server directly:"
-        echo "   curl http://localhost:5000/_health"
-        echo ""
-        echo "4. Verify token manually:"
-        echo "   attic cache list"
-        echo ""
-        return 1
+        if has_systemd; then
+            log_error "Cannot access Attic cache. Troubleshooting info:"
+            echo ""
+            echo "1. Check if server is running:"
+            echo "   systemctl status narvana-attic"
+            echo ""
+            echo "2. Check server logs:"
+            echo "   journalctl -u narvana-attic -f"
+            echo ""
+            echo "3. Test server directly:"
+            echo "   curl http://localhost:5000/_health"
+            echo ""
+            echo "4. Verify token manually:"
+            echo "   attic cache list"
+            echo ""
+            return 1
+        else
+            log_warn "Attic cache verification failed in non-systemd environment; continuing without binary cache"
+        fi
     fi
     
     # Store token in environment file for worker
@@ -663,7 +691,11 @@ run_migrations() {
 # Setup systemd services
 setup_services() {
     log_info "Configuring systemd services..."
-    
+
+    if ! has_systemd; then
+        log_warn "systemd not available; skipping Narvana systemd service setup (expected in containers/test environments)"
+        return 0
+    fi
     local NARVANA_UID=$(id -u narvana)
     
     mkdir -p "/run/user/${NARVANA_UID}"
@@ -686,6 +718,11 @@ setup_services() {
 # Verify installation
 verify_installation() {
     log_info "Verifying installation..."
+
+    if ! has_systemd; then
+        log_warn "Skipping service health verification because systemd is not available in this environment"
+        return 0
+    fi
     sleep 5
     
     local failed=0
