@@ -2,6 +2,10 @@
 
 All notable changes to Narvana are documented here.
 
+## [0.0.6] - 2026-01-24
+
+- fix: use glibc-based image for tailwindcss binary compatibility (47f020d)
+
 ## [0.0.1] - 2026-01-08
 
 - ci(changelog): Update banner generation to support multiple output formats (17103f7)
@@ -741,4 +745,5 @@ All notable changes to Narvana are documented here.
 - Add Makefile with build, test, migration, and lint targets (e06bc9e)
 - first commit (b69dbd1)
 
+[0.0.6]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.6
 [0.0.1]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.1
