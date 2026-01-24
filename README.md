@@ -437,6 +437,33 @@ make db-status
 make lint
 ```
 
+### Testing `scripts/install.sh` in a Podman container
+
+You can iterate on the one-click installer locally without pushing to GitHub by running it inside a disposable Podman container.
+
+From your host machine (where this repository is checked out):
+
+```bash
+cd control-plane
+
+# Start an ephemeral privileged container with the installer script mounted read-only
+sudo podman run --rm -it --privileged \
+  -v "$PWD/scripts/install.sh:/install.sh:ro" \
+  ubuntu:24.04 bash
+```
+
+Inside the container:
+
+```bash
+apt-get update
+apt-get install -y systemd sudo curl wget git openssl postgresql postgresql-contrib python3
+
+# Run the installer with verbose output
+bash -x /install.sh
+```
+
+This lets you repeatedly edit `scripts/install.sh` on your host and re-run it in a clean environment by restarting the container. Some systemd-based steps and health checks may behave differently inside a container; for full end-to-end verification of services, use a real VM or bare-metal Linux host.
+
 ## Supported Databases
 
 Narvana can provision managed database services:
