@@ -6,13 +6,15 @@ ARG TARGETARCH
 
 WORKDIR /build
 
-RUN apk add --no-cache git curl nodejs npm
+RUN apk add --no-cache git curl
 
 # Install templ
 RUN go install github.com/a-h/templ/cmd/templ@latest
 
-# Install tailwindcss via npm (works on all architectures)
-RUN npm install -g tailwindcss
+# Install tailwindcss standalone binary (architecture-aware)
+RUN TWARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "x64") && \
+    curl -sL "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${TWARCH}" -o /usr/local/bin/tailwindcss && \
+    chmod +x /usr/local/bin/tailwindcss
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -21,7 +23,7 @@ COPY . .
 
 # Generate templates and CSS
 RUN cd web && templ generate
-RUN cd web && npx tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
+RUN cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION}" \
