@@ -2,18 +2,17 @@
 FROM docker.io/library/golang:1.24-alpine AS builder
 
 ARG VERSION=dev
+ARG TARGETARCH
 
 WORKDIR /build
 
-RUN apk add --no-cache git curl
+RUN apk add --no-cache git curl nodejs npm
 
 # Install templ
 RUN go install github.com/a-h/templ/cmd/templ@latest
 
-# Install tailwindcss
-RUN curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 \
-    && chmod +x tailwindcss-linux-x64 \
-    && mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
+# Install tailwindcss via npm (works on all architectures)
+RUN npm install -g tailwindcss
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -22,7 +21,7 @@ COPY . .
 
 # Generate templates and CSS
 RUN cd web && templ generate
-RUN cd web && tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
+RUN cd web && npx tailwindcss -i ./assets/css/input.css -o ./assets/css/output.css --minify
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.Version=${VERSION}" \
@@ -40,4 +39,3 @@ EXPOSE 8090
 USER nobody:nobody
 
 ENTRYPOINT ["/usr/local/bin/web"]
-
