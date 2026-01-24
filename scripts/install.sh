@@ -168,10 +168,10 @@ wait_for_healthy() {
 # -----------------------------------------------------------------------------
 
 print_success() {
-    # Try multiple services to get public IP
-    PUBLIC_IP=$(curl -sf --max-time 3 https://ifconfig.me 2>/dev/null || \
-                curl -sf --max-time 3 https://api.ipify.org 2>/dev/null || \
-                curl -sf --max-time 3 https://icanhazip.com 2>/dev/null || \
+    # Try multiple services to get public IPv4 (use -4 to force IPv4)
+    PUBLIC_IP=$(curl -4 -sf --max-time 3 https://ifconfig.me 2>/dev/null || \
+                curl -4 -sf --max-time 3 https://api.ipify.org 2>/dev/null || \
+                curl -4 -sf --max-time 3 https://icanhazip.com 2>/dev/null || \
                 hostname -I 2>/dev/null | awk '{print $1}' || \
                 echo "YOUR_SERVER_IP")
 

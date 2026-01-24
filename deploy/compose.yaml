@@ -75,6 +75,7 @@ services:
       - narvana-builds:/var/lib/narvana/builds
     environment:
       DATABASE_URL: postgres://narvana:${POSTGRES_PASSWORD}@postgres:5432/narvana?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
       PODMAN_SOCKET: unix:///run/podman/podman.sock
       WORKER_WORKDIR: /var/lib/narvana/builds
       WORKER_MAX_CONCURRENCY: ${WORKER_MAX_CONCURRENCY:-4}
