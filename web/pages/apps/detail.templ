@@ -600,9 +600,27 @@ templ gitProviderSelector(data DetailData, prefix string) {
 				}
 			</div>
 			
-			// Repository picker placeholder (populated via JS)
+			// Repository picker (searchable select)
 			<div id={ prefix + "-repo-picker" } class="space-y-2">
-				<p class="text-xs text-muted-foreground">Loading repositories...</p>
+				@label.Label(label.Props{For: prefix + "_repo_select", Class: "text-sm"}) { Repository }
+				@selectbox.SelectBox(selectbox.Props{ID: prefix + "_repo_select", Class: "w-full"}) {
+					@selectbox.Trigger() {
+						@selectbox.Value(selectbox.ValueProps{Placeholder: "Loading repositories..."})
+					}
+					@selectbox.Content() {
+						<div class="p-4 text-sm text-muted-foreground text-center">Loading...</div>
+					}
+				}
+				<input 
+					type="hidden" 
+					name="repo_full_name" 
+					id={ prefix + "_selected_repo" } 
+					value="" 
+					data-repo-hidden-input={ prefix }
+				/>
+				<p class="text-xs text-muted-foreground">
+					Select a repository from your connected GitHub account
+				</p>
 			</div>
 			
 			<input type="hidden" name="git_provider" id={ prefix + "_git_provider" } value="github" />

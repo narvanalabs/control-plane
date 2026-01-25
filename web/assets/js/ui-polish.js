@@ -63,11 +63,8 @@
     async function initGitIntegration() {
         const gitSection = document.getElementById('git-connection-section');
         if (!gitSection) {
-            // Check if we are in the detail page with a repo picker
-            const repoPicker = document.getElementById('github-repo-picker');
-            if (repoPicker) {
-                loadGithubRepos();
-            }
+            // Check if we are in the detail page with repo pickers
+            initRepoPickers();
             return;
         }
 
@@ -211,6 +208,39 @@
         }
 
         // Reconfigure logic
+        // Add Installation button handler
+        const btnAddInstallation = document.getElementById('btn-connect-github-instance');
+        if (btnAddInstallation) {
+            btnAddInstallation.addEventListener('click', async () => {
+                btnAddInstallation.disabled = true;
+                const originalHTML = btnAddInstallation.innerHTML;
+                btnAddInstallation.innerHTML = '<span class="animate-pulse mr-2">⏳</span> Loading...';
+
+                try {
+                    const response = await fetch('/api/github/install');
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    const data = await response.json();
+                    
+                    if (data.url) {
+                        // Redirect to GitHub installation page
+                        window.location.href = data.url;
+                    } else if (data.error) {
+                        throw new Error(data.error);
+                    } else {
+                        throw new Error('No installation URL returned');
+                    }
+                } catch (err) {
+                    console.error('Add installation failed:', err);
+                    alert('Error: ' + err.message);
+                    btnAddInstallation.disabled = false;
+                    btnAddInstallation.innerHTML = originalHTML;
+                }
+            });
+        }
+
+        // Reconfigure button handler
         const btnReconfigure = document.getElementById('btn-reconfigure-github');
         if (btnReconfigure) {
             btnReconfigure.addEventListener('click', async () => {
@@ -238,68 +268,134 @@
             });
         }
 
-        async function loadGithubRepos() {
-            const repoPicker = document.getElementById('github-repo-picker');
-            const manualInput = document.getElementById('manual-repo-input');
-            const hiddenRepo = document.getElementById('selected-github-repo');
-            if (!repoPicker) return;
+        // Initialize repository pickers for service creation dialogs
+        function initRepoPickers() {
+            const prefixes = ['web', 'static', 'worker'];
+            
+            prefixes.forEach(prefix => {
+                const repoPicker = document.getElementById(`${prefix}-repo-picker`);
+                if (repoPicker) {
+                    loadReposForPicker(prefix);
+                }
+            });
+            
+            // Listen for provider tab switches
+            document.querySelectorAll('[data-provider-tab]').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const prefix = this.getAttribute('data-provider-tab').split('-')[0];
+                    const provider = this.getAttribute('data-provider');
+                    
+                    // Update active tab styling
+                    document.querySelectorAll(`[data-provider-tab^="${prefix}-"]`).forEach(t => {
+                        t.classList.remove('bg-zinc-800', 'text-white');
+                        t.classList.add('text-muted-foreground');
+                    });
+                    this.classList.add('bg-zinc-800', 'text-white');
+                    this.classList.remove('text-muted-foreground');
+                    
+                    // Load repos for the selected provider
+                    loadReposForPicker(prefix, provider);
+                });
+            });
+        }
+        
+        async function loadReposForPicker(prefix, provider = 'github') {
+            const selectId = `${prefix}_repo_select`;
+            const contentZone = document.querySelector(`#${selectId} [data-tui-selectbox-content]`);
+            const hiddenInput = document.getElementById(`${prefix}_selected_repo`);
+            const repoInput = document.getElementById(`${prefix}_svc_repo`);
+            
+            if (!contentZone) return;
+            
+            // Show loading state
+            contentZone.innerHTML = '<div class="p-4 text-sm text-muted-foreground text-center">Loading repositories...</div>';
 
             try {
-                const resp = await fetch('/api/github/repos');
+                const resp = await fetch(`/api/${provider}/repos`);
                 if (!resp.ok) {
-                    const contentZone = document.querySelector('#github_repo_select [data-tui-selectbox-content]');
-                    if (contentZone) contentZone.innerHTML = '<div class="p-4 text-sm text-destructive text-center">Failed to load repositories</div>';
-                    return;
+                    throw new Error(`Failed to load repositories: ${resp.statusText}`);
                 }
                 const repos = await resp.json();
 
-                const contentZone = document.querySelector('#github_repo_select [data-tui-selectbox-content]');
-                if (!contentZone) return;
-
                 if (repos && repos.length > 0) {
-                    repoPicker.classList.remove('hidden');
-                    if (manualInput) manualInput.classList.add('opacity-50');
-
                     contentZone.innerHTML = '';
+                    
+                    // Add search input
+                    const searchWrapper = document.createElement('div');
+                    searchWrapper.className = 'p-2 border-b border-zinc-800';
+                    searchWrapper.innerHTML = `
+                        <input 
+                            type="text" 
+                            placeholder="Search repositories..." 
+                            class="w-full px-3 py-1.5 text-sm bg-zinc-900 border border-zinc-800 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                            data-repo-search="${prefix}"
+                        />
+                    `;
+                    contentZone.appendChild(searchWrapper);
+                    
+                    // Add scrollable container
+                    const scrollContainer = document.createElement('div');
+                    scrollContainer.className = 'max-h-[300px] overflow-y-auto';
+                    scrollContainer.setAttribute('data-repo-list', prefix);
+                    
                     repos.forEach(repo => {
                         const item = document.createElement('div');
-                        item.className = 'relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50';
+                        item.className = 'relative flex w-full cursor-default select-none items-center rounded-sm py-2 pl-8 pr-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50';
                         item.setAttribute('data-tui-selectbox-item', 'true');
-                        item.setAttribute('data-value', repo.full_name);
+                        item.setAttribute('data-value', repo.clone_url || repo.html_url);
+                        item.setAttribute('data-repo-name', repo.full_name.toLowerCase());
                         item.innerHTML = `
                             <span class="absolute left-2 flex h-3.5 w-3.5 items-center justify-center opacity-0" data-tui-selectbox-item-indicator="true">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><polyline points="20 6 9 17 4 12"></polyline></svg>
                             </span>
-                            <span class="flex flex-col">
+                            <span class="flex flex-col gap-0.5">
                                 <span class="font-medium text-white">${repo.full_name}</span>
-                                <span class="text-[11px] text-muted-foreground truncate max-w-[200px]">${repo.description || 'No description'}</span>
+                                ${repo.description ? `<span class="text-[11px] text-muted-foreground line-clamp-1">${repo.description}</span>` : ''}
                             </span>
                         `;
-                        contentZone.appendChild(item);
+                        scrollContainer.appendChild(item);
+                    });
+                    
+                    contentZone.appendChild(scrollContainer);
+                    
+                    // Setup search functionality
+                    const searchInput = searchWrapper.querySelector('input');
+                    searchInput.addEventListener('input', function() {
+                        const query = this.value.toLowerCase();
+                        const items = scrollContainer.querySelectorAll('[data-repo-name]');
+                        items.forEach(item => {
+                            const name = item.getAttribute('data-repo-name');
+                            if (name.includes(query)) {
+                                item.style.display = '';
+                            } else {
+                                item.style.display = 'none';
+                            }
+                        });
+                    });
+                    
+                    // Setup selection handler
+                    scrollContainer.addEventListener('click', function(e) {
+                        const item = e.target.closest('[data-tui-selectbox-item]');
+                        if (item) {
+                            const value = item.getAttribute('data-value');
+                            if (hiddenInput) hiddenInput.value = value;
+                            if (repoInput) repoInput.value = value;
+                            
+                            // Update trigger text
+                            const trigger = document.querySelector(`#${selectId} [data-tui-selectbox-value]`);
+                            if (trigger) {
+                                trigger.textContent = item.querySelector('.font-medium').textContent;
+                            }
+                        }
                     });
                 } else {
-                    contentZone.innerHTML = '<div class="p-4 text-sm text-muted-foreground text-center">No repositories found</div>';
+                    contentZone.innerHTML = '<div class="p-4 text-sm text-muted-foreground text-center">No repositories found. Connect a Git provider first.</div>';
                 }
             } catch (err) {
-                console.error('Error loading GitHub repos:', err);
-                const contentZone = document.querySelector('#github_repo_select [data-tui-selectbox-content]');
-                if (contentZone) contentZone.innerHTML = '<div class="p-4 text-sm text-destructive text-center">Error loading repositories</div>';
+                console.error('Error loading repos:', err);
+                contentZone.innerHTML = `<div class="p-4 text-sm text-destructive text-center">Error: ${err.message}</div>`;
             }
         }
-
-        // Listen for repo selection
-        document.addEventListener('change', function (e) {
-            const target = e.target;
-            if (target && target.hasAttribute('data-tui-selectbox-hidden-input')) {
-                const selectContainer = target.closest('#github_repo_select');
-                const hiddenRepo = document.getElementById('selected-github-repo');
-                if (selectContainer && hiddenRepo) {
-                    hiddenRepo.value = target.value;
-                    const manualInputEl = document.getElementById('svc_repo');
-                    if (manualInputEl) manualInputEl.value = target.value;
-                }
-            }
-        });
     }
 
     // Simple confirmation dialogs for destructive actions

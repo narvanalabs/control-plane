@@ -256,7 +256,8 @@ func (h *GitHubHandler) ManifestCallback(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Seamlessly redirect to the installation page on GitHub
-	installURL := fmt.Sprintf("https://github.com/settings/apps/%s/installations/new", *config.Slug)
+	// Use the correct GitHub Apps installation URL format
+	installURL := fmt.Sprintf("https://github.com/apps/%s/installations/new", *config.Slug)
 	http.Redirect(w, r, installURL, http.StatusFound)
 }
 
@@ -401,7 +402,8 @@ func (h *GitHubHandler) AppInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	installURL := fmt.Sprintf("https://github.com/settings/apps/%s/installations/new", *config.Slug)
+	// Use the correct GitHub Apps installation URL format
+	installURL := fmt.Sprintf("https://github.com/apps/%s/installations/new", *config.Slug)
 	WriteJSON(w, http.StatusOK, map[string]string{"url": installURL})
 }
 
@@ -414,10 +416,31 @@ func (h *GitHubHandler) PostInstallation(w http.ResponseWriter, r *http.Request)
 	h.logger.Info("GitHub post-installation callback",
 		"installation_id", installationIDStr,
 		"setup_action", setupAction,
+		"host", r.Host,
+		"x-forwarded-host", r.Header.Get("X-Forwarded-Host"),
 	)
 	
+	// Get the correct web URL from environment or settings
+	// Don't rely on request headers as GitHub is calling this endpoint
+	ctx := r.Context()
+	webURL := os.Getenv("PUBLIC_WEB_URL")
+	if webURL == "" {
+		// Try database settings
+		if dbDomain, _ := h.store.Settings().Get(ctx, "server_domain"); dbDomain != "" && dbDomain != "localhost" {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			webURL = fmt.Sprintf("%s://%s:8090", scheme, dbDomain)
+		} else {
+			// Fallback - try to detect from request but filter internal hostnames
+			webURL, _ = h.getBaseURLs(r)
+		}
+	}
+	
+	h.logger.Info("redirecting to web URL", "url", webURL)
+	
 	if installationIDStr == "" {
-		webURL, _ := h.getBaseURLs(r)
 		http.Redirect(w, r, webURL+"/git?error=missing_installation_id", http.StatusFound)
 		return
 	}
@@ -434,7 +457,6 @@ func (h *GitHubHandler) PostInstallation(w http.ResponseWriter, r *http.Request)
 		h.logger.Info("no user context in post-installation, storing orphaned installation", "installation_id", installationID)
 		// We could store this in a temporary table or skip for now
 		// For now, just redirect to login
-		webURL, _ := h.getBaseURLs(r)
 		http.Redirect(w, r, webURL+"/git?success=GitHub+App+installed&installation_id="+installationIDStr, http.StatusFound)
 		return
 	}
@@ -450,7 +472,6 @@ func (h *GitHubHandler) PostInstallation(w http.ResponseWriter, r *http.Request)
 		h.logger.Error("failed to create installation", "error", err)
 	}
 
-	webURL, _ := h.getBaseURLs(r)
 	http.Redirect(w, r, webURL+"/git?success=GitHub+App+installed", http.StatusFound)
 }
 
