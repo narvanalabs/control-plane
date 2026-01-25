@@ -2,6 +2,13 @@
 
 All notable changes to Narvana are documented here.
 
+## [0.0.9] - 2026-01-25
+
+- feat(updater): Implement update system with API endpoints and service integration (82c2662)
+- fix(api): Update version handling and improve error responses (a8747d2)
+- feat(install): Enhance installation script with PostgreSQL readiness check and migration execution (4588850)
+- fix: add JWT_SECRET to worker and force IPv4 for IP detection (4d695f0)
+
 ## [0.0.8] - 2026-01-24
 
 - fix: correct container paths for binary and assets (08b7b4d)
@@ -749,6 +756,7 @@ All notable changes to Narvana are documented here.
 - Add Makefile with build, test, migration, and lint targets (e06bc9e)
 - first commit (b69dbd1)
 
+[0.0.9]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.9
 [0.0.8]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.8
 [0.0.6]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.6
 [0.0.1]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.1
