@@ -46,19 +46,37 @@ func (h *GitHubHandler) getBaseURLs(r *http.Request) (string, string) {
 		scheme = "https"
 	}
 
-	// 3. Determine API URL
+	// 3. Determine host - prefer X-Forwarded-Host over r.Host
+	// r.Host can be internal container names like "api:8080"
 	host := r.Host
 	if forwardHost := r.Header.Get("X-Forwarded-Host"); forwardHost != "" {
 		host = forwardHost
+		h.logger.Debug("using X-Forwarded-Host", "host", host)
 	}
+	
+	// Filter out internal container hostnames
+	if strings.HasPrefix(host, "api:") || strings.HasPrefix(host, "web:") || 
+	   strings.HasPrefix(host, "worker:") || strings.HasPrefix(host, "postgres:") {
+		h.logger.Warn("detected internal container hostname, this will cause issues", "host", host)
+		// Try to use environment variables or database settings instead
+		if dbDomain != "" && dbDomain != "localhost" {
+			host = dbDomain
+			h.logger.Info("using database server_domain instead", "host", host)
+		}
+	}
+	
 	detectedAPI := fmt.Sprintf("%s://%s", scheme, host)
 
-	apiURL := os.Getenv("API_URL")
+	// 4. Check environment variables
+	apiURL := os.Getenv("PUBLIC_API_URL")
+	if apiURL == "" {
+		apiURL = os.Getenv("API_URL")
+	}
 	if apiURL == "" {
 		apiURL = detectedAPI
 	}
 
-	// 4. Determine Web URL
+	// 5. Determine Web URL
 	detectedWeb := detectedAPI
 	if webOverride := r.URL.Query().Get("web_url"); webOverride != "" {
 		detectedWeb = webOverride
@@ -70,12 +88,15 @@ func (h *GitHubHandler) getBaseURLs(r *http.Request) (string, string) {
 		}
 	}
 
-	webURL := os.Getenv("WEB_URL")
+	webURL := os.Getenv("PUBLIC_WEB_URL")
+	if webURL == "" {
+		webURL = os.Getenv("WEB_URL")
+	}
 	if webURL == "" {
 		webURL = detectedWeb
 	}
 
-	// 5. Override if database setting exists and isn't just "localhost"
+	// 6. Override if database setting exists and isn't just "localhost"
 	if dbDomain != "" && dbDomain != "localhost" {
 		// If it's an IP, use it directly. If it's a domain, use it directly.
 		// We'll assume the ports are standard or same as detected
@@ -87,18 +108,19 @@ func (h *GitHubHandler) getBaseURLs(r *http.Request) (string, string) {
 		webUrlObj, _ := url.Parse(webURL)
 
 		apiHost := dbDomain
-		if apiUrlObj != nil && apiUrlObj.Port() != "" {
+		if apiUrlObj != nil && apiUrlObj.Port() != "" && apiUrlObj.Port() != "80" && apiUrlObj.Port() != "443" {
 			apiHost = dbDomain + ":" + apiUrlObj.Port()
 		}
 
 		webHost := dbDomain
-		if webUrlObj != nil && webUrlObj.Port() != "" {
+		if webUrlObj != nil && webUrlObj.Port() != "" && webUrlObj.Port() != "80" && webUrlObj.Port() != "443" {
 			webHost = dbDomain + ":" + webUrlObj.Port()
 		}
 
 		return fmt.Sprintf("%s://%s", scheme, webHost), fmt.Sprintf("%s://%s", scheme, apiHost)
 	}
 
+	h.logger.Info("using detected URLs", "webURL", webURL, "apiURL", apiURL)
 	return webURL, apiURL
 }
 
@@ -384,22 +406,44 @@ func (h *GitHubHandler) AppInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 // PostInstallation handles the redirect after a user installs the GitHub App.
+// This is called by GitHub, so we need to extract user info from the setup_action parameter.
 func (h *GitHubHandler) PostInstallation(w http.ResponseWriter, r *http.Request) {
 	installationIDStr := r.URL.Query().Get("installation_id")
+	setupAction := r.URL.Query().Get("setup_action")
+	
+	h.logger.Info("GitHub post-installation callback",
+		"installation_id", installationIDStr,
+		"setup_action", setupAction,
+	)
+	
 	if installationIDStr == "" {
-		http.Redirect(w, r, "/git?error=missing_installation_id", http.StatusFound)
+		webURL, _ := h.getBaseURLs(r)
+		http.Redirect(w, r, webURL+"/git?error=missing_installation_id", http.StatusFound)
 		return
 	}
 
 	installationID, _ := strconv.ParseInt(installationIDStr, 10, 64)
+	
+	// Try to get userID from context (if logged in)
 	userID := middleware.GetUserID(r.Context())
+	
+	// If no user in context, we need to handle this differently
+	// Store the installation without a user association initially
+	// The user will be associated when they first access the Git page while logged in
+	if userID == "" {
+		h.logger.Info("no user context in post-installation, storing orphaned installation", "installation_id", installationID)
+		// We could store this in a temporary table or skip for now
+		// For now, just redirect to login
+		webURL, _ := h.getBaseURLs(r)
+		http.Redirect(w, r, webURL+"/git?success=GitHub+App+installed&installation_id="+installationIDStr, http.StatusFound)
+		return
+	}
 
 	// Save the installation
-	// Note: In a real app we'd fetch installation details from GitHub first
 	inst := &models.GitHubInstallation{
 		ID:           installationID,
 		UserID:       userID,
-		AccountLogin: "Searching...", // Will be updated on first repo list/webhook
+		AccountLogin: "Pending...", // Will be updated on first repo list/webhook
 	}
 
 	if err := h.store.GitHub().CreateInstallation(r.Context(), inst); err != nil {
@@ -407,8 +451,15 @@ func (h *GitHubHandler) PostInstallation(w http.ResponseWriter, r *http.Request)
 	}
 
 	webURL, _ := h.getBaseURLs(r)
-
 	http.Redirect(w, r, webURL+"/git?success=GitHub+App+installed", http.StatusFound)
+}
+
+// Webhook handles GitHub webhook events.
+func (h *GitHubHandler) Webhook(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implement webhook handling
+	h.logger.Info("GitHub webhook received", "event", r.Header.Get("X-GitHub-Event"))
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
 }
 
 // ListRepos lists repositories for the authenticated user from both App installations and OAuth accounts.
