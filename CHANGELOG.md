@@ -2,6 +2,10 @@
 
 All notable changes to Narvana are documented here.
 
+## [0.0.11] - 2026-01-25
+
+- refactor(github): Simplify GitHub API routes for post-installation and webhook (ef51f0d)
+
 ## [0.0.10] - 2026-01-25
 
 - feat(github): Add GitHub post-installation and webhook handling (216c684)
@@ -760,6 +764,7 @@ All notable changes to Narvana are documented here.
 - Add Makefile with build, test, migration, and lint targets (e06bc9e)
 - first commit (b69dbd1)
 
+[0.0.11]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.11
 [0.0.10]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.10
 [0.0.9]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.9
 [0.0.8]: https://github.com/narvanalabs/control-plane/releases/tag/v0.0.8
