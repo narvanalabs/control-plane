@@ -144,7 +144,7 @@ func (h *GitHubHandler) ManifestStart(w http.ResponseWriter, r *http.Request) {
 			apiURL + "/github/callback", // Needed for manifest redirect
 			apiURL + "/github/oauth/callback",
 		},
-		"setup_url": apiURL + "/v1/github/post-install",
+		"setup_url": apiURL + "/github/post-install",
 		"public":    false,
 		"default_permissions": map[string]string{
 			"contents":      "read",
@@ -158,7 +158,7 @@ func (h *GitHubHandler) ManifestStart(w http.ResponseWriter, r *http.Request) {
 	// 3. Handle Webhook URL (GitHub rejects 'localhost' in manifest flow)
 	webhookURL := os.Getenv("GITHUB_WEBHOOK_URL")
 	if webhookURL == "" {
-		webhookURL = apiURL + "/v1/github/webhook"
+		webhookURL = apiURL + "/github/webhook"
 	}
 
 	// Only include hook_attributes and events if the URL appears publicly reachable

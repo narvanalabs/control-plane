@@ -117,12 +117,8 @@ func (s *Server) setupRouter() {
 	githubHandler := handlers.NewGitHubHandler(s.store, s.logger)
 	r.Get("/github/callback", githubHandler.ManifestCallback)
 	r.Get("/github/oauth/callback", githubHandler.OAuthCallback)
-	
-	// GitHub post-installation (public - called by GitHub after app install)
-	r.Route("/v1/github", func(r chi.Router) {
-		r.Get("/post-install", githubHandler.PostInstallation)
-		r.Get("/webhook", githubHandler.Webhook)
-	})
+	r.Get("/github/post-install", githubHandler.PostInstallation)
+	r.Post("/github/webhook", githubHandler.Webhook)
 
 	// API v1 routes
 	r.Route("/v1", func(r chi.Router) {
@@ -272,7 +268,7 @@ func (s *Server) setupRouter() {
 			})
 		})
 
-		// GitHub routes
+		// GitHub routes (under /v1 for consistency)
 		r.Route("/github", func(r chi.Router) {
 			r.Get("/setup", githubHandler.ManifestStart)
 			r.Post("/config", githubHandler.SaveConfigManual)
